@@ -12,5 +12,6 @@ issue/*  ──►  milestone/<nome>  ──►  main
 Status: em especificação.
 
 - [Especificação](docs/SPEC.md)
+- [Features](docs/FEATURES.md)
 - [Decisões (ADRs)](docs/adr/)
 - [Referências](docs/references.md)
