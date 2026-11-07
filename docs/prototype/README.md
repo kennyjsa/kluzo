@@ -1,6 +1,6 @@
 # Protótipo mobile — v0
 
-Protótipo navegável da interface web do Kluzo. É mobile-first (390×844) e usa dados fictícios de uma milestone do Agiclin.
+Protótipo navegável da interface web do Kluzo. Usa dados fictícios de uma milestone do Agiclin. Esta versão cobre a faixa **celular** (390×844), o ponto de partida do layout responsivo; as faixas tablet e desktop estão descritas na [SPEC §10](../SPEC.md).
 
 - **Canvas interativo:** https://claude.ai/artifact/4YPfkXrqkA8ZSgtmUcXvgN (privado; o dono pode compartilhar)
 - **Fontes:** `screens/*.dc.html`, uma tela por arquivo, e `canvas.json`, com a disposição das telas no canvas. São referência de layout, conteúdo e estados, não código de produção: a implementação será em Vue (ver [SPEC §10](../SPEC.md)).

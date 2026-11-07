@@ -284,7 +284,14 @@ As permissões são por papel. Nenhum papel tem acesso a aprovação ou merge.
 
 ## 10. Interfaces
 
-1. **Web** (principal, **mobile-first**): Vue + Vue Flow, embutida no binário, com tempo real via SSE.
+1. **Web** (principal, **responsiva e mobile-first**): Vue + Vue Flow, embutida no binário, com tempo real via SSE. O layout é desenhado primeiro para o celular e se expande em três faixas:
+
+   | Faixa | Largura | Navegação | Conteúdo |
+   |---|---|---|---|
+   | Celular | < 768 px | barra inferior | uma coluna; detalhe em tela própria ou painel inferior |
+   | Tablet | 768–1199 px | trilho lateral recolhido | lista + detalhe lado a lado |
+   | Desktop | ≥ 1200 px | barra lateral | grafo/kanban/estrutura + painel de detalhe fixo; kanban com todas as colunas |
+
    - Lista de workspaces.
    - **Progresso em duas visões alternáveis:**
      - **Grafo ao vivo:** estados por cor, arestas por tipo, caminho crítico, progresso e custo.

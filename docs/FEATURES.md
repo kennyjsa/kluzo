@@ -28,7 +28,12 @@ Projetos
       └── Configuração
 ```
 
-No celular, a navegação principal fica numa barra inferior com quatro destinos: **Inbox · Projetos · Ativos · Mais**. Dentro de um workspace, as seções são abas roláveis no topo.
+O layout é **responsivo e mobile-first**:
+- **Celular:** a navegação principal fica numa barra inferior com quatro destinos (**Inbox · Projetos · Ativos · Mais**). Dentro de um workspace, as seções são abas roláveis no topo.
+- **Tablet:** a barra vira um trilho lateral. Listas e detalhes ficam lado a lado.
+- **Desktop:** barra lateral fixa. As visões de progresso ocupam a área principal, e o detalhe do nó abre num painel à direita sem sair da tela. O kanban mostra todas as colunas ao mesmo tempo.
+
+Critério de aceite comum a todas as telas: funcionar em 390, 768 e 1280 px de largura, sem rolagem horizontal da página (só dentro de áreas próprias, como a linha do tempo da Estrutura).
 
 ---
 

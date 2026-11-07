@@ -16,7 +16,7 @@ O Kluzo é um orquestrador de milestones para agentes de código. Leia `docs/SPE
 ## Stack
 
 - Go (binário único), SQLite (`modernc.org/sqlite`), Vue + Vue Flow embutidos via `embed`, `tsnet`.
-- A web é **mobile-first**.
+- A web é **responsiva e mobile-first**: desenhe para 390 px primeiro e expanda para 768 e 1280 px.
 
 ## Convenções
 
