@@ -7,13 +7,13 @@ Cada peça da stack, com o motivo da escolha. As versões exatas ficam fixadas e
 | Peça | Escolha | Motivo |
 |---|---|---|
 | Linguagem | Go (versão estável suportada; mínimo em `go.mod`) | ADR 0005. Binário único, concorrência simples, ecossistema das referências (koryph, belay, Pinard) |
-| CLI | `github.com/spf13/cobra` | Padrão de fato para CLIs em Go, com completions e ajuda |
+| CLI | `github.com/spf13/cobra` (a partir do item 10 da v0.1; antes disso, `os.Args` simples) | Padrão de fato para CLIs em Go, com completions e ajuda; só compensa quando houver vários comandos |
 | Logs | `log/slog` (stdlib) | Estruturado, sem dependência |
 | SQLite | `modernc.org/sqlite` | Sem cgo, então o cross-compile é simples (ADR 0014) |
 | Migrations | Embutidas (`embed`) e aplicadas por um runner próprio em `store` | São poucas e só avançam; uma ferramenta externa não compensa |
 | YAML | `github.com/goccy/go-yaml` | Mantido, e reporta linha e coluna nos erros (exigência de `config`) |
 | JSON Schema | `github.com/santhosh-tekuri/jsonschema/v6` | Draft 2020-12, mensagens de erro com caminho |
-| IDs | `github.com/oklog/ulid/v2` | Ordenáveis por tempo, curtos |
+| IDs | ULID próprio em `internal/platform/ids` | Ordenáveis por tempo e monotônicos; ~100 linhas, então não justifica dependência (ADR 0017) |
 | MCP | `github.com/modelcontextprotocol/go-sdk` | SDK oficial |
 | GitHub | `github.com/google/go-github` + autenticação de GitHub App (`github.com/bradleyfalzon/ghinstallation`) | Cliente mais completo; o App dá identidade própria ao bot |
 | GitLab | `gitlab.com/gitlab-org/api/client-go` | Cliente oficial |

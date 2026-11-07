@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "milestone/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.5
+      - name: Architecture rules
+        run: make arch
+      - name: Tests
+        run: make test
+      - name: Vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          make vuln
+      - name: Build all platforms
+        run: make dist
