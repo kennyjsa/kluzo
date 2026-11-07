@@ -19,6 +19,9 @@ linters:
       threshold: 80
     misspell:
       locale: US
+      # "cancelled" is the spelling fixed by docs/contracts/state-machine.md.
+      ignore-rules:
+        - cancelled
     nolintlint:
       require-explanation: true
       require-specific: true

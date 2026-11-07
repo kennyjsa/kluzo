@@ -19,6 +19,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | De | Para | Gatilho | Condição | Efeito |
 |---|---|---|---|---|
 | — | `refining` | `kluzo workspace create` / web | milestone existe e sem workspace ativo | cria a branch `milestone/<nome>`; inicia o flow `upstream` |
+| — | `awaiting_approval` | `kluzo plan` com plano escrito à mão (v0.1) | milestone existe e sem workspace ativo; plano válido | cria a branch `milestone/<nome>`; registra a proposta de plano |
 | `refining` | `awaiting_approval` | flow `upstream` chega na etapa `approval` | resultado do planner válido | gera a proposta de plano; item na Inbox |
 | `awaiting_approval` | `refining` | humano recusa algum item | — | devolve ao planner com os comentários |
 | `awaiting_approval` | `approved` | humano aprova o plano | nenhum item pendente; grafo válido | cria issues e links aprovados; commit de `plans/<milestone>.yaml` |
@@ -33,7 +34,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | ativo | `cancelled` | humano cancela | — | `Cancel` em todas as sessões; branch mantida |
 | ativo | `failed` | erro irrecuperável (repositório inacessível, config inválida no meio da execução) | — | item na Inbox com o diagnóstico |
 
-Na v0.1 não existe upstream com agentes: `kluzo plan` cria o workspace direto em `awaiting_approval`, a partir de um plano escrito à mão.
+Na v0.1 não existe upstream com agentes, por isso o workspace nasce direto em `awaiting_approval` (segunda linha da tabela).
 
 ## Nó
 
