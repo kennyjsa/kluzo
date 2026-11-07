@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Card de nó</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+</style>
+</helmet>
+<div style="width: 800px; height: 1000px; box-sizing: border-box; padding: 48px; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 36px">
+<header style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.02em">Card de nó</h1>
+<p style="margin: 0; font-size: 15px; color: #A3ACBA">Quatro faixas fixas, sempre na mesma ordem. Cor da borda = estado; a tarja de estado repete o estado em texto e símbolo, para não depender só de cor.</p>
+</header>
+<section style="display: flex; gap: 32px; align-items: center">
+<div style="width: 312px; height: 184px; box-sizing: border-box; padding: 20px; display: flex; background: #12203A; border: 3px solid #60A5FA; border-radius: 22px; flex: none">
+<div style="display: flex; flex-direction: column; gap: 10px; width: 100%">
+<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-family: 'JetBrains Mono', monospace; font-size: 22px; color: #A3ACBA">#42</span><span style="font-size: 20px; font-weight: 700; letter-spacing: 0.04em; color: #93C5FD">● EXECUTANDO</span></div>
+<span style="font-size: 26px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">API de agendamentos</span>
+<div style="display: flex; justify-content: space-between; font-size: 22px; color: #C9D1DC"><span>impl · claude · sonnet</span><span>1/3</span></div>
+<div style="height: 8px; border-radius: 4px; background: #2A313D; overflow: hidden"><div style="height: 8px; width: 60%; background: #60A5FA"></div></div>
+</div>
+</div>
+<ol style="margin: 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 14px; font-size: 15px; line-height: 21px">
+<li><b>Identidade e estado</b><br><span style="color: #A3ACBA">número da issue · tarja com símbolo (● ✓ ▲ ◌ ↻ ⇢ ✕)</span></li>
+<li><b>Título</b><br><span style="color: #A3ACBA">uma linha, com reticências</span></li>
+<li><b>Quem e como</b><br><span style="color: #A3ACBA">papel ativo · harness · modelo · tentativa (âmbar a partir da 2ª). Bloqueado: "⚑ precisa de você"</span></li>
+<li><b>Progresso</b><br><span style="color: #A3ACBA">subtasks concluídas, na cor do estado</span></li>
+</ol>
+</section>
+<section style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Estados</h2>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #12151B; border: 1.5px dashed #3A4250; border-radius: 12px; display: flex; flex-direction: column; gap: 5px; color: #C9D1DC"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#47</span><span style="font-size: 10px; font-weight: 700; color: #A3ACBA">◌ AGUARDA</span></div><span style="font-size: 13px; font-weight: 600">E2E da agenda</span><span style="font-size: 11px; color: #A3ACBA">espera #45 #46</span><div style="height: 4px; border-radius: 2px; background: #2A313D"></div></div>
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #1D222B; border: 1.5px solid #CBD5E1; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#45</span><span style="font-size: 10px; font-weight: 700; color: #E7EAF0">○ PRONTO</span></div><span style="font-size: 13px; font-weight: 600">Lembrete WhatsApp</span><span style="font-size: 11px; color: #A3ACBA">na vez · implementer</span><div style="height: 4px; border-radius: 2px; background: #2A313D"></div></div>
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #12203A; border: 1.5px solid #60A5FA; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#42</span><span style="font-size: 10px; font-weight: 700; color: #93C5FD">● EXECUTANDO</span></div><span style="font-size: 13px; font-weight: 600">API de agendamentos</span><span style="font-size: 11px; color: #C9D1DC">impl · claude · 1/3</span><div style="height: 4px; border-radius: 2px; background: #2A313D; overflow: hidden"><div style="height: 4px; width: 60%; background: #60A5FA"></div></div></div>
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #1E1833; border: 1.5px solid #A78BFA; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#44</span><span style="font-size: 10px; font-weight: 700; color: #C4B5FD">↻ REVIEW</span></div><span style="font-size: 13px; font-weight: 600">Tela de agenda</span><span style="font-size: 11px; color: #C9D1DC">rev · claude · opus</span><div style="height: 4px; border-radius: 2px; background: #2A313D; overflow: hidden"><div style="height: 4px; width: 100%; background: #A78BFA"></div></div></div>
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #1E1833; border: 1.5px solid #A78BFA; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#44</span><span style="font-size: 10px; font-weight: 700; color: #C4B5FD">↻ GATES</span></div><span style="font-size: 13px; font-weight: 600">Tela de agenda</span><span style="font-size: 11px; color: #C9D1DC">ci · lint ✓ test ●</span><div style="height: 4px; border-radius: 2px; background: #2A313D; overflow: hidden"><div style="height: 4px; width: 100%; background: #A78BFA"></div></div></div>
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #2A2410; border: 1.5px solid #FCD34D; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#44</span><span style="font-size: 10px; font-weight: 700; color: #FCD34D">⇢ FILA · 1º</span></div><span style="font-size: 13px; font-weight: 600">Tela de agenda</span><span style="font-size: 11px; color: #C9D1DC">rebase · freshness</span><div style="height: 4px; border-radius: 2px; background: #2A313D; overflow: hidden"><div style="height: 4px; width: 100%; background: #FCD34D"></div></div></div>
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #0F2A21; border: 1.5px solid #1F6F5A; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#41</span><span style="font-size: 10px; font-weight: 700; color: #6EE7B7">✓ INTEGRADO</span></div><span style="font-size: 13px; font-weight: 600">Schema da agenda</span><span style="font-size: 11px; color: #A3ACBA">merge · 1 tentativa</span><div style="height: 4px; border-radius: 2px; background: #1F6F5A"></div></div>
+<div style="height: 92px; box-sizing: border-box; padding: 10px; background: #2A1C10; border: 1.5px solid #FB923C; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#46</span><span style="font-size: 10px; font-weight: 700; color: #FDBA74">▲ BLOQUEADO</span></div><span style="font-size: 13px; font-weight: 600">Permissões na agenda</span><span style="font-size: 11px; color: #FDBA74">⚑ precisa de você</span><div style="height: 4px; border-radius: 2px; background: #3D2814; overflow: hidden"><div style="height: 4px; width: 80%; background: #FB923C"></div></div></div>
+</div>
+<p style="margin: 0; font-size: 13px; color: #A3ACBA">Falhou (✕, vermelho #F87171) aparece só quando o orçamento estoura e a triagem decide escalar; o nó vira bloqueado e entra na Inbox.</p>
+</section>
+<section style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Zoom semântico</h2>
+<div style="display: flex; gap: 32px; align-items: flex-end">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; gap: 8px"><span style="width: 18px; height: 18px; border-radius: 9px; background: #34D399"></span><span style="width: 18px; height: 18px; border-radius: 9px; background: #60A5FA"></span><span style="width: 18px; height: 18px; border-radius: 9px; background: #FB923C"></span><span style="width: 18px; height: 18px; border-radius: 9px; border: 2px dashed #6B7584; box-sizing: border-box"></span></div>
+<span style="font-size: 13px; color: #A3ACBA"><b style="color: #E7EAF0">Geral</b> · 30+ nós · só a cor</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="width: 156px; height: 44px; box-sizing: border-box; padding: 0 10px; background: #12203A; border: 1.5px solid #60A5FA; border-radius: 10px; display: flex; align-items: center; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px">#42</span><span style="font-size: 10px; font-weight: 700; color: #93C5FD">● EXEC · 60%</span></div>
+<span style="font-size: 13px; color: #A3ACBA"><b style="color: #E7EAF0">Médio</b> · número e estado</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="width: 156px; height: 92px; box-sizing: border-box; padding: 10px; background: #12203A; border: 1.5px solid #60A5FA; border-radius: 12px; display: flex; flex-direction: column; gap: 5px"><div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3ACBA">#42</span><span style="font-size: 10px; font-weight: 700; color: #93C5FD">● EXECUTANDO</span></div><span style="font-size: 13px; font-weight: 600">API de agendamentos</span><span style="font-size: 11px; color: #C9D1DC">impl · claude · 1/3</span><div style="height: 4px; border-radius: 2px; background: #2A313D; overflow: hidden"><div style="height: 4px; width: 60%; background: #60A5FA"></div></div></div>
+<span style="font-size: 13px; color: #A3ACBA"><b style="color: #E7EAF0">Detalhe</b> · card completo</span>
+</div>
+</div>
+<p style="margin: 0; font-size: 13px; color: #A3ACBA">Em tempo real (SSE): borda e tarja trocam com o estado; nó com agente ativo pulsa a borda; sem eventos por muito tempo, o pulso para. Integrados podem colapsar num bloco "✓ N integrados".</p>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":800,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

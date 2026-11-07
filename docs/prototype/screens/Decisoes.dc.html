@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Decisões</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 8px; display: flex; flex-direction: column; gap: 6px">
+<a href="Projeto.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ Agiclin</a>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em">v2.0 · Agendamento</h1>
+<span style="flex: none; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 6px; background: #13243D; color: #93C5FD">Executando</span>
+</div>
+</header>
+<div role="tablist" style="display: flex; gap: 6px; padding: 8px 16px 12px; overflow-x: auto; border-bottom: 1px solid #2A313D">
+<a href="Workspace.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Visão geral</a>
+<a href="Grafo.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Progresso</a>
+<a href="Plano.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Plano</a>
+<a href="Times.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Times</a>
+<a href="Fila.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Fila</a>
+<button type="button" role="tab" aria-selected="true" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: none; background: #E7EAF0; color: #0E1014; font: 600 13px Inter, sans-serif">Decisões</button>
+<a href="Custos.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Custos</a>
+</div>
+<div style="display: flex; gap: 6px; padding: 12px 16px 8px; overflow-x: auto">
+<sc-for list="{{filters}}" as="f" hint-placeholder-count="5">
+<button type="button" onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="flex: none; height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: {{f.fg}}; font: 600 12px Inter, sans-serif">{{f.label}}</button>
+</sc-for>
+</div>
+<main style="flex: 1; overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{items}}" as="d" hint-placeholder-count="4">
+<article style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3ACBA">{{d.node}} · {{d.role}}</span><span style="font-size: 11px; color: #A3ACBA">{{d.time}}</span></div>
+<span style="font-size: 14px; font-weight: 600; line-height: 20px">{{d.title}}</span>
+<span style="font-size: 13px; line-height: 19px; color: #A3ACBA">{{d.why}}</span>
+<span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: {{d.srcColor}}">{{d.src}}</span>
+</article>
+</sc-for>
+<p style="margin: 0; font-size: 12px; color: #A3ACBA; text-align: center">Todas as decisões vão para o relatório do MR milestone → main.</p>
+</main>
+<nav aria-label="Navegação principal" style="display: flex; border-top: 1px solid #2A313D; background: #12151B">
+<a href="Main.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span>Inbox · 5</span></a>
+<a href="Projetos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Projetos</span></a>
+<a href="Ativos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #5EEAD4; font-size: 11px; font-weight: 600"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Ativos</span></a>
+<button type="button" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; border: none; background: none; color: #A3ACBA; font: 500 11px Inter, sans-serif"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>Mais</span></button>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { f: 'Todas' };
+}
+renderVals() {
+var self = this;
+var agent = { t: 'DECIDIDA PELO AGENTE', c: '#93C5FD' }, you = { t: 'RESPONDIDA POR VOCÊ', c: '#5EEAD4' }, arch = { t: 'DO ARQUITETO · UPSTREAM', c: '#C4B5FD' };
+var all = [
+{ node: '#42', role: 'implementer', time: 'hoje 10:45', title: 'Horários gravados em UTC no banco', why: 'Conversão para o fuso da clínica só na borda da API. Evita bug no horário de verão.', s: agent },
+{ node: '#44', role: 'implementer', time: 'hoje 10:12', title: 'Calendário semanal como padrão no celular', why: 'Visão mensal fica ilegível abaixo de 400px; mensal continua disponível.', s: agent },
+{ node: '#46', role: 'reviewer', time: 'hoje 09:58', title: 'Profissional vê só a própria agenda', why: 'Resposta à escalação: gestor e recepção veem todas.', s: you },
+{ node: '#41', role: 'implementer', time: 'hoje 08:40', title: 'Slots de 15 minutos como unidade mínima', why: 'Critério de aceite fala em "intervalos curtos"; 15 min cobre os tipos de consulta atuais.', s: agent },
+{ node: '—', role: 'architect', time: '05/11', title: 'Conflito de horário validado no banco (exclusion constraint)', why: 'ADR 0012. A aplicação valida também, mas o banco é a garantia final.', s: arch }
+];
+var labels = ['Todas', '#41', '#42', '#44', '#46'];
+var filters = labels.map(function (l) {
+var on = l === self.state.f;
+return { label: l, on: on ? 'true' : 'false', bg: on ? '#E7EAF0' : '#161A21', fg: on ? '#0E1014' : '#E7EAF0', border: on ? '#E7EAF0' : '#2A313D', pick: function () { self.setState({ f: l }); } };
+});
+var items = all.filter(function (d) { return self.state.f === 'Todas' || d.node === self.state.f; }).map(function (d) {
+return { node: d.node, role: d.role, time: d.time, title: d.title, why: d.why, src: d.s.t, srcColor: d.s.c };
+});
+return { filters: filters, items: items };
+}
+}
+</script>
+</body>
+</html>

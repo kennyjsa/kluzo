@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Entrevista com o PO</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 10px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid #2A313D">
+<a href="Projeto.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ Agiclin</a>
+<div style="display: flex; align-items: center; justify-content: space-between">
+<h1 style="margin: 0; font-size: 20px; font-weight: 700">Entrevista · PO</h1>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3ACBA">claude-code · sonnet</span>
+</div>
+<span style="font-size: 13px; color: #A3ACBA">v2.2 Relatórios · upstream</span>
+<div style="display: flex; align-items: center; gap: 6px; font-size: 12px">
+<span style="padding: 3px 8px; border-radius: 6px; background: #0F3326; color: #6EE7B7">business ✓</span>
+<span style="color: #3A4250">—</span>
+<span style="padding: 3px 8px; border-radius: 6px; background: #13243D; color: #93C5FD; font-weight: 600">po</span>
+<span style="color: #3A4250">—</span>
+<span style="padding: 3px 8px; border-radius: 6px; background: #1D222B; color: #A3ACBA">requirements</span>
+<span style="color: #3A4250">—</span>
+<span style="padding: 3px 8px; border-radius: 6px; background: #1D222B; color: #A3ACBA">planner</span>
+</div>
+</header>
+<main style="flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{msgs}}" as="m" hint-placeholder-count="4">
+<div style="align-self: {{m.align}}; max-width: 300px; padding: 10px 12px; border-radius: 14px; background: {{m.bg}}; color: {{m.fg}}; font-size: 14px; line-height: 20px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11px; font-weight: 600; opacity: 0.8">{{m.who}}</span>
+<span>{{m.text}}</span>
+</div>
+</sc-for>
+<sc-if value="{{hasChips}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+<button type="button" onClick="{{c.pick}}" style="height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid #5EEAD4; background: #123B37; color: #5EEAD4; font: 600 13px Inter, sans-serif">{{c.label}}</button>
+</sc-for>
+</div>
+</sc-if>
+</main>
+<div style="display: flex; gap: 8px; align-items: center; padding: 10px 12px 20px; border-top: 1px solid #2A313D; background: #12151B">
+<label for="resp" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Sua resposta</label>
+<input id="resp" type="text" placeholder="Responder ao PO…" style="flex: 1; height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: 22px; border: 1px solid #2A313D; background: #161A21; color: #E7EAF0; font: 400 14px Inter, sans-serif">
+<button type="button" aria-label="Enviar" style="width: 44px; height: 44px; border-radius: 22px; border: none; background: #5EEAD4; color: #062F2A; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { step: 0 };
+}
+renderVals() {
+var self = this;
+var po = function (t) { return { who: 'PO', text: t, align: 'flex-start', bg: '#161A21', fg: '#E7EAF0' }; };
+var me = function (t) { return { who: 'Você', text: t, align: 'flex-end', bg: '#13243D', fg: '#E7EAF0' }; };
+var msgs = [
+po('Quem consome o relatório de atendimentos: o gestor da clínica ou o admin da plataforma?'),
+me('O gestor da clínica. O admin só vê números agregados.'),
+po('Entendi. O gestor precisa exportar os dados ou só visualizar no painel?')
+];
+var chips = [];
+var step = this.state.step;
+if (step === 0) {
+chips = ['Só visualizar', 'Exportar CSV', 'CSV e PDF'].map(function (l) {
+return { label: l, pick: function () { self.setState({ step: 1, a1: l }); } };
+});
+} else {
+msgs.push(me(this.state.a1));
+msgs.push(po('Anotado. Última pergunta desta etapa: o relatório precisa ser filtrável por profissional?'));
+if (step === 1) {
+chips = ['Sim', 'Não', 'Só para o gestor'].map(function (l) {
+return { label: l, pick: function () { self.setState({ step: 2, a2: l }); } };
+});
+} else {
+msgs.push(me(this.state.a2));
+msgs.push(po('Obrigado. Etapa do PO concluída: 5 issues refinadas com critérios de aceite. Passando para requirements.'));
+}
+}
+return { msgs: msgs, chips: chips, hasChips: chips.length > 0 };
+}
+}
+</script>
+</body>
+</html>

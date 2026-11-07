@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Progresso em estrutura</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 6px; display: flex; flex-direction: column; gap: 4px">
+<a href="Workspace.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ v2.0 · Agendamento</a>
+<div style="display: flex; align-items: baseline; justify-content: space-between">
+<h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em">Progresso</h1>
+<span style="font-size: 12px; color: #A3ACBA">3/8 integrados · US$ 21,40</span>
+</div>
+</header>
+<div style="display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 16px 10px">
+<div role="tablist" style="display: flex; gap: 4px; padding: 4px; background: #161A21; border: 1px solid #2A313D; border-radius: 12px">
+<a href="Grafo.dc.html" role="tab" style="height: 34px; padding: 0 12px; border-radius: 9px; display: flex; align-items: center; color: #A3ACBA; font-size: 13px; font-weight: 500; text-decoration: none">Grafo</a>
+<a href="Kanban.dc.html" role="tab" style="height: 34px; padding: 0 12px; border-radius: 9px; display: flex; align-items: center; color: #A3ACBA; font-size: 13px; font-weight: 500; text-decoration: none">Kanban</a>
+<button type="button" role="tab" aria-selected="true" style="height: 34px; padding: 0 12px; border-radius: 9px; border: none; background: #2A313D; color: #E7EAF0; font: 600 13px Inter, sans-serif">Estrutura</button>
+</div>
+<button type="button" onClick="{{toggleAll}}" style="height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid #2A313D; background: #161A21; color: #E7EAF0; font: 500 12px Inter, sans-serif">{{toggleLabel}}</button>
+</div>
+<div style="margin: 0 12px; background: #12151B; border: 1px solid #2A313D; border-radius: 16px 16px 0 0; border-bottom: none; display: flex; align-items: center; height: 32px; padding: 0 8px">
+<span style="width: 196px; flex: none; font-size: 11px; font-weight: 600; color: #A3ACBA">NÓ · PREDECESSORES</span>
+<div style="position: relative; width: 140px; height: 32px">
+<span style="position: absolute; left: 0px; top: 9px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #A3ACBA">08</span>
+<span style="position: absolute; left: 33px; top: 9px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #A3ACBA">10</span>
+<span style="position: absolute; left: 68px; top: 9px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #A3ACBA">12</span>
+<span style="position: absolute; left: 103px; top: 9px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #A3ACBA">14</span>
+<span style="position: absolute; left: 126px; top: 9px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #A3ACBA">16</span>
+</div>
+</div>
+<main style="flex: 1; overflow-y: auto; margin: 0 12px; background: #12151B; border: 1px solid #2A313D; border-top: 1px solid #2A313D; border-radius: 0 0 16px 16px">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
+<div style="display: flex; align-items: center; min-height: {{r.h}}; padding: 0 8px; border-bottom: 1px solid #1D222B; background: {{r.rowBg}}">
+<div style="width: 196px; flex: none; box-sizing: border-box; padding-left: {{r.indent}}; display: flex; align-items: center; gap: 4px">
+<sc-if value="{{r.hasKids}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{r.toggle}}" aria-expanded="{{r.open}}" aria-label="Expandir ou recolher {{r.id}}" style="flex: none; width: 24px; height: 32px; border: none; background: none; color: #A3ACBA; font: 600 12px Inter, sans-serif; padding: 0">{{r.chev}}</button>
+</sc-if>
+<sc-if value="{{r.leafPad}}" hint-placeholder-val="{{ false }}">
+<span style="flex: none; width: 24px"></span>
+</sc-if>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<span style="font-size: {{r.size}}; font-weight: {{r.weight}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {{r.fg}}"><span style="color: {{r.symColor}}">{{r.sym}}</span> {{r.id}} {{r.name}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #A3ACBA; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.meta}}</span>
+</div>
+</div>
+<div style="position: relative; width: 140px; height: {{r.h}}">
+<span style="position: absolute; left: 52px; top: 0px; width: 1px; height: {{r.h}}; background: #5EEAD4; opacity: 0.6"></span>
+<span style="position: absolute; left: {{r.barLeft}}; top: {{r.barTop}}; width: {{r.barW}}; height: {{r.barH}}; box-sizing: border-box; border-radius: 3px; background: {{r.barBg}}; border: 1px {{r.barBorderStyle}} {{r.barColor}}; overflow: hidden"><span style="display: block; height: 100%; width: {{r.fill}}; background: {{r.barColor}}"></span></span>
+</div>
+</div>
+</sc-for>
+<div style="display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 10px 8px 12px; font-size: 11px; color: #A3ACBA">
+<span><span style="color: #5EEAD4">│</span> agora 11:00</span><span>▬ realizado</span><span>▭ previsto</span><span>pred = predecessores (b: bloqueio, c: contrato)</span>
+</div>
+</main>
+<div style="height: 10px"></div>
+<nav aria-label="Navegação principal" style="display: flex; border-top: 1px solid #2A313D; background: #12151B">
+<a href="Main.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span>Inbox · 5</span></a>
+<a href="Projetos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Projetos</span></a>
+<a href="Ativos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #5EEAD4; font-size: 11px; font-weight: 600"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Ativos</span></a>
+<button type="button" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; border: none; background: none; color: #A3ACBA; font: 500 11px Inter, sans-serif"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>Mais</span></button>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { open: { '#42': true } };
+}
+renderVals() {
+var self = this;
+var C = {
+done: { c: '#34D399', s: '✓' }, run: { c: '#60A5FA', s: '●' }, block: { c: '#FB923C', s: '▲' }, wait: { c: '#6B7584', s: '◌' }
+};
+var px = function (h) { return Math.round((h - 8) * 17.5); };
+var nodes = [
+{ id: '#41', name: 'Schema da agenda', st: 'done', a: 8.2, b: 9.3, meta: 'pred — · 1 tent. · $2,80', kids: [['Migração da tabela', 'done'], ['Índices', 'done']] },
+{ id: '#43', name: 'Contrato OpenAPI', st: 'done', a: 8.2, b: 9.0, meta: 'pred — · 1 tent. · $1,90', kids: [] },
+{ id: '#48', name: 'Índices de busca', st: 'done', a: 9.5, b: 10.7, meta: 'pred 41b · 2 tent. · $2,40', kids: [] },
+{ id: '#42', name: 'API de agendamentos', st: 'run', a: 9.4, b: 11.0, e: 12.5, meta: 'pred 41b · impl 1/3 · $4,10', kids: [['Modelo e repositório', 'done'], ['Checagem de conflito', 'done'], ['Endpoints criar/listar', 'done'], ['Cancelar e remarcar', 'run'], ['Testes de contrato', 'wait']] },
+{ id: '#44', name: 'Tela de agenda', st: 'run', a: 9.1, b: 11.0, e: 12.0, meta: 'pred 43c · impl 2/3 · $2,30', kids: [['Calendário semanal', 'done'], ['Formulário', 'done'], ['Estados vazios', 'run'], ['Acessibilidade', 'wait']] },
+{ id: '#46', name: 'Permissões na agenda', st: 'block', a: 9.7, b: 10.8, meta: 'pred 44c · ⚑ precisa de você', kids: [] },
+{ id: '#45', name: 'Lembrete WhatsApp', st: 'wait', a: 12.5, b: 12.5, e: 14.5, meta: 'pred 42b · est. $5', kids: [] },
+{ id: '#47', name: 'E2E da agenda', st: 'wait', a: 14.5, b: 14.5, e: 16.0, meta: 'pred 45b, 46b · est. $3', kids: [] }
+];
+var bar = function (st, a, b, e, small) {
+var end = e || b;
+var w = Math.max(px(end) - px(a), 4);
+var real = Math.max(px(b) - px(a), 0);
+var col = C[st].c;
+return {
+barLeft: px(a) + 'px', barW: w + 'px', barTop: small ? '12px' : '16px', barH: small ? '8px' : '12px',
+barColor: col, barBg: st === 'wait' ? 'transparent' : '#1D222B', barBorderStyle: st === 'wait' ? 'dashed' : 'solid',
+fill: w ? Math.round(real / w * 100) + '%' : '0%'
+};
+};
+var rows = [];
+rows.push(Object.assign({ id: 'v2.0', name: 'Agendamento', sym: '◆', symColor: '#5EEAD4', meta: 'milestone/v2.0 · 3/8 · est. término 16:00', indent: '0px', h: '44px', size: '14px', weight: '700', fg: '#E7EAF0', rowBg: '#161A21', hasKids: false, leafPad: false, open: 'true', chev: '' }, bar('run', 8.2, 11.0, 16.0)));
+nodes.forEach(function (n) {
+var isOpen = !!self.state.open[n.id];
+rows.push(Object.assign({
+id: n.id, name: n.name, sym: C[n.st].s, symColor: C[n.st].c, meta: n.meta, indent: '12px', h: '44px', size: '13px', weight: '600', fg: '#E7EAF0', rowBg: 'transparent',
+hasKids: n.kids.length > 0, leafPad: n.kids.length === 0, open: isOpen ? 'true' : 'false', chev: isOpen ? '▾' : '▸',
+toggle: function () { var o = Object.assign({}, self.state.open); o[n.id] = !o[n.id]; self.setState({ open: o }); }
+}, bar(n.st, n.a, n.b, n.e)));
+if (isOpen) {
+var span = ((n.e || n.b) - n.a) / n.kids.length;
+n.kids.forEach(function (k, i) {
+var a = n.a + span * i, b = a + span;
+var st = k[1];
+rows.push(Object.assign({
+id: '', name: k[0], sym: C[st].s, symColor: C[st].c, meta: '', indent: '36px', h: '32px', size: '12px', weight: '400', fg: '#C9D1DC', rowBg: 'transparent',
+hasKids: false, leafPad: true, open: 'false', chev: ''
+}, bar(st, a, st === 'done' ? b : (st === 'run' ? Math.min(11.0, b) : a), st === 'done' ? b : b, true)));
+});
+}
+});
+var anyOpen = Object.keys(this.state.open).some(function (k) { return self.state.open[k]; });
+return {
+rows: rows,
+toggleLabel: anyOpen ? 'Recolher' : 'Expandir',
+toggleAll: function () {
+if (anyOpen) { self.setState({ open: {} }); }
+else { var o = {}; nodes.forEach(function (n) { if (n.kids.length) o[n.id] = true; }); self.setState({ open: o }); }
+}
+};
+}
+}
+</script>
+</body>
+</html>

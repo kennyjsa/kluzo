@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Aprovação do plano v2.1</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 8px; display: flex; flex-direction: column; gap: 6px">
+<a href="Main.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ Inbox</a>
+<h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em">Plano · v2.1 Lembretes</h1>
+<span style="font-size: 13px; color: #A3ACBA">2 rodadas planner ⇄ critic · nada é criado no GitLab antes da aprovação</span>
+</header>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px 16px 12px">
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 17px; font-weight: 700">6 nós</span><span style="font-size: 11px; color: #A3ACBA">4 existentes + 2</span></div>
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 17px; font-weight: 700">US$ 26</span><span style="font-size: 11px; color: #A3ACBA">estimativa</span></div>
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 17px; font-weight: 700">{{pending}}</span><span style="font-size: 11px; color: #A3ACBA">pendentes</span></div>
+</div>
+<main style="flex: 1; overflow-y: auto; padding: 0 16px 12px; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+<article style="background: #161A21; border: 1px solid {{it.border}}; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: {{it.kindColor}}">{{it.kind}}</span>
+<span style="font-size: 11px; color: #A3ACBA">{{it.origin}}</span>
+</div>
+<span style="font-size: 15px; font-weight: 600; line-height: 21px">{{it.title}}</span>
+<span style="font-size: 13px; line-height: 19px; color: #A3ACBA">{{it.why}}</span>
+<div style="display: flex; gap: 8px">
+<button type="button" onClick="{{it.reject}}" aria-pressed="{{it.isNo}}" style="flex: 1; height: 40px; border-radius: 10px; border: 1px solid {{it.noBorder}}; background: {{it.noBg}}; color: {{it.noFg}}; font: 600 13px Inter, sans-serif">Recusar</button>
+<button type="button" onClick="{{it.approve}}" aria-pressed="{{it.isOk}}" style="flex: 1; height: 40px; border-radius: 10px; border: 1px solid {{it.okBorder}}; background: {{it.okBg}}; color: {{it.okFg}}; font: 700 13px Inter, sans-serif">Aprovar</button>
+</div>
+</article>
+</sc-for>
+<a href="Grafo.dc.html" style="font-size: 14px; text-decoration: none; text-align: center; min-height: 44px; display: flex; align-items: center; justify-content: center">Ver grafo proposto ›</a>
+</main>
+<div style="padding: 10px 16px 20px; border-top: 1px solid #2A313D; background: #12151B">
+<button type="button" style="width: 100%; height: 50px; border-radius: 12px; border: none; background: {{ctaBg}}; color: {{ctaFg}}; font: 700 15px Inter, sans-serif">{{cta}}</button>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { d: {} };
+}
+renderVals() {
+var self = this;
+var base = [
+{ id: 'a', kind: 'NOVO NÓ · LACUNA', kindColor: '#C4B5FD', origin: 'critic · rodada 1', title: 'Migração: preferências de lembrete por paciente', why: 'O #51 grava preferências, mas nenhuma issue cria a tabela. Bloqueia #51.' },
+{ id: 'b', kind: 'NOVO NÓ · LACUNA', kindColor: '#C4B5FD', origin: 'critic · rodada 2', title: 'Feature flag para lembretes por clínica', why: 'Permite ligar por tenant e fazer rollback sem deploy.' },
+{ id: 'c', kind: 'ALTERAÇÃO', kindColor: '#FCD34D', origin: 'planner', title: '#51 dividido em #51a envio e #51b reenvio', why: 'Reenvio com backoff mexe na fila; isolar reduz o risco de conflito.' },
+{ id: 'd', kind: 'DEPENDÊNCIA', kindColor: '#93C5FD', origin: 'planner', title: '#53 Tela de preferências → contrato de #50', why: 'A tela pode começar com o contrato da API, sem esperar a implementação.' }
+];
+var pending = 0;
+var items = base.map(function (b) {
+var v = self.state.d[b.id];
+if (!v) pending++;
+var set = function (val) { var d = Object.assign({}, self.state.d); d[b.id] = val; self.setState({ d: d }); };
+return Object.assign({}, b, {
+border: v === 'ok' ? '#1F6F5A' : (v === 'no' ? '#5A3A1E' : '#2A313D'),
+isOk: v === 'ok' ? 'true' : 'false',
+isNo: v === 'no' ? 'true' : 'false',
+okBg: v === 'ok' ? '#5EEAD4' : '#1D222B', okFg: v === 'ok' ? '#062F2A' : '#E7EAF0', okBorder: v === 'ok' ? '#5EEAD4' : '#2A313D',
+noBg: v === 'no' ? '#FB923C' : '#1D222B', noFg: v === 'no' ? '#2A1300' : '#E7EAF0', noBorder: v === 'no' ? '#FB923C' : '#2A313D',
+approve: function () { set('ok'); },
+reject: function () { set('no'); }
+});
+});
+var ready = pending === 0;
+return {
+items: items,
+pending: pending,
+cta: ready ? 'Aprovar plano e liberar o downstream' : 'Aprovar plano · ' + pending + ' pendente' + (pending > 1 ? 's' : ''),
+ctaBg: ready ? '#5EEAD4' : '#1D222B',
+ctaFg: ready ? '#062F2A' : '#A3ACBA'
+};
+}
+}
+</script>
+</body>
+</html>

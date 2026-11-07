@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Times por flow</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 8px; display: flex; flex-direction: column; gap: 4px">
+<a href="Workspace.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ v2.0 · Agendamento</a>
+<h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em">Times</h1>
+<p style="margin: 0; font-size: 13px; color: #A3ACBA">Derivados dos flows em .kluzo/flows · 9 papéis</p>
+</header>
+<div role="tablist" style="display: flex; gap: 4px; margin: 8px 16px 12px; padding: 4px; background: #161A21; border: 1px solid #2A313D; border-radius: 12px">
+<sc-for list="{{flows}}" as="f" hint-placeholder-count="3">
+<button type="button" role="tab" onClick="{{f.pick}}" style="flex: 1; height: 36px; border-radius: 9px; border: none; background: {{f.bg}}; color: {{f.fg}}; font: 600 13px Inter, sans-serif">{{f.name}}</button>
+</sc-for>
+</div>
+<div style="margin: 0 16px 10px; display: flex; justify-content: space-between; font-size: 13px; color: #A3ACBA"><span>{{status}}</span><span>{{cost}}</span></div>
+<main style="flex: 1; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{roles}}" as="r" hint-placeholder-count="4">
+<article style="background: #161A21; border: 1px solid #2A313D; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 4px; background: {{r.dot}}"></span>{{r.name}}</span>
+<span style="font-size: 12px; font-weight: 600; color: {{r.dot}}">{{r.state}}</span>
+</div>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3ACBA">{{r.harness}}</span>
+<span style="font-size: 13px; line-height: 19px">{{r.doing}}</span>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #A3ACBA"><span>{{r.budget}}</span><span>{{r.cost}}</span></div>
+</article>
+</sc-for>
+</main>
+<nav aria-label="Navegação principal" style="display: flex; border-top: 1px solid #2A313D; background: #12151B">
+<a href="Main.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span>Inbox · 5</span></a>
+<a href="Projetos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Projetos</span></a>
+<a href="Ativos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #5EEAD4; font-size: 11px; font-weight: 600"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Ativos</span></a>
+<button type="button" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; border: none; background: none; color: #A3ACBA; font: 500 11px Inter, sans-serif"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>Mais</span></button>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { flow: 1 };
+}
+renderVals() {
+var blue = '#60A5FA', green = '#34D399', gray = '#6B7584', orange = '#FB923C';
+var data = [
+{ name: 'Upstream', status: 'Concluído · aprovado em 05/11', cost: 'US$ 4,30', roles: [
+{ name: 'business', dot: green, state: 'CONCLUÍDO', harness: 'claude-code · sonnet', doing: '1 entrevista · 9 perguntas', budget: '—', cost: 'US$ 0,60' },
+{ name: 'po', dot: green, state: 'CONCLUÍDO', harness: 'claude-code · sonnet', doing: '8 issues refinadas', budget: '—', cost: 'US$ 0,80' },
+{ name: 'requirements', dot: green, state: 'CONCLUÍDO', harness: 'claude-code · sonnet', doing: 'critérios de aceite em 8/8', budget: '—', cost: 'US$ 0,60' },
+{ name: 'architect', dot: green, state: 'CONCLUÍDO', harness: 'claude-code · opus', doing: 'ADR 0012 · contrato OpenAPI', budget: '—', cost: 'US$ 1,10' },
+{ name: 'planner ⇄ critic', dot: green, state: 'CONCLUÍDO', harness: 'claude-code · opus / sonnet', doing: '2 rodadas · 3 lacunas tratadas', budget: '—', cost: 'US$ 1,20' }
+]},
+{ name: 'Node', status: '3 sessões ativas em 3 nós', cost: 'US$ 17,10', roles: [
+{ name: 'implementer', dot: blue, state: '2 ATIVAS', harness: 'claude-code · sonnet + advisor opus', doing: '#42 API de agendamentos · #44 Tela de agenda (fallback opencode)', budget: '3 tentativas · US$ 6 por nó', cost: 'US$ 12,30' },
+{ name: 'reviewer', dot: orange, state: '1 BLOQUEADA', harness: 'claude-code · opus', doing: '#46 Permissões · aguarda sua resposta', budget: '2 rodadas por nó', cost: 'US$ 3,60' },
+{ name: 'qa', dot: gray, state: 'OCIOSO', harness: 'opencode · modelo econômico', doing: 'Próximo: #42 depois do review', budget: '1 tentativa', cost: 'US$ 0,70' },
+{ name: 'triage', dot: gray, state: 'OCIOSO', harness: 'claude-code · haiku', doing: '1 decisão: #44 → fallback de harness', budget: 'só casos ambíguos', cost: 'US$ 0,50' }
+]},
+{ name: 'Closing', status: 'Aguardando todos os nós', cost: 'est. US$ 3', roles: [
+{ name: 'gate e2e', dot: gray, state: 'AGUARDA', harness: 'pipeline gitlab', doing: 'Roda na branch milestone/v2.0 integrada', budget: '—', cost: '—' },
+{ name: 'reporter', dot: gray, state: 'AGUARDA', harness: 'claude-code · sonnet', doing: 'Relatório para o MR milestone → main', budget: '1 tentativa', cost: 'est. US$ 1' }
+]}
+];
+var self = this;
+var cur = data[this.state.flow];
+var flows = data.map(function (d, i) {
+var on = i === self.state.flow;
+return { name: d.name, bg: on ? '#2A313D' : 'transparent', fg: on ? '#E7EAF0' : '#A3ACBA', pick: function () { self.setState({ flow: i }); } };
+});
+return { flows: flows, roles: cur.roles, status: cur.status, cost: cur.cost };
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · v2.0 Agendamento</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 8px; display: flex; flex-direction: column; gap: 6px">
+<a href="Projeto.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ Agiclin</a>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em">v2.0 · Agendamento</h1>
+<span style="flex: none; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 6px; background: #13243D; color: #93C5FD">Executando</span>
+</div>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3ACBA">milestone/v2.0 · 3 merges · main sincronizada há 2 h</span>
+</header>
+<div role="tablist" style="display: flex; gap: 6px; padding: 8px 16px 12px; overflow-x: auto; border-bottom: 1px solid #2A313D">
+<button type="button" role="tab" aria-selected="true" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: none; background: #E7EAF0; color: #0E1014; font: 600 13px Inter, sans-serif">Visão geral</button>
+<a href="Grafo.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Progresso</a>
+<a href="Plano.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Plano</a>
+<a href="Times.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Times</a>
+<a href="Fila.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Fila</a>
+<a href="Decisoes.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Decisões</a>
+<a href="Custos.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Custos</a>
+</div>
+<main style="flex: 1; overflow-y: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="height: 8px; border-radius: 4px; background: #1D222B; display: flex; overflow: hidden"><div style="width: 37%; background: #34D399"></div><div style="width: 25%; background: #60A5FA"></div><div style="width: 13%; background: #FB923C"></div></div>
+<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #A3ACBA"><span><span style="color: #34D399">■</span> integrado</span><span><span style="color: #60A5FA">■</span> executando</span><span><span style="color: #FB923C">■</span> bloqueado</span><span><span style="color: #3A4250">■</span> a fazer</span></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 700">3/8</span><span style="font-size: 12px; color: #A3ACBA">nós integrados</span></div>
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 700">2</span><span style="font-size: 12px; color: #A3ACBA">executando agora</span></div>
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 700">US$ 21,40</span><span style="font-size: 12px; color: #A3ACBA">de US$ 38 estimados</span></div>
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 700">6 h 10</span><span style="font-size: 12px; color: #A3ACBA">em execução</span></div>
+</div>
+<a href="Escalacao.dc.html" style="background: #2A1C10; border: 1px solid #5A3A1E; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; text-decoration: none; color: #E7EAF0">
+<span style="font-size: 12px; font-weight: 600; color: #FB923C">PRECISA DE VOCÊ</span>
+<span style="font-size: 14px; line-height: 20px">#46 Permissões está bloqueado por uma pergunta do reviewer.</span>
+<span style="font-size: 13px; color: #FDBA74">Responder ›</span>
+</a>
+<section style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+<a href="Fila.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none; color: #E7EAF0">Fila de merge → milestone/v2.0 ›</a>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>#42 API de agendamentos</span><span style="color: #A3ACBA">em implementação</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>#44 Tela de agenda</span><span style="color: #A3ACBA">em implementação</span></div>
+</section>
+<section style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+<a href="Decisoes.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none; color: #E7EAF0">Últimas decisões dos agentes ›</a>
+<p style="margin: 0; font-size: 13px; line-height: 19px"><span style="font-family: 'JetBrains Mono', monospace; color: #A3ACBA">#42 implementer</span> · horários gravados em UTC; conversão só na borda da API.</p>
+<p style="margin: 0; font-size: 13px; line-height: 19px"><span style="font-family: 'JetBrains Mono', monospace; color: #A3ACBA">#44 implementer</span> · calendário semanal como padrão no celular.</p>
+</section>
+<div style="display: flex; gap: 8px">
+<button type="button" style="flex: 1; height: 44px; border-radius: 10px; border: 1px solid #2A313D; background: #161A21; color: #E7EAF0; font: 600 14px Inter, sans-serif">Pausar milestone</button>
+<a href="Grafo.dc.html" style="flex: 1; height: 44px; border-radius: 10px; background: #5EEAD4; color: #062F2A; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none">Ver progresso</a>
+</div>
+</main>
+<nav aria-label="Navegação principal" style="display: flex; border-top: 1px solid #2A313D; background: #12151B">
+<a href="Main.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span>Inbox · 5</span></a>
+<a href="Projetos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Projetos</span></a>
+<a href="Ativos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #5EEAD4; font-size: 11px; font-weight: 600"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Ativos</span></a>
+<button type="button" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; border: none; background: none; color: #A3ACBA; font: 500 11px Inter, sans-serif"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>Mais</span></button>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

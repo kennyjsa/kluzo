@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Novo workspace</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 8px; display: flex; flex-direction: column; gap: 6px">
+<a href="Projeto.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ Agiclin</a>
+<h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em">Novo workspace</h1>
+<p style="margin: 0; font-size: 13px; color: #A3ACBA">Escolha uma milestone do GitLab. O Kluzo cria a branch e começa o upstream.</p>
+</header>
+<main style="flex: 1; overflow-y: auto; padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 16px">
+<fieldset style="margin: 0; padding: 0; border: none; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0 0 8px; font-size: 12px; font-weight: 600; color: #A3ACBA">MILESTONE</legend>
+<sc-for list="{{milestones}}" as="m" hint-placeholder-count="3">
+<button type="button" onClick="{{m.pick}}" aria-pressed="{{m.on}}" style="text-align: left; background: #161A21; border: 1.5px solid {{m.border}}; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; color: #E7EAF0; font-family: Inter, sans-serif">
+<span style="display: flex; justify-content: space-between; width: 100%"><span style="font-size: 15px; font-weight: 600">{{m.name}}</span><span style="font-size: 12px; color: {{m.dotColor}}">{{m.mark}}</span></span>
+<span style="font-size: 12px; color: #A3ACBA">{{m.meta}}</span>
+</button>
+</sc-for>
+</fieldset>
+<fieldset style="margin: 0; padding: 0; border: none; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0 0 8px; font-size: 12px; font-weight: 600; color: #A3ACBA">PERFIL DE MODELOS</legend>
+<div role="radiogroup" style="display: flex; gap: 4px; padding: 4px; background: #161A21; border: 1px solid #2A313D; border-radius: 12px">
+<sc-for list="{{profiles}}" as="p" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{p.on}}" onClick="{{p.pick}}" style="flex: 1; height: 40px; border-radius: 9px; border: none; background: {{p.bg}}; color: {{p.fg}}; font: 600 13px Inter, sans-serif">{{p.name}}</button>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #A3ACBA">{{profileHint}}</span>
+</fieldset>
+<section style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+<h2 style="margin: 0 0 4px; font-size: 12px; font-weight: 600; color: #A3ACBA">VALIDAÇÃO</h2>
+<span><span style="color: #34D399">✓</span> .kluzo/ carregado · 11 papéis · 3 flows</span>
+<span><span style="color: #34D399">✓</span> claude-code 2.1.274 · opencode 1.4.2</span>
+<span><span style="color: #34D399">✓</span> token do bot GitLab · Runner online</span>
+<span><span style="color: #34D399">✓</span> branch <span style="font-family: 'JetBrains Mono', monospace">{{branch}}</span> será criada da main</span>
+</section>
+<div style="display: flex; justify-content: space-between; font-size: 13px; color: #A3ACBA"><span>Custo do upstream</span><span style="color: #E7EAF0; font-weight: 600">{{estimate}}</span></div>
+</main>
+<div style="padding: 10px 16px 20px; border-top: 1px solid #2A313D; background: #12151B">
+<a href="Entrevista.dc.html" style="height: 50px; border-radius: 12px; background: #5EEAD4; color: #062F2A; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none">Criar workspace e iniciar upstream</a>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { m: 0, p: 1 };
+}
+renderVals() {
+var self = this;
+var ms = [
+{ name: 'v2.2 · Relatórios', meta: '5 issues · prazo 28/11 · sem workspace', branch: 'milestone/v2.2' },
+{ name: 'v2.3 · Faturamento', meta: '9 issues · prazo 12/12 · sem workspace', branch: 'milestone/v2.3' },
+{ name: 'v3.0 · Multi-unidade', meta: '2 issues · ainda sem refino', branch: 'milestone/v3.0' }
+];
+var ps = [
+{ name: 'Econômico', hint: 'Sonnet no upstream, Haiku no crítico. Bom para milestones pequenas.', est: 'est. US$ 3–4' },
+{ name: 'Padrão', hint: 'Sonnet + advisor Opus; Opus só no arquiteto e no planner.', est: 'est. US$ 5–7' },
+{ name: 'Premium', hint: 'Opus em todo o upstream. Para milestones críticas.', est: 'est. US$ 12–15' }
+];
+var milestones = ms.map(function (m, i) {
+var on = i === self.state.m;
+return { name: m.name, meta: m.meta, on: on ? 'true' : 'false', border: on ? '#5EEAD4' : '#2A313D', mark: on ? '● selecionada' : '', dotColor: '#5EEAD4', pick: function () { self.setState({ m: i }); } };
+});
+var profiles = ps.map(function (p, i) {
+var on = i === self.state.p;
+return { name: p.name, on: on ? 'true' : 'false', bg: on ? '#2A313D' : 'transparent', fg: on ? '#E7EAF0' : '#A3ACBA', pick: function () { self.setState({ p: i }); } };
+});
+return { milestones: milestones, profiles: profiles, profileHint: ps[this.state.p].hint, estimate: ps[this.state.p].est, branch: ms[this.state.m].branch };
+}
+}
+</script>
+</body>
+</html>

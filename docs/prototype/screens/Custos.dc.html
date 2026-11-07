@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Kluzo · Custos</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#5EEAD4}a:hover{color:#99F6E4}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 8px; display: flex; flex-direction: column; gap: 6px">
+<a href="Projeto.dc.html" style="font-size: 14px; text-decoration: none; min-height: 32px; display: flex; align-items: center">‹ Agiclin</a>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em">v2.0 · Agendamento</h1>
+<span style="flex: none; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 6px; background: #13243D; color: #93C5FD">Executando</span>
+</div>
+</header>
+<div role="tablist" style="display: flex; gap: 6px; padding: 8px 16px 12px; overflow-x: auto; border-bottom: 1px solid #2A313D">
+<a href="Workspace.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Visão geral</a>
+<a href="Grafo.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Progresso</a>
+<a href="Plano.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Plano</a>
+<a href="Times.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Times</a>
+<a href="Fila.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Fila</a>
+<a href="Decisoes.dc.html" role="tab" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #2A313D; display: flex; align-items: center; color: #E7EAF0; font-size: 13px; text-decoration: none">Decisões</a>
+<button type="button" role="tab" aria-selected="true" style="flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: none; background: #E7EAF0; color: #0E1014; font: 600 13px Inter, sans-serif">Custos</button>
+</div>
+<main style="flex: 1; overflow-y: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px">
+<section style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 28px; font-weight: 700">US$ 21,40</span><span style="font-size: 13px; color: #A3ACBA">de US$ 38 estimados</span></div>
+<div style="position: relative; height: 10px; border-radius: 5px; background: #1D222B; overflow: hidden"><div style="width: 56%; height: 10px; background: #5EEAD4"></div></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #A3ACBA"><span>56% gasto · 3/8 nós integrados (37%)</span><span style="color: #FCD34D">projeção US$ 41</span></div>
+<p style="margin: 0; font-size: 12px; line-height: 17px; color: #A3ACBA">A projeção passa da estimativa por causa das tentativas extras do #44 e do #48. Alerta em 110% (US$ 41,80).</p>
+</section>
+<div role="tablist" style="display: flex; gap: 4px; padding: 4px; background: #161A21; border: 1px solid #2A313D; border-radius: 12px">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+<button type="button" role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="flex: 1; height: 36px; border-radius: 9px; border: none; background: {{t.bg}}; color: {{t.fg}}; font: 600 13px Inter, sans-serif">{{t.name}}</button>
+</sc-for>
+</div>
+<section style="display: flex; flex-direction: column; gap: 12px">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+<div style="display: flex; flex-direction: column; gap: 5px">
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>{{r.label}}</span><span><b>{{r.value}}</b> <span style="color: #A3ACBA">{{r.note}}</span></span></div>
+<div style="height: 6px; border-radius: 3px; background: #1D222B; overflow: hidden"><div style="height: 6px; width: {{r.pct}}; background: {{r.color}}"></div></div>
+</div>
+</sc-for>
+</section>
+<section style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 18px; font-weight: 700">1,3</span><span style="font-size: 12px; color: #A3ACBA">tentativas por nó</span></div>
+<div style="background: #161A21; border: 1px solid #2A313D; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 18px; font-weight: 700">25%</span><span style="font-size: 12px; color: #A3ACBA">retrabalho do reviewer</span></div>
+</section>
+</main>
+<nav aria-label="Navegação principal" style="display: flex; border-top: 1px solid #2A313D; background: #12151B">
+<a href="Main.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg><span>Inbox · 5</span></a>
+<a href="Projetos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #A3ACBA; font-size: 11px; font-weight: 500"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Projetos</span></a>
+<a href="Ativos.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; text-decoration: none; color: #5EEAD4; font-size: 11px; font-weight: 600"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Ativos</span></a>
+<button type="button" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; border: none; background: none; color: #A3ACBA; font: 500 11px Inter, sans-serif"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>Mais</span></button>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { t: 0 };
+}
+renderVals() {
+var self = this;
+var max = 12.3;
+var mk = function (label, v, note, color) { return { label: label, value: 'US$ ' + v.toFixed(2).replace('.', ','), note: note, pct: Math.round(v / max * 100) + '%', color: color }; };
+var groups = [
+{ name: 'Por nó', rows: [
+mk('Upstream (plano)', 4.30, '', '#C4B5FD'),
+mk('#42 API de agendamentos', 4.10, 'de 6', '#60A5FA'),
+mk('#46 Permissões na agenda', 3.60, 'de 4', '#FB923C'),
+mk('#41 Schema da agenda', 2.80, 'de 3', '#34D399'),
+mk('#48 Índices de busca', 2.40, 'de 2 · 2 tent.', '#FCD34D'),
+mk('#44 Tela de agenda', 2.30, 'de 4 · 2 tent.', '#60A5FA'),
+mk('#43 Contrato OpenAPI', 1.90, 'de 2', '#34D399')
+]},
+{ name: 'Por papel', rows: [
+mk('implementer', 12.30, '', '#60A5FA'),
+mk('upstream (6 papéis)', 4.30, '', '#C4B5FD'),
+mk('reviewer', 3.60, '', '#A78BFA'),
+mk('qa', 0.70, '', '#6B7584'),
+mk('triage', 0.50, '', '#6B7584')
+]},
+{ name: 'Por modelo', rows: [
+mk('sonnet · claude-code', 9.80, '', '#60A5FA'),
+mk('opus · claude-code', 8.40, 'advisor + reviewer', '#A78BFA'),
+mk('econômico · opencode', 2.70, 'fallback e qa', '#5EEAD4'),
+mk('haiku · claude-code', 0.50, 'subagents e triage', '#6B7584')
+]}
+];
+var tabs = groups.map(function (g, i) {
+var on = i === self.state.t;
+return { name: g.name, on: on ? 'true' : 'false', bg: on ? '#2A313D' : 'transparent', fg: on ? '#E7EAF0' : '#A3ACBA', pick: function () { self.setState({ t: i }); } };
+});
+return { tabs: tabs, rows: groups[this.state.t].rows };
+}
+}
+</script>
+</body>
+</html>
