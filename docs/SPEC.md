@@ -235,7 +235,7 @@ O orquestrador **chama** LLMs, mas não **é** um LLM. Ele aplica regras sobre a
 
 ## 8. Tracker e SCM
 
-**Interfaces:** `Tracker` (issues, links, labels, comentários), `SCM` (branches, MR/PR, merge) e `CI` (status dos gates). O adaptador do GitLab vem primeiro; o do GitHub vem em seguida.
+**Interfaces:** `Tracker` (issues, links, labels, comentários), `SCM` (branches, MR/PR, merge) e `CI` (status dos gates). O adaptador do GitHub vem primeiro (v0.1), para o Kluzo orquestrar o próprio desenvolvimento; o do GitLab vem na v0.2.
 
 | Conceito | GitLab | GitHub |
 |---|---|---|
@@ -343,12 +343,7 @@ As permissões são por papel. Nenhum papel tem acesso a aprovação ou merge.
 
 ## 14. Roadmap
 
-| Versão | Escopo |
-|---|---|
-| **v0.1** | CLI; GitLab; um workspace; grafo com arestas de bloqueio; execução **sequencial**; adaptador Claude Code; pipeline de nó implementer → reviewer → gates; SQLite e journal; resume. |
-| **v0.2** | Paralelismo; arestas de conflito e contrato; fila de merge com freshness gate; adaptador OpenCode; MCP `kluzo_*`. |
-| **v0.3** | Upstream completo com planner ⇄ critic e portão de aprovação; web com grafo ao vivo; tsnet; notificações. |
-| **v0.4** | Adaptador GitHub; perfis; esteira de workspaces; relatório da milestone. |
+A sequência de entregas está em [ROADMAP.md](ROADMAP.md), com o detalhe de cada uma em [milestones/](milestones/) e o comportamento de cada feature em [features/](features/).
 
 ## 15. Questões abertas
 

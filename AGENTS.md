@@ -6,6 +6,10 @@ Contexto para agentes que trabalham **no código do Kluzo**.
 
 O Kluzo é um orquestrador de milestones para agentes de código. Leia `docs/SPEC.md` antes de qualquer mudança, e `docs/adr/` para as decisões já tomadas.
 
+- O que entregar e em que ordem: `docs/ROADMAP.md` e `docs/milestones/`.
+- O comportamento esperado de cada feature: `docs/features/`.
+- A referência visual da web: `docs/prototype/`.
+
 ## Regras inegociáveis
 
 - **O núcleo é determinístico.** Scheduler, máquina de estados, fila de merge e gates não chamam LLM (ADR 0001).

@@ -17,7 +17,7 @@ Protótipo navegável da interface web do Kluzo. Usa dados fictícios de uma mil
 | Workspace · visão geral | `Workspace.dc.html` | F02, F21 |
 | Progresso · Grafo | `Grafo.dc.html` | F17 |
 | Progresso · Kanban | `Kanban.dc.html` | F18 |
-| Progresso · Estrutura (estilo MS Project) | `Estrutura.dc.html` | F17/F18 (terceira visão) |
+| Progresso · Estrutura (estilo MS Project) | `Estrutura.dc.html` | F30 |
 | Card de nó · estados e zoom | `NoCard.dc.html` | F17 |
 | Nó · execução ao vivo | `No.dc.html` | F11, F19 |
 | Times por flow | `Times.dc.html` | F05, F20 |
