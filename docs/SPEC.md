@@ -112,9 +112,11 @@ Enquanto a milestone N está no downstream, a N+1 pode estar no upstream. Cada u
 
 ### 3.6 Estados
 
-**Milestone (workspace):** `refining → awaiting_approval → approved → running → closing → ready_to_merge → merged → archived` (mais `paused` e `failed`).
+**Milestone (workspace):** `refining → awaiting_approval → approved → running → closing → ready_to_merge → merged → archived` (mais `paused`, `cancelled` e `failed`).
 
-**Nó:** `planned → ready → running → in_review → gating → queued → integrated` (mais `blocked`, `failed` e `escalated`).
+**Nó:** `planned → ready → running → in_review → gating → queued → integrating → integrated` (mais `blocked`, `failed` e `cancelled`). Uma escalação deixa o nó em `blocked` com o motivo `question`.
+
+As transições, as condições e os motivos de bloqueio estão em [contracts/state-machine.md](contracts/state-machine.md).
 
 ## 4. Grafo da milestone
 
@@ -190,30 +192,21 @@ Você é o implementador. Leia o contexto do nó com `kluzo_context`…
 
 ```yaml
 # .kluzo/flows/node.yaml
+version: 1
 steps:
-  - role: implementer
-  - role: reviewer
-    on_reject: implementer
-  - gate: ci
-  - merge_queue: milestone
+  - { id: implement, role: implementer, phase: running }
+  - { id: review, role: reviewer, phase: in_review, on_reject: implement, max_rounds: 2 }
+  - { id: gates, gate: [test, lint] }
+  - { id: merge, merge_queue: milestone }
 ```
+
+A gramática completa dos flows está em [contracts/config.md](contracts/config.md#flows) (ADR 0010).
 
 O time é derivado dos papéis citados nos flows. Não existe uma declaração separada de time. A troca de elenco inteiro, se um dia for necessária, entra como **perfil** (`profiles/*.yaml` com overrides).
 
 ### 6.3 Contrato de runtime
 
-```go
-type Runtime interface {
-    Start(ctx context.Context, task Task, ws Worktree, role Role) (Session, error)
-    Resume(ctx context.Context, id SessionID) (Session, error)
-}
-
-type Session interface {
-    Events() <-chan Event   // tool call, edição, mensagem, custo
-    Result() (Result, error) // validado contra o schema do papel
-    Cancel() error           // mata o grupo de processos
-}
-```
+Resumo: `Runtime` tem `Check`, `Start` e `Resume`; uma `Session` tem `Events` (eventos normalizados), `Wait` (resultado validado contra o schema do papel), `Send` (entrevistas e respostas) e `Cancel` (mata o grupo de processos). As assinaturas completas estão em [contracts/interfaces.md](contracts/interfaces.md), e os eventos normalizados em [contracts/events.md](contracts/events.md).
 
 **Adaptadores v1:**
 - **Claude Code:** `claude -p` com `--output-format stream-json`, `--resume`, e advisor e subagent configurados por papel.
@@ -345,9 +338,16 @@ As permissões são por papel. Nenhum papel tem acesso a aprovação ou merge.
 
 A sequência de entregas está em [ROADMAP.md](ROADMAP.md), com o detalhe de cada uma em [milestones/](milestones/) e o comportamento de cada feature em [features/](features/).
 
-## 15. Questões abertas
+## 15. Decisões de detalhe
 
-- O footprint (área) de um nó é declarado pelo planner ou inferido do código? Possivelmente as duas coisas: uma estimativa do planner e a confirmação pelo diff real.
-- Merge na milestone: fast-forward após o rebase ou merge commit?
-- O schema de `node-result` e dos demais papéis.
-- O formato exato de `flows/*.yaml`: laços, condições e paralelismo dentro de um flow.
+As questões que estavam abertas nesta seção foram decididas:
+
+| Questão | Decisão |
+|---|---|
+| Footprint de um nó | [ADR 0011](adr/0011-areas-e-footprint.md): áreas declaradas no plano e conferidas pelo diff |
+| Estratégia de merge na milestone | [ADR 0009](adr/0009-estrategia-de-merge.md): rebase seguido de merge commit |
+| Schemas dos resultados dos papéis | [contracts/results.md](contracts/results.md) |
+| Formato dos flows | [ADR 0010](adr/0010-formato-dos-flows.md) e [contracts/config.md](contracts/config.md#flows) |
+| Idioma do código | [ADR 0008](adr/0008-idioma-do-codigo.md): código em inglês, documentação em português |
+
+Os contratos técnicos completos estão em [contracts/](contracts/).

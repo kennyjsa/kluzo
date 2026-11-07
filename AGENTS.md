@@ -9,6 +9,9 @@ O Kluzo é um orquestrador de milestones para agentes de código. Leia `docs/SPE
 - O que entregar e em que ordem: `docs/ROADMAP.md` e `docs/milestones/`.
 - O comportamento esperado de cada feature: `docs/features/`.
 - A referência visual da web: `docs/prototype/`.
+- Formatos, estados e interfaces que o código implementa: `docs/contracts/` (vale sobre a SPEC em caso de divergência).
+- Pacotes e regras de dependência: `docs/ARCHITECTURE.md`.
+- Como compilar, testar e a Definition of Done: `docs/DEVELOPMENT.md`.
 
 ## Regras inegociáveis
 
@@ -24,6 +27,7 @@ O Kluzo é um orquestrador de milestones para agentes de código. Leia `docs/SPE
 
 ## Convenções
 
-- Documentação em português.
+- Código, identificadores, logs e commits em inglês; documentação em português (ADR 0008).
 - Código duplicado e código morto bloqueiam o merge.
-- Toda transição de estado tem teste.
+- Toda transição de estado tem teste (tabela de casos em `internal/core`).
+- `internal/core` não importa adaptadores, `store`, `net/http` nem `os/exec` (ARCHITECTURE.md).

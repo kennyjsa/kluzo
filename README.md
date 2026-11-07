@@ -13,6 +13,9 @@ Status: em especificação.
 
 - [Especificação](docs/SPEC.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Contratos técnicos](docs/contracts/)
+- [Arquitetura do código](docs/ARCHITECTURE.md)
+- [Desenvolvimento](docs/DEVELOPMENT.md)
 - [Features](docs/features/)
 - [Decisões (ADRs)](docs/adr/)
 - [Referências](docs/references.md)
