@@ -1,6 +1,6 @@
 # Interfaces Go
 
-Os ports que o núcleo usa. O núcleo depende só destas interfaces, nunca de um adaptador concreto ([ARCHITECTURE.md](../ARCHITECTURE.md)). Os nomes e assinaturas abaixo são o contrato. Os detalhes de implementação ficam livres.
+Os ports que o núcleo usa. O núcleo depende só destas interfaces, nunca de um adaptador concreto ([packages.md](../architecture/packages.md)). Os nomes e assinaturas abaixo são o contrato. Os detalhes de implementação ficam livres.
 
 Todas as chamadas recebem `context.Context`, e todas as operações de escrita são **idempotentes**: repetir a chamada depois de uma falha não duplica efeito. Para isso, cada operação carrega uma chave de idempotência derivada do evento que a originou.
 
@@ -133,4 +133,4 @@ type Notification struct {
 | `Runtime` | `claudecode` | `opencode` | |
 | `Notifier` | `log` (no-op) | | `ntfy` |
 
-Todas as interfaces têm um **fake em memória** em `internal/ports/fakes`, com o comportamento do contrato (idempotência, uma label `orch/*` por issue). Os testes do núcleo usam só os fakes ([DEVELOPMENT.md](../DEVELOPMENT.md#testes)).
+Todas as interfaces têm um **fake em memória** em `internal/ports/fakes`, com o comportamento do contrato (idempotência, uma label `orch/*` por issue). Os testes do núcleo usam só os fakes ([development.md](../development.md#testes)).

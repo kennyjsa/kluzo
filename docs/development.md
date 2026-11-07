@@ -20,7 +20,8 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 | `make arch` | Teste de regras de dependência (`internal/archtest`) |
 | `make test-integration` | Testes com GitHub real e harness real (tag `integration`); não roda no CI de PR |
 | `make web-dev` | Vite em modo dev apontando para um Kluzo local em `--listen` |
-| `make check` | `lint` + `arch` + `test`; o mesmo que o CI roda |
+| `make vuln` | `govulncheck ./...` (e `npm audit` na web) |
+| `make check` | `lint` + `arch` + `test` + `vuln`; o mesmo que o CI roda |
 
 ## Testes
 
@@ -48,10 +49,15 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 
 - **Idioma:** código, identificadores, logs, erros e commits em inglês. Documentação em português (ADR 0008).
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) (`feat(core): …`, `fix(github): …`, `docs: …`). O escopo é o pacote ou a área.
-- **Branches:** `issue/<n>-<slug>`, a partir da branch da milestone em andamento. As mudanças de documentação vão direto para a `main`.
+- **Branches:** seguem o mesmo fluxo que o Kluzo impõe aos projetos (ADR 0003):
+  - `issue/<n>-<slug>`, a partir da branch da milestone em andamento (`milestone/v0.X`), integrada nela por merge commit (ADR 0009).
+  - **Até o dogfooding (v0.1, item 11),** os itens da v0.1 ainda não são issues: a branch é `item/v0.1-<nn>-<slug>`.
+  - A branch da milestone vai para a `main` por PR, com merge humano.
+  - Mudanças só de documentação podem ir direto para a `main`.
 - **Erros:** com contexto (`fmt.Errorf("approve plan %s: %w", id, err)`). Erros de domínio são tipados em `core` (`ErrInvalidTransition`, `ErrCycle`…).
 - **Logs:** `log/slog` estruturado, com `workspace`, `node` e `session` como atributos quando houver.
 - **Configuração:** nenhuma chave nova em `kluzo.yaml` sem atualizar [contracts/config.md](contracts/config.md) no mesmo PR.
+- **Padrões:** os padrões de projeto e o que é proibido estão em [architecture/patterns.md](architecture/patterns.md).
 
 ## Definition of Done de um PR
 
@@ -61,7 +67,8 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 - [ ] Toda transição nova ou alterada tem caso na tabela de testes do núcleo.
 - [ ] Os contratos (`docs/contracts/`) estão atualizados se algum formato ou interface mudou.
 - [ ] Decisão de arquitetura nova tem ADR.
-- [ ] O status da feature foi atualizado em `docs/features/`, quando for o caso.
+- [ ] O status da feature foi atualizado em `docs/product/features/`, quando for o caso.
+- [ ] Dependência nova segue o ADR 0017 e está em `docs/architecture/stack.md`.
 - [ ] Mudança de tela: confere com o protótipo nas larguras 390, 768 e 1280 px.
 
 ## Estrutura do repositório
@@ -69,7 +76,7 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 ```
 kluzo/
 ├── cmd/kluzo/
-├── internal/          # ver ARCHITECTURE.md
+├── internal/          # ver architecture/packages.md
 ├── web/               # Vue (fonte) → web/dist (embutido)
 ├── testdata/
 ├── docs/

@@ -7,7 +7,7 @@ Configuração do SQLite: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_key
 ## Regras
 
 - **O journal (`events`) é a fonte da verdade.** As tabelas de estado (`nodes`, `sessions`…) são projeções mantidas na mesma transação que grava o evento. Reconstruir as projeções a partir do journal deve dar o mesmo resultado; existe um teste para isso.
-- Toda escrita de estado passa por `store.Tx`, que grava o evento e atualiza as projeções juntos.
+- Toda escrita de estado passa por `store.Tx`, que grava o evento, atualiza as projeções e enfileira os efeitos (`effects`) juntos.
 - Nada é apagado. Cancelar ou arquivar é mudança de estado.
 
 ## Banco global (`kluzo.db`)
@@ -49,6 +49,22 @@ CREATE TABLE events (
   payload       TEXT NOT NULL              -- JSON, schema por kind
 );
 CREATE INDEX events_node ON events(node_id, seq);
+
+-- Outbox de efeitos (ADR 0013): gravado na mesma transação dos eventos.
+CREATE TABLE effects (
+  id            TEXT PRIMARY KEY,          -- ef_<ulid>
+  idem_key      TEXT NOT NULL UNIQUE,      -- derivada do evento de origem
+  event_seq     INTEGER NOT NULL REFERENCES events(seq),
+  kind          TEXT NOT NULL,             -- 'tracker.set_label' | 'tracker.comment' | 'session.start' | 'git.merge' | …
+  payload       TEXT NOT NULL,             -- JSON
+  state         TEXT NOT NULL,             -- 'pending' | 'done' | 'failed'
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_at       TEXT,                      -- backoff
+  last_error    TEXT,
+  created_at    TEXT NOT NULL,
+  done_at       TEXT
+);
+CREATE INDEX effects_pending ON effects(state, next_at);
 
 CREATE TABLE workspace (                   -- uma única linha
   id            TEXT PRIMARY KEY,

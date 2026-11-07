@@ -2,7 +2,7 @@
 
 A sequência de entregas do Kluzo. Este arquivo é o **único lugar** onde a ordem das entregas é definida:
 - o detalhe de cada entrega fica em [`milestones/`](milestones/);
-- o comportamento de cada feature fica em [`features/`](features/).
+- o comportamento de cada feature fica em [`features/`](../product/features/).
 
 | Entrega | Objetivo | Marco que destrava | Status |
 |---|---|---|---|

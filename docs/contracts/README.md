@@ -1,6 +1,6 @@
 # Contratos técnicos
 
-Formatos e interfaces que o código do Kluzo implementa. Quando a SPEC e um contrato divergirem, **o contrato vale**, e a SPEC deve ser corrigida no mesmo PR.
+Formatos e interfaces que o código do Kluzo implementa. Quando outro documento e um contrato divergirem, **o contrato vale**, e o outro documento é corrigido no mesmo PR.
 
 | Contrato | Conteúdo |
 |---|---|
@@ -24,28 +24,4 @@ Regras gerais:
 
 ## Glossário
 
-Nome canônico em inglês (usado no código) e termo usado na documentação.
-
-| Código | Documentação | Definição curta |
-|---|---|---|
-| `Project` | projeto | Repositório com `.kluzo/` |
-| `Workspace` | workspace | Sessão de trabalho sobre uma milestone |
-| `Milestone` | milestone | Unidade de entrega no tracker |
-| `Node` | nó | Issue = branch = PR/MR, com gates próprios |
-| `Subtask` | subtask | Item do checklist interno do nó |
-| `Edge` (`blocks`, `contract`, `conflict`) | aresta (bloqueio, contrato, conflito) | Relação entre nós |
-| `Area` | área | Nome + globs de caminho; gera conflito |
-| `Role` | papel | Agente definido em `roles/*.md` |
-| `Flow` | flow | Sequência de etapas |
-| `Step` | etapa | Item de um flow |
-| `Harness` / `Runtime` | harness | Ferramenta que executa um papel (Claude Code, OpenCode) |
-| `Session` | sessão | Uma execução de um papel num harness |
-| `Attempt` | tentativa | Uma passagem do nó pelo flow de nó |
-| `Gate` | gate | Verificação determinística |
-| `MergeQueue` | fila de merge | Integração serial na branch da milestone |
-| `Decision` | decisão | Escolha registrada por agente ou humano |
-| `Question` | escalação | Pergunta de um agente para o humano |
-| `Proposal` | proposta | Nó novo sugerido durante a execução |
-| `Plan` | plano | Grafo aprovado de uma milestone |
-| `Profile` | perfil | Conjunto de overrides sobre os papéis |
-| `Journal` | journal | Registro append-only de eventos |
+Os nomes canônicos em inglês de cada conceito estão no [glossário](../product/concepts.md#glossário).

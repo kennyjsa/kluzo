@@ -1,6 +1,6 @@
 # Features
 
-O que o Kluzo faz, uma feature por arquivo. A ordem de entrega fica no [ROADMAP](../ROADMAP.md). Cada feature tem:
+O que o Kluzo faz, uma feature por arquivo. A ordem de entrega fica no [roadmap](../../planning/roadmap.md). Cada feature tem:
 - **O quê:** o que ela faz.
 - **Comportamento:** as regras e o fluxo.
 - **Telas:** onde aparece na web.
@@ -8,34 +8,11 @@ O que o Kluzo faz, uma feature por arquivo. A ordem de entrega fica no [ROADMAP]
 - **Versão:** em qual versão do roadmap ela entra (pode ser em partes).
 - **Status:** `planejada`, `em andamento` ou `entregue`.
 
-Referência de conceitos: [SPEC.md](../SPEC.md). Telas de referência: [protótipo](../prototype/).
+Referências: [conceitos](../concepts.md), [ciclo de vida](../lifecycle.md), [interfaces](../interfaces.md) e o [protótipo](../../design/prototype/).
 
-## Mapa de navegação
+## Critério comum
 
-```
-Inbox ◄──────────────────────────── (atalho global: o que precisa de você)
-Ativos ◄─────────────────────────── (workspaces em andamento de todos os projetos)
-Projetos
- └── Projeto
-      ├── Workspaces ──► Workspace  (novo workspace a partir de milestone)
-      │                   ├── Visão geral
-      │                   ├── Progresso: [Grafo | Kanban | Estrutura]
-      │                   ├── Plano
-      │                   ├── Times (por flow, em execução)
-      │                   ├── Fila de merge
-      │                   ├── Decisões
-      │                   └── Custos
-      │                        └── Nó ──► Execução ao vivo
-      ├── Times (por flow, configurados)
-      └── Configuração
-```
-
-O layout é **responsivo e mobile-first**:
-- **Celular:** a navegação principal fica numa barra inferior com quatro destinos (**Inbox · Projetos · Ativos · Mais**). Dentro de um workspace, as seções são abas roláveis no topo.
-- **Tablet:** a barra vira um trilho lateral. Listas e detalhes ficam lado a lado.
-- **Desktop:** barra lateral fixa. As visões de progresso ocupam a área principal, e o detalhe do nó abre num painel à direita sem sair da tela. O kanban mostra todas as colunas ao mesmo tempo.
-
-Critério de aceite comum a todas as telas: funcionar em 390, 768 e 1280 px de largura, sem rolagem horizontal da página (só dentro de áreas próprias, como a linha do tempo da Estrutura).
+Toda feature com tela precisa funcionar em 390, 768 e 1280 px de largura, sem rolagem horizontal da página. O layout e o mapa de navegação estão em [interfaces.md](../interfaces.md).
 
 ## Catálogo
 

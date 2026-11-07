@@ -28,6 +28,7 @@ tracker:
     app_id_env: KLUZO_GH_APP_ID
     key_file_env: KLUZO_GH_APP_KEY
   poll_interval: 30s
+  operators: [kennyjsa]        # quem pode aprovar e usar /kluzo pelo tracker
 
 branches:
   main: main
@@ -65,9 +66,11 @@ runtimes:
   claude-code:
     bin: claude
     min_version: 2.1.186
+    env_allow: [DATABASE_URL_TEST]   # variáveis do projeto repassadas à sessão
   opencode:
     bin: opencode
     min_version: 1.4.0
+    env_allow: []
 
 defaults:
   harness: claude-code

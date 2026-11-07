@@ -11,7 +11,7 @@ A documentação do Kluzo está em português. Sem uma regra explícita, cada ag
 
 - **Em inglês:** código, identificadores, nomes de pacote, chaves de configuração (`kluzo.yaml`, frontmatter, flows, planos), nomes de estados, labels (`orch/*`), eventos, ferramentas MCP, mensagens de log e de erro, commits.
 - **Em português:** documentação em `docs/`, ADRs, `AGENTS.md`, textos da interface web (via i18n, com `pt-BR` como idioma padrão) e comentários que expliquem regra de negócio.
-- Os termos de domínio têm um nome canônico em inglês, definido no [glossário dos contratos](../contracts/README.md#glossário).
+- Os termos de domínio têm um nome canônico em inglês, definido no [glossário](../../docs/product/concepts.md#glossário).
 
 ## Consequências
 
