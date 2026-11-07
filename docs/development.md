@@ -20,8 +20,9 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 | `make arch` | Teste de regras de dependência (`internal/archtest`) |
 | `make test-integration` | Testes com GitHub real e harness real (tag `integration`); não roda no CI de PR |
 | `make web-dev` | Vite em modo dev apontando para um Kluzo local em `--listen` |
-| `make vuln` | `govulncheck ./...` (e `npm audit` na web) |
-| `make check` | `lint` + `arch` + `test` + `vuln`; o mesmo que o CI roda |
+| `make vuln` | `govulncheck ./...` (e `npm audit` na web); roda no CI |
+| `make dist` | Binários para Linux e macOS (amd64 e arm64) em `dist/` |
+| `make check` | `lint` + `arch` + `test`; o CI roda isso, mais `vuln` e `dist` |
 
 ## Testes
 
