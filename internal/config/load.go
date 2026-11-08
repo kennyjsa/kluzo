@@ -37,19 +37,11 @@ type loader struct {
 // The Project is only meaningful when the error is nil.
 func Load(dir string) (*Project, error) {
 	l := &loader{dir: dir}
-	p := l.load(true)
+	p := l.load()
 	return p, l.errs.sorted().orNil()
 }
 
-// LoadRoles reads and validates kluzo.yaml (for the defaults) and the roles,
-// without looking at the flows. It backs `kluzo roles check`.
-func LoadRoles(dir string) (*Project, error) {
-	l := &loader{dir: dir}
-	p := l.load(false)
-	return p, l.errs.sorted().orNil()
-}
-
-func (l *loader) load(withFlows bool) *Project {
+func (l *loader) load() *Project {
 	cfg, ok := l.loadConfig()
 	if !ok {
 		return nil // without a readable kluzo.yaml nothing else can be judged
@@ -58,9 +50,7 @@ func (l *loader) load(withFlows bool) *Project {
 	p.Schemas = l.loadSchemas()
 	outputs := append(contracts.OutputSchemas(), p.Schemas...)
 	invalid := l.loadRoles(p, outputs)
-	if withFlows {
-		l.loadFlows(p, invalid)
-	}
+	l.loadFlows(p, invalid)
 	return p
 }
 

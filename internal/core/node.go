@@ -146,10 +146,10 @@ func NextNode(n Node, ev NodeEvent, lim Limits) (Node, error) {
 		n.State, n.PrevState, n.BlockedReason = n.PrevState, "", ""
 		return n, nil
 	case TriggerFail:
-		n.State, n.BlockedReason = NodeFailed, ""
+		n.State, n.PrevState, n.BlockedReason = NodeFailed, "", ""
 		return n, nil
 	case TriggerCancel:
-		n.State, n.BlockedReason = NodeCancelled, ""
+		n.State, n.PrevState, n.BlockedReason = NodeCancelled, "", ""
 		return n, nil
 	}
 
