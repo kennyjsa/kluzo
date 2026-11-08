@@ -3,6 +3,11 @@
 // mcp and the harness adapters all read the same lists from here.
 package contracts
 
+import (
+	"embed"
+	"strings"
+)
+
 // ProtocolVersion is the version of the Kluzo agent protocol implemented by
 // this binary (docs/contracts/prompt.md). A role declares the version it was
 // written for in its frontmatter (`protocol:`), and the two must match.
@@ -30,15 +35,26 @@ func MCPTools() []string {
 // not contain (docs/contracts/prompt.md).
 func ReservedMarkers() []string { return []string{"<<<UNTRUSTED", "UNTRUSTED:"} }
 
+//go:embed schemas/*.json
+var schemaFS embed.FS
+
 // OutputSchemas returns the names of the role output schemas built into the
-// binary (docs/contracts/results.md). A project can add more, or override
-// these, in .kluzo/schemas/.
-//
-// TODO: derive this list from the embedded internal/contracts/schemas/*.json
-// once those files exist.
+// binary (docs/contracts/results.md), sorted. A project can add more, or
+// override these, in .kluzo/schemas/.
 func OutputSchemas() []string {
-	return []string{
-		"node-result", "review-result", "triage-result", "plan-result",
-		"critique-result", "refinement-result", "architecture-result", "report-result",
+	entries, err := schemaFS.ReadDir("schemas")
+	if err != nil {
+		panic(err) // the embedded directory always exists
 	}
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = strings.TrimSuffix(e.Name(), ".json")
+	}
+	return names
+}
+
+// OutputSchema returns the JSON Schema text of a built-in output schema.
+func OutputSchema(name string) ([]byte, bool) {
+	data, err := schemaFS.ReadFile("schemas/" + name + ".json")
+	return data, err == nil
 }

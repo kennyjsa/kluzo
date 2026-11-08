@@ -13,6 +13,7 @@ Cada peça da stack, com o motivo da escolha. As versões exatas ficam fixadas e
 | Migrations | Embutidas (`embed`) e aplicadas por um runner próprio em `store` | São poucas e só avançam; uma ferramenta externa não compensa |
 | YAML | `github.com/goccy/go-yaml` | Mantido, e reporta linha e coluna nos erros (exigência de `config`) |
 | JSON Schema | `github.com/santhosh-tekuri/jsonschema/v6` | Draft 2020-12, mensagens de erro com caminho |
+| Unicode | `golang.org/x/text` (só `unicode/norm`) | Normalização NFC do saneamento do envelope não confiável ([prompt.md](../contracts/prompt.md#envelope-de-dado-não-confiável)); as tabelas Unicode passam de milhares de linhas, então não cabem em código próprio (ADR 0017). BSD-3, mantida pelo time do Go, sem cgo e sem dependências |
 | IDs | ULID próprio em `internal/platform/ids` | Ordenáveis por tempo e monotônicos; ~100 linhas, então não justifica dependência (ADR 0017) |
 | MCP | `github.com/modelcontextprotocol/go-sdk` | SDK oficial |
 | GitHub | `github.com/google/go-github` + autenticação de GitHub App (`github.com/bradleyfalzon/ghinstallation`) | Cliente mais completo; o App dá identidade própria ao bot |

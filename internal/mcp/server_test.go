@@ -1,0 +1,288 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/kennyjsa/kluzo/internal/contracts"
+)
+
+// counter is a deterministic entropy source: every read returns distinct bytes.
+type counter struct {
+	mu sync.Mutex
+	n  byte
+}
+
+func (c *counter) Read(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n++
+	for i := range p {
+		p[i] = c.n + byte(i)
+	}
+	return len(p), nil
+}
+
+type recorder struct {
+	mu     sync.Mutex
+	events []CallEvent
+}
+
+func (r *recorder) Call(_ context.Context, e CallEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, e)
+}
+
+func (r *recorder) all() []CallEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]CallEvent(nil), r.events...)
+}
+
+type env struct {
+	srv *Server
+	rec *recorder
+}
+
+func newEnv(t *testing.T) env {
+	t.Helper()
+	rec := &recorder{}
+	srv := New(rec, &counter{}, "test")
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	return env{srv, rec}
+}
+
+func (e env) open(t *testing.T, id string, tools ...string) *Session {
+	t.Helper()
+	schema, _ := contracts.OutputSchema("report-result")
+	s, err := e.srv.Open(SessionSpec{ID: id, Workspace: "v1", Node: "42", Role: "reporter", Tools: tools, Schema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// bearer adds the session token to every request.
+type bearer struct{ token string }
+
+func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	if b.token != "" {
+		r.Header.Set("Authorization", "Bearer "+b.token)
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func connect(t *testing.T, url, token string) (*sdk.ClientSession, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	c := sdk.NewClient(&sdk.Implementation{Name: "agent", Version: "1"}, nil)
+	cs, err := c.Connect(ctx, &sdk.StreamableClientTransport{Endpoint: url, HTTPClient: &http.Client{Transport: bearer{token}}, DisableStandaloneSSE: true, MaxRetries: -1}, nil)
+	if err == nil {
+		t.Cleanup(func() { _ = cs.Close() })
+	}
+	return cs, err
+}
+
+func call(t *testing.T, cs *sdk.ClientSession, tool string, args any) (map[string]any, bool) {
+	t.Helper()
+	res, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: tool, Arguments: args})
+	if err != nil {
+		t.Fatalf("CallTool %s: %v", tool, err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(res.Content[0].(*sdk.TextContent).Text), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out, res.IsError
+}
+
+var (
+	validReport   = map[string]any{"v": 1, "summary": "done", "markdown": "## Report"}
+	invalidReport = map[string]any{"v": 1, "summary": "done"} // markdown is required
+)
+
+func TestResultIsValidatedAndAccepted(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(t, "s1", ToolResult)
+	cs, err := connect(t, s.URL(), s.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tools, err := cs.ListTools(context.Background(), nil)
+	if err != nil || len(tools.Tools) != 1 || tools.Tools[0].Name != ToolResult {
+		t.Fatalf("tools = %+v, err = %v; v0.1 serves only kluzo_result", tools, err)
+	}
+
+	got, isErr := call(t, cs, ToolResult, validReport)
+	if isErr || got["accepted"] != true {
+		t.Fatalf("reply = %v", got)
+	}
+	select {
+	case <-s.Done():
+	default:
+		t.Error("Done is not closed after an accepted result")
+	}
+	out := s.Outcome()
+	var result map[string]any
+	if err := json.Unmarshal(out.Result, &result); err != nil || !out.Accepted || result["markdown"] != "## Report" || out.Calls != 1 {
+		t.Errorf("outcome = %+v", out)
+	}
+
+	// One valid call per step.
+	if again, isErr := call(t, cs, ToolResult, validReport); !isErr || again["error"] != errSessionClosed {
+		t.Errorf("second call = %v (isError %v), want session_closed", again, isErr)
+	}
+	want := []CallEvent{{"s1", ToolResult, true}, {"s1", ToolResult, false}}
+	if got := e.rec.all(); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("mcp.call events = %v, want %v", got, want)
+	}
+}
+
+func TestOneCorrectionIsAllowed(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(t, "s1", ToolResult)
+	cs, _ := connect(t, s.URL(), s.Token())
+
+	got, isErr := call(t, cs, ToolResult, invalidReport)
+	errs, _ := got["errors"].([]any)
+	if isErr || got["accepted"] != false || len(errs) == 0 || !strings.HasPrefix(errs[0].(string), "$") || !strings.Contains(errs[0].(string), "markdown") {
+		t.Fatalf("first reply = %v", got)
+	}
+	select {
+	case <-s.Done():
+		t.Fatal("the session ended after the first invalid result")
+	default:
+	}
+	if got, _ := call(t, cs, ToolResult, validReport); got["accepted"] != true {
+		t.Errorf("correction not accepted: %v", got)
+	}
+	if out := s.Outcome(); !out.Accepted || out.Calls != 2 {
+		t.Errorf("outcome = %+v", out)
+	}
+}
+
+func TestSecondInvalidResultEndsTheStep(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(t, "s1", ToolResult)
+	cs, _ := connect(t, s.URL(), s.Token())
+
+	call(t, cs, ToolResult, invalidReport)
+	got, _ := call(t, cs, ToolResult, map[string]any{"v": 2, "summary": "x", "markdown": "m"})
+	if got["accepted"] != false {
+		t.Fatalf("reply = %v", got)
+	}
+	select {
+	case <-s.Done():
+	default:
+		t.Fatal("the step must end after the second invalid result")
+	}
+	if out := s.Outcome(); out.Accepted || len(out.Errors) == 0 || out.Calls != 2 || len(out.Result) != 0 {
+		t.Errorf("outcome = %+v", out)
+	}
+	if again, isErr := call(t, cs, ToolResult, validReport); !isErr || again["error"] != errSessionClosed {
+		t.Errorf("third call = %v", again)
+	}
+}
+
+func TestErrorsNameThePath(t *testing.T) {
+	schema, _ := contracts.OutputSchema("review-result")
+	sess, err := newSession(New(&recorder{}, &counter{}, "t"), SessionSpec{ID: "x", Schema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errs := sess.validate([]byte(`{"v":1,"summary":"s","criteria":[],"findings":[{"severity":"nope","category":"style","file":"a","line":1,"message":"m"}]}`))
+	if len(errs) == 0 || !strings.HasPrefix(errs[0], "$.findings[0].severity: ") {
+		t.Errorf("errors = %v", errs)
+	}
+	if errs := sess.validate([]byte(`not json`)); len(errs) != 1 || !strings.HasPrefix(errs[0], "$: not valid JSON") {
+		t.Errorf("errors = %v", errs)
+	}
+}
+
+func TestOnlyTheLocalHostAndTheTokenGetIn(t *testing.T) {
+	e := newEnv(t)
+	host, _, err := net.SplitHostPort(e.srv.addr)
+	if err != nil || host != "127.0.0.1" {
+		t.Errorf("listening on %q, want 127.0.0.1", e.srv.addr)
+	}
+	a, b := e.open(t, "a", ToolResult), e.open(t, "b", ToolResult)
+	if a.Token() == b.Token() || a.Token() == "" {
+		t.Error("tokens must be distinct and non-empty")
+	}
+	for name, token := range map[string]string{"no token": "", "wrong token": "nope", "token of another session": b.Token()} {
+		if _, err := connect(t, a.URL(), token); err == nil {
+			t.Errorf("%s: connection accepted", name)
+		}
+	}
+	if _, err := connect(t, "http://"+e.srv.addr+"/s/missing/mcp", a.Token()); err == nil {
+		t.Error("unknown session accepted")
+	}
+
+	cs, err := connect(t, a.URL(), a.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Close() // the session ended: the token is revoked
+	if _, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: ToolResult, Arguments: validReport}); err == nil {
+		t.Error("a revoked token still works")
+	}
+	if a.Token() != "" {
+		t.Error("token not cleared on Close")
+	}
+}
+
+func TestToolsOutsideTheRoleAreRefused(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(t, "s1", ToolResult, "kluzo_context")
+	cs, _ := connect(t, s.URL(), s.Token())
+
+	tests := []struct{ tool, want string }{
+		{"kluzo_ask", errForbidden},       // known tool, not declared by the role
+		{"kluzo_context", errUnavailable}, // declared, but only from v0.2
+		{"kluzo_made_up", errForbidden},
+	}
+	for _, tt := range tests {
+		got, isErr := call(t, cs, tt.tool, map[string]any{})
+		if !isErr || got["error"] != tt.want {
+			t.Errorf("%s: %v (isError %v), want %s", tt.tool, got, isErr, tt.want)
+		}
+	}
+	for _, ev := range e.rec.all() {
+		if ev.OK {
+			t.Errorf("refused call recorded as ok: %v", ev)
+		}
+	}
+	if len(e.rec.all()) != 3 {
+		t.Errorf("events = %v, want one mcp.call per call", e.rec.all())
+	}
+}
+
+func TestOpenRejectsBadInput(t *testing.T) {
+	e := newEnv(t)
+	e.open(t, "s1", ToolResult)
+	schema, _ := contracts.OutputSchema("report-result")
+	if _, err := e.srv.Open(SessionSpec{ID: "s1", Schema: schema}); err == nil {
+		t.Error("duplicate session accepted")
+	}
+	if _, err := e.srv.Open(SessionSpec{ID: "s2", Schema: []byte(`{"type":`)}); err == nil {
+		t.Error("broken schema accepted")
+	}
+	if _, err := New(&recorder{}, &counter{}, "t").Open(SessionSpec{ID: "s3", Schema: schema}); err == nil {
+		t.Error("Open before Start accepted")
+	}
+}
