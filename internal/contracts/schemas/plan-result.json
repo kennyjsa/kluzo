@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "plan-result",
+  "description": "Output of the planner (v0.3).",
+  "type": "object",
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Schema version."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One or two sentences for the journal and the web."
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "title",
+          "rationale"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Decisions taken under ambiguity."
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "why",
+          "blocking"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Gaps found; they become proposals."
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "new": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Local id of a node that does not have an issue yet."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "areas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "subtasks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "estimate_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "title",
+          "areas"
+        ],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "issue"
+            ]
+          },
+          {
+            "required": [
+              "new"
+            ]
+          }
+        ]
+      },
+      "minItems": 1
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "to": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "blocks",
+              "contract"
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "enum": [
+              "split"
+            ]
+          },
+          "issue": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "into": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 2
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "kind",
+          "issue",
+          "into",
+          "why"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "estimate_usd": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "v",
+    "summary",
+    "nodes",
+    "edges"
+  ],
+  "additionalProperties": false
+}

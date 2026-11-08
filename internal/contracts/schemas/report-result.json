@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "report-result",
+  "description": "Output of the reporter.",
+  "type": "object",
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Schema version."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One or two sentences for the journal and the web."
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "title",
+          "rationale"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Decisions taken under ambiguity."
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "why",
+          "blocking"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Gaps found; they become proposals."
+    },
+    "markdown": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Body of the milestone PR description."
+    }
+  },
+  "required": [
+    "v",
+    "summary",
+    "markdown"
+  ],
+  "additionalProperties": false
+}
