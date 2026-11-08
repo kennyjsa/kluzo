@@ -132,6 +132,14 @@ func (s *Session) Outcome() Outcome {
 	return s.outcome
 }
 
+// Accepted returns the result the server accepted through kluzo_result, which
+// is how a runtime knows the session succeeded.
+func (s *Session) Accepted() (json.RawMessage, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.outcome.Result, s.outcome.Accepted
+}
+
 // Close revokes the token and forgets the session, so the same id can be
 // opened again when the session is resumed. It is called when the session
 // ends, whatever the reason; later requests are refused.
