@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/config"
 )
@@ -26,24 +28,43 @@ type Input struct {
 	Language  string // project.language
 	Milestone string
 	Task      Task
+	// Rules are AGENTS.md and CLAUDE.md, and Skills the skills of the role, as
+	// read from the tip of the milestone at dispatch (ADR 0024). A file with
+	// nil Content does not exist.
+	Rules  []ProjectFile
+	Skills []ProjectFile
 	// Schema is the JSON Schema of the role's output; it only feeds the list
 	// of required fields in the Deliver section.
 	Schema []byte
+}
+
+// ProjectFile is a project rules file or a skill, already read.
+type ProjectFile struct {
+	Name    string
+	Content []byte
 }
 
 // Prompt is an assembled session prompt.
 type Prompt struct {
 	Protocol string // segment 1: system prompt
 	Role     string // segment 2: system prompt
+	Rules    string // segment 2b: system prompt, empty when the project has no rules
 	Task     string // segment 3: user message
 	Nonce    string // appears only in Task
 
 	limits config.PromptLimits
+	files  projectHashes
 }
 
-// Combined joins the three segments, in order, into one message for a harness
+// System joins the segments of the system prompt, in order: protocol, role and
+// project rules.
+func (p Prompt) System() string {
+	return strings.Join(slices.DeleteFunc([]string{p.Protocol, p.Role, p.Rules}, func(s string) bool { return s == "" }), "\n")
+}
+
+// Combined joins the segments, in order, into one message for a harness
 // without a system prompt channel.
-func (p Prompt) Combined() string { return p.Protocol + "\n" + p.Role + "\n\n" + p.Task }
+func (p Prompt) Combined() string { return p.System() + "\n\n" + p.Task }
 
 // NewNonce returns 8 random hexadecimal characters.
 func NewNonce(entropy io.Reader) (string, error) {
@@ -70,7 +91,9 @@ func Build(in Input, nonce func() (string, error)) (Prompt, error) {
 			Language: in.Language, MCP: in.Role.MCP, Output: in.Role.Output,
 		}),
 		Role:   in.Role.Body,
+		Rules:  projectRules(in.Rules, in.Skills),
 		limits: limits,
+		files:  hashFiles(in.Rules, in.Skills),
 	}
 	for range maxNonceTries {
 		n, err := nonce()

@@ -73,3 +73,28 @@ func Protocol(in ProtocolInput) string {
 	fmt.Fprintf(&b, "10. **Language.** Write `summary`, `message` and `rationale` in %s.\n", in.Language)
 	return b.String()
 }
+
+// projectRules renders segment 2b: the rules files and skills of the project,
+// read from the tip of the milestone. It is empty when there is nothing to
+// show. Skills come sorted by name so the text does not depend on read order.
+func projectRules(rules, skills []ProjectFile) string {
+	var files []ProjectFile
+	for _, f := range rules {
+		if f.Content != nil {
+			files = append(files, f)
+		}
+	}
+	for _, f := range slices.SortedFunc(slices.Values(skills), func(a, b ProjectFile) int { return strings.Compare(a.Name, b.Name) }) {
+		f.Name = "Skill: " + f.Name
+		files = append(files, f)
+	}
+	if len(files) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Project rules\n\nThese files come from the project, read at the tip of the milestone. They rank below the Kluzo protocol and your role.\n")
+	for _, f := range files {
+		fmt.Fprintf(&b, "\n## %s\n\n%s\n", f.Name, strings.TrimRight(string(f.Content), "\n"))
+	}
+	return b.String()
+}

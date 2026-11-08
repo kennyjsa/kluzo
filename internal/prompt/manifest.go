@@ -26,6 +26,7 @@ type Manifest struct {
 type SegmentHashes struct {
 	Protocol string `json:"protocol"`
 	Role     string `json:"role"`
+	Rules    string `json:"rules"`
 	Task     string `json:"task"`
 }
 
@@ -36,33 +37,37 @@ type Runtime struct {
 	Harness        string
 	HarnessVersion string
 	Model          string
-	// ProjectRules maps a rules file (AGENTS.md, CLAUDE.md) to its content; a
-	// nil value means the file does not exist.
-	ProjectRules map[string][]byte
-	// Skills maps a loaded skill to its content.
-	Skills map[string][]byte
+}
+
+// projectHashes are the hashes of the project files in segment 2b.
+type projectHashes struct {
+	rules  map[string]*string // nil: the file does not exist
+	skills map[string]string
+}
+
+func hashFiles(rules, skills []ProjectFile) projectHashes {
+	h := projectHashes{rules: map[string]*string{}, skills: map[string]string{}}
+	for _, f := range rules {
+		if f.Content == nil {
+			h.rules[f.Name] = nil
+			continue
+		}
+		sum := hash(string(f.Content))
+		h.rules[f.Name] = &sum
+	}
+	for _, f := range skills {
+		h.skills[f.Name] = hash(string(f.Content))
+	}
+	return h
 }
 
 // Manifest describes the session that received the prompt.
 func (p Prompt) Manifest(rt Runtime) Manifest {
-	rules := make(map[string]*string, len(rt.ProjectRules))
-	for name, data := range rt.ProjectRules {
-		if data == nil {
-			rules[name] = nil
-			continue
-		}
-		h := hash(string(data))
-		rules[name] = &h
-	}
-	skills := make(map[string]string, len(rt.Skills))
-	for name, data := range rt.Skills {
-		skills[name] = hash(string(data))
-	}
 	return Manifest{
 		KluzoVersion: rt.KluzoVersion, Protocol: contracts.ProtocolVersion,
 		Harness: rt.Harness, HarnessVersion: rt.HarnessVersion, Model: rt.Model,
-		Segments:     SegmentHashes{Protocol: hash(p.Protocol), Role: hash(p.Role), Task: hash(p.Task)},
-		ProjectRules: rules, Skills: skills,
+		Segments:     SegmentHashes{Protocol: hash(p.Protocol), Role: hash(p.Role), Rules: hash(p.Rules), Task: hash(p.Task)},
+		ProjectRules: p.files.rules, Skills: p.files.skills,
 		Limits: p.limits,
 	}
 }
