@@ -3,6 +3,10 @@ package config
 import (
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/kennyjsa/kluzo/internal/contracts"
 )
 
 // Flow is flows/<name>.yaml: an ordered list of steps (ADR 0010).
@@ -64,9 +68,10 @@ type flowContext struct {
 
 // flowValidator walks one flow, tracking the ids already seen.
 type flowValidator struct {
-	r    report
-	ctx  flowContext
-	seen []string
+	r         report
+	ctx       flowContext
+	seen      []string // ids of the steps already visited
+	seenRoles []string // ids of the role steps already visited
 }
 
 func (f *Flow) validate(r report, ctx flowContext) {
@@ -177,7 +182,27 @@ func (v *flowValidator) roleStep(p string, s Step) {
 	if r.src.has(join(p, "max_rounds")) && s.MaxRounds < 1 {
 		r.add(join(p, "max_rounds"), "must be at least 1")
 	}
-	v.earlier(p, "on_reject", s.OnReject)
+	if r.src.has(join(p, "on_reject")) && !slices.Contains(v.seen, s.OnReject) {
+		r.add(join(p, "on_reject"), fmt.Sprintf("%q is not an earlier step of this flow", s.OnReject))
+	}
+	if ro := v.ctx.roles[s.Role]; s.Phase == "in_review" && ro != nil {
+		if bad := forbiddenInReview(ro); len(bad) > 0 {
+			r.add(join(p, "role"), fmt.Sprintf("role %q runs in phase in_review, so it must be read-only: remove %s from tools in roles/%s.md (ADR 0020)",
+				s.Role, strings.Join(bad, " and "), s.Role))
+		}
+	}
+	v.seenRoles = append(v.seenRoles, s.ID)
+}
+
+// forbiddenInReview lists the tools of the role that a read-only role cannot have.
+func forbiddenInReview(ro *Role) []string {
+	var bad []string
+	for _, t := range ro.Tools {
+		if slices.Contains(contracts.WriteTools(), t) && !slices.Contains(bad, t) {
+			bad = append(bad, strconv.Quote(t))
+		}
+	}
+	return bad
 }
 
 func (v *flowValidator) gateStep(p string, s Step) {
@@ -197,7 +222,9 @@ func (v *flowValidator) gateStep(p string, s Step) {
 			v.r.add(idx(join(p, "gate"), i), fmt.Sprintf("gate %q is not defined in %s of kluzo.yaml", g, section))
 		}
 	}
-	v.earlier(p, "on_fail", s.OnFail)
+	if v.r.src.has(join(p, "on_fail")) && !slices.Contains(v.seenRoles, s.OnFail) {
+		v.r.add(join(p, "on_fail"), fmt.Sprintf("%q is not an earlier role step of this flow", s.OnFail))
+	}
 }
 
 func (v *flowValidator) loopStep(p string, s Step, inLoop bool) {
@@ -217,11 +244,4 @@ func (v *flowValidator) loopStep(p string, s Step, inLoop bool) {
 		v.r.add(join(lp, "steps"), "a loop needs at least one step")
 	}
 	v.steps(join(lp, "steps"), s.Loop.Steps, true)
-}
-
-// earlier checks that key points to a step defined before this one.
-func (v *flowValidator) earlier(p, key, target string) {
-	if target != "" && !slices.Contains(v.seen, target) {
-		v.r.add(join(p, key), fmt.Sprintf("%q is not an earlier step of this flow", target))
-	}
 }

@@ -2,7 +2,7 @@
 version: 1
 protocol: 1
 description: Reviews the node read-only
-tools: [edit, read, bash]
+tools: [edit, read, bash, edit]
 mcp: [kluzo_result]
 output: review-result
 ---

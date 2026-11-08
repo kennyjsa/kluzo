@@ -71,3 +71,7 @@ defaults:
 notify:
   kind: ntfy
   url_env: KLUZO_NTFY_URL
+
+code_map:
+  adapter: cartog
+  exclude: ["vendor/**", "web/dist/**"]

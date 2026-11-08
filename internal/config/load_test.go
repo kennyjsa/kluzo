@@ -50,6 +50,9 @@ func TestLoadValid(t *testing.T) {
 	if steps := p.Flows["upstream"].Steps; steps[1].Loop == nil || steps[1].Loop.MaxRounds != 3 || len(steps[1].Loop.Steps) != 2 {
 		t.Errorf("upstream loop = %+v", steps[1])
 	}
+	if got := p.Config.CodeMap; got.Adapter != "cartog" || !slices.Equal(got.Exclude, []string{"vendor/**", "web/dist/**"}) {
+		t.Errorf("code_map = %+v", got)
+	}
 	if diff := cmp.Diff([]string{"custom-report"}, p.Schemas); diff != "" {
 		t.Errorf("schemas mismatch (-want +got):\n%s", diff)
 	}
@@ -117,11 +120,11 @@ func TestLoadRolesIgnoresFlows(t *testing.T) {
 }
 
 func TestLoadRolesReportsRoleErrors(t *testing.T) {
-	dir := fixture(t, "role-reviewer-writes")
+	dir := fixture(t, "role-body-tools")
 	_, err := LoadRoles(dir)
 	assertErrors(t, dir, err, []want{
-		{"roles/reviewer.md", 5, "tools[0]", `remove "edit"`},
-		{"roles/reviewer.md", 5, "tools[2]", `remove "bash"`},
+		{"roles/reviewer.md", 9, "", "kluzo_ask, which is not listed in mcp"},
+		{"roles/reviewer.md", 10, "", "kluzo_propose_node, which is not listed in mcp"},
 	})
 }
 
@@ -168,6 +171,9 @@ func TestInit(t *testing.T) {
 		if p.Roles[name] == nil {
 			t.Errorf("missing default role %q", name)
 		}
+	}
+	if !slices.Contains(p.Config.ProtectedPaths, "AGENTS.md") {
+		t.Errorf("protected_paths = %v, want AGENTS.md in it (ADR 0022)", p.Config.ProtectedPaths)
 	}
 	if len(p.Flows) != 3 {
 		t.Errorf("flows = %v, want upstream, node and closing", sortedKeys(p.Flows))

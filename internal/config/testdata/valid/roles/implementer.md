@@ -9,7 +9,7 @@ subagents: haiku
 effort: high
 tools: [read, edit, bash, test]
 skills: [testing-conventions]
-mcp: [kluzo_context, kluzo_decision, kluzo_ask, kluzo_propose_node, kluzo_result]
+mcp: [kluzo_context, kluzo_changes, kluzo_decisions, kluzo_code_map, kluzo_code_find, kluzo_code_refs, kluzo_decision, kluzo_ask, kluzo_propose_node, kluzo_result]
 output: node-result
 budget: { minutes: 45, usd: 4 }
 max_turns: 80
