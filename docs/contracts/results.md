@@ -2,7 +2,7 @@
 
 Cada papel declara em `output` o schema da sua saída ([config.md](config.md#papéis-rolesrolemd)). A saída chega por `kluzo_result` (MCP, desde a v0.1; ADR 0019). Para harness sem MCP, há a reserva do bloco cercado `kluzo-result` ([prompt.md](prompt.md#segmento-1--protocolo)). Em qualquer caso, ela é validada contra o JSON Schema embutido no binário (`internal/contracts/schemas/*.json`), que um projeto pode sobrescrever em `.kluzo/schemas/`.
 
-**Saída inválida conta como falha da etapa.** A sessão recebe o erro de validação uma vez para corrigir. Se falhar de novo, a triagem decide.
+**Saída inválida ou ausente conta como falha da etapa**, nunca como resultado vazio: um reviewer ou critic que não entregou não revisou. A sessão recebe o erro de validação uma vez para corrigir. Se falhar de novo, a triagem decide.
 
 Os exemplos abaixo mostram a forma. O schema formal fica no arquivo `.json` com o mesmo nome.
 
