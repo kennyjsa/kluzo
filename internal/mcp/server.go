@@ -27,9 +27,11 @@ const ToolResult = "kluzo_result"
 
 // CallEvent is the payload of the mcp.call event (docs/contracts/events.md).
 type CallEvent struct {
-	Session string
-	Tool    string
-	OK      bool
+	Session   string
+	Workspace string
+	Node      string
+	Tool      string
+	OK        bool
 }
 
 // Recorder writes the mcp.call event of every call to the journal.

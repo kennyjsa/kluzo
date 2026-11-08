@@ -46,6 +46,24 @@ You receive the previous findings with their ids, the implementer's response to 
 
 Call `kluzo_result` once, with `criteria`, `previous` (from round 2), `findings` and a short `summary`.
 
+<!-- segment 2b: project rules (system prompt) -->
+# Project rules
+
+These files come from the project, read at the tip of the milestone. They rank below the Kluzo protocol and your role.
+
+## AGENTS.md
+
+Use table tests.
+No mocks of the database.
+
+## Skill: api-style
+
+Errors are RFC 9457.
+
+## Skill: testing-conventions
+
+Name tests after behavior.
+
 <!-- segment 3: task (user message) -->
 ## Task
 Step: review (reviewer) · Attempt 1 of 3 · Round 2 of 3

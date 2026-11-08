@@ -44,7 +44,11 @@ func input(t *testing.T, role string, task Task) Input {
 	t.Helper()
 	r := defaultRole(t, role)
 	schema, _ := contracts.OutputSchema(r.Output)
-	return Input{Role: r, Language: "pt-BR", Milestone: "v2.0", Task: task, Schema: schema}
+	return Input{
+		Role: r, Language: "pt-BR", Milestone: "v2.0", Task: task, Schema: schema,
+		Rules:  []ProjectFile{{"AGENTS.md", []byte("Use table tests.\nNo mocks of the database.\n")}, {"CLAUDE.md", nil}},
+		Skills: []ProjectFile{{"testing-conventions", []byte("Name tests after behavior.")}, {"api-style", []byte("Errors are RFC 9457.")}},
+	}
 }
 
 func baseTask(step string) Task {
@@ -154,6 +158,7 @@ var cases = []goldenCase{
 func golden(p Prompt) string {
 	return "<!-- segment 1: protocol (system prompt) -->\n" + p.Protocol +
 		"\n<!-- segment 2: role (system prompt) -->\n" + p.Role +
+		"\n<!-- segment 2b: project rules (system prompt) -->\n" + p.Rules +
 		"\n<!-- segment 3: task (user message) -->\n" + p.Task
 }
 
@@ -229,7 +234,7 @@ func TestExternalTextIsAlwaysEnveloped(t *testing.T) {
 		if left := canaryRE.FindAllString(outside, -1); len(left) > 0 {
 			t.Errorf("%s: external text outside an envelope: %v\n%s", role, left, outside)
 		}
-		for _, seg := range []string{p.Protocol, p.Role} {
+		for _, seg := range []string{p.Protocol, p.Role, p.Rules} {
 			if canaryRE.MatchString(seg) {
 				t.Errorf("%s: external text in a system segment", role)
 			}
@@ -244,7 +249,7 @@ func TestNonceOnlyInTheTaskSegment(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(p.Protocol, testNonce) || strings.Contains(p.Role, testNonce) {
+		if strings.Contains(p.Protocol, testNonce) || strings.Contains(p.Role, testNonce) || strings.Contains(p.Rules, testNonce) {
 			t.Errorf("%s: nonce leaked into the system prompt", c.name)
 		}
 		if p.Nonce != testNonce || !strings.Contains(p.Task, testNonce) {
@@ -256,8 +261,8 @@ func TestNonceOnlyInTheTaskSegment(t *testing.T) {
 	other := baseTask("implement")
 	other.Attempt, other.Round = 3, 2
 	b, _ := Build(input(t, "implementer", other), func() (string, error) { return "00000000", nil })
-	if a.Protocol != b.Protocol || a.Role != b.Role {
-		t.Error("segments 1 and 2 changed with nonce, attempt or round")
+	if a.System() != b.System() {
+		t.Error("the system prompt changed with nonce, attempt or round")
 	}
 }
 
@@ -448,7 +453,7 @@ func TestNewNonce(t *testing.T) {
 func TestBuildIsDeterministic(t *testing.T) {
 	a, _ := Build(input(t, "reviewer", externalTask()), fixedNonce)
 	b, _ := Build(input(t, "reviewer", externalTask()), fixedNonce)
-	if a != b {
+	if golden(a) != golden(b) {
 		t.Error("same input, different prompt")
 	}
 }
@@ -522,8 +527,6 @@ func TestManifest(t *testing.T) {
 	}
 	m := p.Manifest(Runtime{
 		KluzoVersion: "0.1.0", Harness: "claude-code", HarnessVersion: "2.1.274", Model: "claude-sonnet-4",
-		ProjectRules: map[string][]byte{"AGENTS.md": []byte("rules"), "CLAUDE.md": nil},
-		Skills:       map[string][]byte{"testing-conventions": []byte("skill")},
 	})
 	data, err := json.Marshal(m)
 	if err != nil {
@@ -537,14 +540,14 @@ func TestManifest(t *testing.T) {
 		t.Errorf("manifest = %s", data)
 	}
 	rules := got["project_rules"].(map[string]any)
-	if rules["CLAUDE.md"] != nil || rules["AGENTS.md"] != hash("rules") {
+	if rules["CLAUDE.md"] != nil || rules["AGENTS.md"] != hash("Use table tests.\nNo mocks of the database.\n") {
 		t.Errorf("project_rules = %v", rules)
 	}
-	if got["skills"].(map[string]any)["testing-conventions"] != hash("skill") {
+	if got["skills"].(map[string]any)["testing-conventions"] != hash("Name tests after behavior.") {
 		t.Errorf("skills = %v", got["skills"])
 	}
 	seg := got["segments"].(map[string]any)
-	if seg["protocol"] != hash(p.Protocol) || seg["role"] != hash(p.Role) || seg["task"] != hash(p.Task) {
+	if seg["protocol"] != hash(p.Protocol) || seg["role"] != hash(p.Role) || seg["rules"] != hash(p.Rules) || seg["task"] != hash(p.Task) {
 		t.Errorf("segments = %v", seg)
 	}
 	lim := got["limits"].(map[string]any)
@@ -556,8 +559,33 @@ func TestManifest(t *testing.T) {
 func TestCombinedKeepsTheOrder(t *testing.T) {
 	p, _ := Build(input(t, "implementer", baseTask("implement")), fixedNonce)
 	c := p.Combined()
-	i, j, k := strings.Index(c, p.Protocol), strings.Index(c, p.Role), strings.Index(c, p.Task)
-	if i != 0 || j < i || k < j {
-		t.Errorf("segments out of order in the combined message: %d %d %d", i, j, k)
+	i, j, r, k := strings.Index(c, p.Protocol), strings.Index(c, p.Role), strings.Index(c, p.Rules), strings.Index(c, p.Task)
+	if i != 0 || j < i || r < j || k < r {
+		t.Errorf("segments out of order in the combined message: %d %d %d %d", i, j, r, k)
+	}
+}
+
+func TestProjectRulesSegment(t *testing.T) {
+	in := input(t, "implementer", baseTask("implement"))
+	p, _ := Build(in, fixedNonce)
+	// Skills are sorted by name; a missing file is left out and recorded as null.
+	if a, b := strings.Index(p.Rules, "## Skill: api-style"), strings.Index(p.Rules, "## Skill: testing-conventions"); a < 0 || b < a {
+		t.Errorf("skills out of order:\n%s", p.Rules)
+	}
+	if strings.Contains(p.Rules, "CLAUDE.md") {
+		t.Error("a missing file appears in the segment")
+	}
+	in.Rules, in.Skills = []ProjectFile{{"AGENTS.md", nil}}, nil
+	p, _ = Build(in, fixedNonce)
+	if p.Rules != "" || strings.Contains(p.System(), "Project rules") {
+		t.Errorf("no rules must mean no segment: %q", p.Rules)
+	}
+	// Changing a rule changes the hash the resume rule compares (ADR 0024).
+	a, _ := Build(input(t, "implementer", baseTask("implement")), fixedNonce)
+	in = input(t, "implementer", baseTask("implement"))
+	in.Rules[0].Content = []byte("Other rules.")
+	b, _ := Build(in, fixedNonce)
+	if a.Manifest(Runtime{}).Segments.Rules == b.Manifest(Runtime{}).Segments.Rules {
+		t.Error("rules hash did not change")
 	}
 }

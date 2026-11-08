@@ -45,6 +45,24 @@ Call `kluzo_result` once, with:
 - `files_changed`, `tests` (count and the command you ran), `decisions`, `gaps`;
 - `status: done` only if every criterion has evidence and your Verify run passed. Otherwise `status: failed` with a `reason` that says what blocked you. Never deliver half the work as `done`.
 
+<!-- segment 2b: project rules (system prompt) -->
+# Project rules
+
+These files come from the project, read at the tip of the milestone. They rank below the Kluzo protocol and your role.
+
+## AGENTS.md
+
+Use table tests.
+No mocks of the database.
+
+## Skill: api-style
+
+Errors are RFC 9457.
+
+## Skill: testing-conventions
+
+Name tests after behavior.
+
 <!-- segment 3: task (user message) -->
 ## Task
 Step: implement (implementer) · Attempt 1 of 3 · Round 2 of 3
