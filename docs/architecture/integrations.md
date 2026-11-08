@@ -19,9 +19,16 @@ O GitHub vem antes do GitLab no roadmap; o motivo está no [roadmap](../planning
 
 ### Sincronização
 
-- **Polling** a cada `poll_interval` (30 s por padrão), usando cursores por milestone (ADR 0015). Webhooks podem vir depois como otimização, sem mudar o modelo.
+- **Polling** a cada `poll_interval` (30 s por padrão), usando cursores por milestone (ADR 0015). O laço é do supervisor; o adaptador só expõe leituras por cursor e trata o rate limit no transporte (espera até o reset, respeita `Retry-After`, até 3 repetições, desiste acima de 15 min). Requisições condicionais (ETag) entram na v0.2. Webhooks podem vir depois como otimização, sem mudar o modelo.
 - **Leitura:** issues, dependências, labels e comentários novos (respostas a escalações e aprovações).
-- **Escrita:** label `orch/*`, comentário por transição, grafo em Mermaid na milestone, criação de issues aprovadas, branches, PRs e merges na branch da milestone.
+- **Escrita:** label `orch/*`, comentário por transição, criação de issues aprovadas, branches e o PR/MR `milestone → main`. O grafo em Mermaid na descrição da milestone entra na v0.2. O merge do nó na branch da milestone é local (`gitops`), não pelo tracker.
+- **Comentário por transição:** montado por uma função pura do `core` ao emitir o efeito `tracker.comment`, em inglês e curto:
+
+  ```
+  **Kluzo** · `running` → `in_review` · implementer delivered (attempt 1, round 0)
+  ```
+
+  Com a web (v0.3), ganha um link para a tela do nó. Motivos de bloqueio e falha trazem uma segunda linha com o resumo, sem logs.
 - Toda escrita é um **efeito idempotente** do outbox ([overview.md](overview.md#o-laço-do-supervisor)).
 - **Limites de taxa:** o adaptador respeita os cabeçalhos de rate limit e espera quando necessário. O núcleo não sabe disso.
 

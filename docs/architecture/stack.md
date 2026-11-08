@@ -6,7 +6,7 @@ Cada peça da stack, com o motivo da escolha. As versões exatas ficam fixadas e
 
 | Peça | Escolha | Motivo |
 |---|---|---|
-| Linguagem | Go (versão estável suportada; mínimo em `go.mod`) | ADR 0005. Binário único, concorrência simples, ecossistema das referências (koryph, belay, Pinard) |
+| Linguagem | Go: `go.mod` exige a mais antiga das duas versões suportadas pelo time do Go (hoje 1.26) e o CI testa as duas (1.26 e 1.27). Sobe a cada release do Go | ADR 0005. Binário único, concorrência simples, ecossistema das referências (koryph, belay, Pinard) |
 | CLI | `github.com/spf13/cobra` (a partir do item 10 da v0.1; antes disso, `os.Args` simples) | Padrão de fato para CLIs em Go, com completions e ajuda; só compensa quando houver vários comandos |
 | Logs | `log/slog` (stdlib) | Estruturado, sem dependência |
 | SQLite | `modernc.org/sqlite` | Sem cgo, então o cross-compile é simples (ADR 0014) |
