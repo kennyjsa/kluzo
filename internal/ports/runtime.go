@@ -39,6 +39,9 @@ var (
 // ErrResumeMismatch is returned by Resume when the session cannot be resumed.
 var ErrResumeMismatch = errors.New("session cannot be resumed: its inputs changed")
 
+// ErrNoGuard means the spec has no hook endpoint, so the session would run unguarded.
+var ErrNoGuard = fmt.Errorf("the session has no guard hook endpoint: %w", ErrPermanent)
+
 // ErrPromptTooLarge means the system prompt does not fit the command line.
 var ErrPromptTooLarge = fmt.Errorf("system prompt too large for the harness command line: %w", ErrPermanent)
 
@@ -82,6 +85,10 @@ type SessionSpec struct {
 	MCPToken    string
 	MCPTools    []string
 	Accepted    func() (json.RawMessage, bool)
+	// HookEndpoint is where the harness reports every tool call before it
+	// runs (the guard hook of the MCP server, same token as MCPToken). It is
+	// required: a session without the guard does not start.
+	HookEndpoint string
 	// Env holds the project variables of the session (env_allow, caches,
 	// COMPOSE_PROJECT_NAME). Nothing of the environment of Kluzo is passed.
 	Env map[string]string

@@ -38,5 +38,19 @@ func (rt *Runtime) sessionFiles(spec ports.SessionSpec, harnessID string) (files
 	return f, cleanup, nil
 }
 
-// settings is the --settings document of the session. The guard hook goes here.
-func (rt *Runtime) settings(ports.SessionSpec) map[string]any { return map[string]any{} }
+// hookTimeoutSeconds is how long the harness waits for the guard before it
+// treats the hook as failed, which blocks the tool.
+const hookTimeoutSeconds = 10
+
+// settings is the --settings document of the session: the PreToolUse hook that
+// reports every tool call to the guard of the MCP server. onFailure: block
+// keeps the guard closed when Kluzo does not answer (ADR 0024, item 6).
+func (rt *Runtime) settings(spec ports.SessionSpec) map[string]any {
+	return map[string]any{"hooks": map[string]any{"PreToolUse": []any{map[string]any{
+		"matcher": "*",
+		"hooks": []any{map[string]any{
+			"type": "http", "url": spec.HookEndpoint, "timeout": hookTimeoutSeconds, "onFailure": "block",
+			"headers": map[string]string{"Authorization": "Bearer " + spec.MCPToken},
+		}},
+	}}}}
+}

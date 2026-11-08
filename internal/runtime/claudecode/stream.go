@@ -31,6 +31,10 @@ type line struct {
 	} `json:"mcp_servers"`
 	Version string `json:"claude_code_version"`
 
+	// system/hook_*, reported by --include-hook-events
+	HookEvent string `json:"hook_event"`
+	ToolUseID string `json:"tool_use_id"`
+
 	// assistant and user
 	Message *struct {
 		ID      string          `json:"id"`
@@ -94,6 +98,7 @@ type tracker struct {
 	maxTurns      int
 	redact        func(string) string
 
+	hooked    map[string]bool   // tool_use ids the guard hook was seen for
 	toolNames map[string]string // tool_use id -> tool
 	messages  map[string]bool   // assistant message ids already counted
 	turns     int
@@ -106,7 +111,7 @@ func newTracker(spec ports.SessionSpec, harness string, expected, argv []string,
 	return &tracker{
 		role: spec.Role.Name, harness: harness, attempt: spec.Attempt, round: spec.Round,
 		expectedTools: expected, argv: argv, maxTurns: spec.Role.MaxTurns, redact: redact,
-		toolNames: map[string]string{}, messages: map[string]bool{}, unknown: map[string]int{},
+		hooked: map[string]bool{}, toolNames: map[string]string{}, messages: map[string]bool{}, unknown: map[string]int{},
 	}
 }
 
@@ -125,14 +130,22 @@ func (t *tracker) handle(raw []byte) ([]ports.Event, *abort) {
 	}
 	switch l.Type {
 	case "system":
-		if l.Subtype == "init" {
+		switch {
+		case l.Subtype == "init":
 			return t.init(l)
+		case strings.HasPrefix(l.Subtype, "hook"):
+			if l.HookEvent == "PreToolUse" && l.ToolUseID != "" {
+				t.hooked[l.ToolUseID] = true
+			} else {
+				t.unknown["system/"+l.Subtype]++
+			}
+		default:
+			t.unknown["system/"+l.Subtype]++
 		}
-		t.unknown["system/"+l.Subtype]++
 	case "assistant":
 		return t.assistant(l)
 	case "user":
-		return t.user(l), nil
+		return t.user(l)
 	case "result":
 		return t.result(l), nil
 	default:
@@ -229,18 +242,24 @@ func (t *tracker) toolCall(b block) []ports.Event {
 	return evs
 }
 
-func (t *tracker) user(l line) []ports.Event {
+func (t *tracker) user(l line) ([]ports.Event, *abort) {
 	if l.Message == nil {
-		return nil
+		return nil, nil
 	}
 	var text string
 	if json.Unmarshal(l.Message.Content, &text) == nil { // a plain string: a user message
-		return []ports.Event{event(contracts.EventSessionMessage, contracts.SessionMessage{Role: "user", Text: clip(t.redact(text), userTextMax)})}
+		return []ports.Event{event(contracts.EventSessionMessage, contracts.SessionMessage{Role: "user", Text: clip(t.redact(text), userTextMax)})}, nil
 	}
 	var evs []ports.Event
+	var ab *abort
 	for _, b := range blocks(l.Message.Content) {
 		switch b.Type {
 		case "tool_result":
+			// The canary: a tool that ran without the guard hook means the
+			// settings were ignored, and the guard is gone (ADR 0024, item 6).
+			if ab == nil && !t.hooked[b.ToolUseID] {
+				ab = &abort{ports.CauseGuard, fmt.Sprintf("tool %s (%s) ran without a PreToolUse hook event: the guard is not active", t.toolNames[b.ToolUseID], b.ToolUseID)}
+			}
 			evs = append(evs, event(contracts.EventToolResult, contracts.ToolResult{
 				Tool: t.toolNames[b.ToolUseID], OK: !b.IsError, OutputSummary: t.summary(resultText(b.Content)),
 			}))
@@ -250,7 +269,7 @@ func (t *tracker) user(l line) []ports.Event {
 			t.unknown["user/"+b.Type]++
 		}
 	}
-	return evs
+	return evs, ab
 }
 
 func (t *tracker) result(l line) []ports.Event {

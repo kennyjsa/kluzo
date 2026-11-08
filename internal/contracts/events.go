@@ -76,6 +76,7 @@ const (
 	EventFileEdited      = "file.edited"
 	EventCommandRun      = "command.run"
 	EventMCPCall         = "mcp.call"
+	EventGuardDenied     = "guard.denied"
 	EventCost            = "cost"
 	EventSessionFinished = "session.finished"
 )
@@ -143,4 +144,13 @@ type SessionFinished struct {
 	DurationMS    int64  `json:"duration_ms"`
 	CostUSDMicros int64  `json:"cost_usd_micros"`
 	Cause         string `json:"cause,omitempty"`
+}
+
+// GuardDenied is the payload of guard.denied: a tool call the guard hook
+// refused (ADR 0024, item 6).
+type GuardDenied struct {
+	Tool         string `json:"tool"`
+	Rule         string `json:"rule"`
+	Reason       string `json:"reason"`
+	InputSummary string `json:"input_summary"`
 }
