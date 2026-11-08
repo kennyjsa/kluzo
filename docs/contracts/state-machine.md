@@ -85,6 +85,8 @@ Qual etapa do flow corresponde a `running` ou a `in_review` é definido pelo cam
 
 Os **gates rápidos** (`fast: true`, ADR 0020) rodam com o nó ainda em `running`, entre o implementer e o reviewer. Uma falha volta ao implementer na mesma sessão e na mesma tentativa. Ela tem contador próprio, limitado pelo `max_retries` da etapa `gate` (padrão 3), e não consome as rodadas de review. Esgotado o limite, o nó vai para `blocked` (`triage`). O gatilho `implementer_done` só é emitido depois que os gates rápidos passam.
 
+No desempate do scheduler, referências numéricas são comparadas como números (ordem de criação no tracker); só referências não numéricas usam a ordem de texto.
+
 Uma **tentativa** (`attempt`) começa a cada entrada em `running` vinda de `ready`, `gating` ou `integrating`. Uma devolução do reviewer (`in_review → running`) é uma **rodada** dentro da mesma tentativa.
 
 ### Motivos de bloqueio
