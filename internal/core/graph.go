@@ -14,7 +14,7 @@ import (
 // never creates conflicts (ADR 0011).
 const SharedArea = "shared"
 
-// Graph errors.
+// Graph errors. Each is the Rule of a Problem; callers use errors.Is.
 var (
 	ErrCycle       = errors.New("dependency cycle")
 	ErrUnknownNode = errors.New("edge references a node outside the milestone")
@@ -32,8 +32,11 @@ type Edge struct {
 // GraphNode is what the scheduler needs to know about a node.
 type GraphNode struct {
 	ID    string // issue reference
+	Title string
 	State NodeState
 	Areas []string
+	// Criteria are the acceptance criteria with their ids (AC1..n, ADR 0023).
+	Criteria []Criterion
 	// EstimateHours weighs the critical path; zero counts as one unit.
 	EstimateHours float64
 	// ContractPublished is set by the supervisor when the node's
@@ -50,28 +53,40 @@ type Graph struct {
 
 // Validate reports every structural problem of the plan, joined into one error.
 func (g Graph) Validate() error {
-	var errs []error
+	problems := g.problems()
+	errs := make([]error, len(problems))
+	for i, p := range problems {
+		errs[i] = p
+	}
+	return errors.Join(errs...)
+}
+
+// problems lists the structural problems of the graph: nodes without area,
+// edges of an unsupported kind, to the node itself or to a node that is not in
+// the graph, and, when there is nothing else wrong, one dependency cycle.
+func (g Graph) problems() []Problem {
+	var out []Problem
 	for _, id := range g.ids() {
 		if len(g.Nodes[id].Areas) == 0 {
-			errs = append(errs, fmt.Errorf("%w: %s", ErrNoArea, id))
+			out = append(out, Problem{ErrNoArea, id, fmt.Sprintf("#%s declares no area; give it at least one (use %q if it touches no declared area)", id, SharedArea)})
 		}
 	}
 	for _, e := range g.Edges {
 		switch {
 		case e.Kind != contracts.EdgeBlocks && e.Kind != contracts.EdgeContract:
-			errs = append(errs, fmt.Errorf("%w: %q (%s → %s)", ErrEdgeKind, e.Kind, e.From, e.To))
+			out = append(out, Problem{ErrEdgeKind, e.To, fmt.Sprintf("%q (#%s → #%s) is not a blocks or contract edge", e.Kind, e.From, e.To)})
 		case e.From == e.To:
-			errs = append(errs, fmt.Errorf("%w: %s", ErrSelfEdge, e.From))
+			out = append(out, Problem{ErrSelfEdge, e.From, fmt.Sprintf("#%s cannot depend on itself", e.From)})
 		case !g.has(e.From) || !g.has(e.To):
-			errs = append(errs, fmt.Errorf("%w: %s → %s", ErrUnknownNode, e.From, e.To))
+			out = append(out, Problem{ErrUnknownNode, e.To, fmt.Sprintf("#%s → #%s: one end is not a node of the graph", e.From, e.To)})
 		}
 	}
-	if len(errs) == 0 {
+	if len(out) == 0 {
 		if cycle := g.findCycle(); cycle != nil {
-			errs = append(errs, fmt.Errorf("%w: %s", ErrCycle, strings.Join(cycle, " → ")))
+			out = append(out, Problem{ErrCycle, cycle[0], "#" + strings.Join(cycle, " → #") + ": none of them can start before the others are integrated; remove one of these links"})
 		}
 	}
-	return errors.Join(errs...)
+	return out
 }
 
 // Conflicts returns the conflict edges derived from shared areas, each pair
