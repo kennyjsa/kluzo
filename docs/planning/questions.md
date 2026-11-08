@@ -34,3 +34,23 @@ Formato: contexto, o que o código faz hoje, e a pergunta.
 
 - **Contexto:** `interfaces.md` não tinha o token do MCP, o contador de sessões, as versões dos segmentos, os comandos `Verify` nem o `kluzo_result` aceito; o `SessionSpec` ganhou esses campos, e o `OutputSchema` saiu (o servidor MCP valida a saída). O `Result` ganhou `Cause`, `Turns`, `Unknown` e `Version`. O `session.started` ganhou `argv` (a linha de comando congelada, com o prompt como hash), que o supervisor copia para o manifesto.
 - **Pergunta:** aprovar os campos, ou prefere outro desenho para o argv no manifesto (hoje o prompt.md não prevê o campo).
+
+## Item 6d · Guarda no harness
+
+### Q37 · Formato dos eventos de hook e da resposta do hook
+
+- **Contexto:** o canário do ADR 0024 precisa casar cada `tool_use` com o evento de hook que o `--include-hook-events` acrescenta ao stream, e a nota de pesquisa não traz o formato desse evento nem o da resposta do hook HTTP.
+- **Hoje:** o adaptador espera uma mensagem `system` cujo `subtype` começa com `hook`, com `hook_event: "PreToolUse"` e o `tool_use_id`. Sem o id, o evento não vale como prova, e o canário aborta a sessão (falha fechada). O endpoint responde `{}` quando não tem objeção e `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": …}}` quando nega; ele nunca devolve `allow`, para o hook só poder apertar o que `--allowedTools` permite. O corpo lido é `hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`. Tudo isso está nos fixtures e fica na lista de verificação local.
+- **Pergunta:** nenhuma antes da verificação numa máquina autenticada; se o formato real diferir, ajusto o adaptador e os fixtures.
+
+### Q38 · Evento `guard.denied`
+
+- **Contexto:** o ADR 0024 diz que o que o agente tenta fica registrado, mas `events.md` não tem um evento para a negação do hook.
+- **Hoje:** acrescentei `guard.denied` `{tool, rule, reason, input_summary}` a `events.md` e a `internal/contracts`; o servidor local chama `Recorder.Denied` a cada negação, e o supervisor grava no journal.
+- **Pergunta:** aprovar o evento novo, ou registrar a negação com outro `kind`.
+
+### Q39 · Limites da política do shell
+
+- **Contexto:** o hook analisa o comando do `Bash` em Go (separadores, `$(…)`, `bash -c`, `eval`, `sudo`, `env`, `xargs`…). Não é um shell: um interpretador que abre o arquivo sozinho (`python -c "open('.kluzo/x','w')"`) passa.
+- **Hoje:** o git só passa se o subcomando estiver numa lista de leitura (`status`, `diff`, `log`, `show`…); `gh`, `glab` e `hub` são negados em qualquer posição; escrita em caminho protegido é negada nos redirecionamentos e nos comandos que escrevem (`rm`, `mv`, `cp`, `tee`, `sed -i`, `dd`, `touch`…), seguindo `cd` literal. A garantia continua sendo a conferência do diff depois da rodada (`guard.Policy.CheckChanges`).
+- **Pergunta:** nenhuma; registrado para o revisor saber onde a política não alcança.
