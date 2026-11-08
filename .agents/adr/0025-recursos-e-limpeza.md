@@ -25,14 +25,18 @@ Uma milestone cria muita coisa fora do código: um worktree por nó, artefatos d
 
    | Momento | O que sai | O que fica |
    |---|---|---|
-   | Nó `integrated` ou `cancelled` | worktree (`git worktree remove` + `prune`), branch local do nó, `docker compose down -v` do projeto do nó, temporários do nó | logs e journal |
+   | Nó `integrated` ou `cancelled` | worktree (`git worktree remove` + `prune`), branch local do nó, `docker compose down -v --rmi local` do projeto do nó, imagens dos gates do nó, temporários do nó | logs e journal |
    | Nó `failed` | nada | worktree para diagnóstico, até o fechamento ou `kluzo clean` |
-   | Workspace `merged`, `archived` ou `cancelled` | todos os worktrees, `HOME` sintético, recursos Docker marcados do workspace, caches de build do workspace | `state.db` e logs (o journal não se apaga), caches de download do projeto |
+   | Workspace `merged`, `archived` ou `cancelled` | todos os worktrees, `HOME` sintético, recursos Docker marcados do workspace, imagens pendentes, cache de build Docker acima do limite, caches de build do workspace | `state.db` e logs (o journal não se apaga), caches de download do projeto, imagens base |
    | Retenção | logs de sessão e de gate mais antigos que `retention.logs` (padrão 90 dias) são compactados, depois removidos | `state.db` |
 
-4. **Imagens Docker não são removidas por padrão**, porque baixar de novo custa mais que o disco. `kluzo clean --images` remove só imagens construídas pelo Kluzo (com label) e as pendentes dessas builds.
+4. **Builds Docker entram na limpeza.** Em uma milestone, cada nó e cada rodada de gate pode construir imagens, e o cache de build cresce sem limite.
+   - **Imagens do nó:** imagens construídas pelo compose do nó (nome com o prefixo do `COMPOSE_PROJECT_NAME`) saem com `docker compose down -v --rmi local`; imagens construídas pelos gates do Kluzo levam as labels e saem quando o nó termina.
+   - **Imagens pendentes** (`<none>`, sem tag e sem uso) são removidas no fechamento do workspace.
+   - **Cache de build** (BuildKit) não aceita label, então não dá para separar o que é do Kluzo. No fechamento do workspace, o Kluzo reduz o cache para o limite `retention.docker_build_cache` (padrão 10 GB), mantendo as entradas mais recentes. Esse cache é regenerável: o custo de errar é só refazer o build. `off` desliga.
+   - **Imagens base baixadas** (`postgres`, `node`…) não são removidas: são compartilhadas com o resto da máquina e caras de baixar de novo. `kluzo clean --images` remove, sob demanda, as imagens marcadas pelo Kluzo e as pendentes.
 5. **Visibilidade:**
-   - `kluzo status` mostra o uso de disco do workspace e dos caches do projeto.
+   - `kluzo status` mostra o uso de disco do workspace, dos caches do projeto e do Docker (imagens do workspace e cache de build).
    - `kluzo doctor` acusa worktrees órfãos (sem nó ativo no journal), recursos Docker marcados sem dono e uso de disco acima de `retention.disk_warn` (padrão 20 GB).
    - `kluzo clean` faz a limpeza sob demanda, com `--dry-run` como padrão.
 

@@ -92,6 +92,7 @@ caches: [go, node]               # ecossistemas com cache de download compartilh
 retention:
   logs: 90d                      # logs de sessão e de gate
   disk_warn: 20GB                # aviso do doctor
+  docker_build_cache: 10GB       # limite do cache de build no fechamento; off desliga
 
 runtimes:
   claude-code:
