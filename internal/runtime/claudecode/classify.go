@@ -30,7 +30,10 @@ var authHint = regexp.MustCompile(`(?i)invalid api key|authentication_error|not 
 // accepted by the server wins over any later error; only a failure of the
 // safety checks of the session (CauseGuard) beats it.
 func classify(o outcome) ports.Result {
-	res := ports.Result{Turns: o.t.turns, Unknown: o.t.unknown, Version: o.t.version}
+	// Without a result message the harness total is unknown: the cumulative
+	// carries the prior one forward, so the next resume does not count the
+	// earlier sessions again.
+	res := ports.Result{Turns: o.t.turns, Unknown: o.t.unknown, Version: o.t.version, Cumulative: o.t.prior}
 	if o.end != nil {
 		res.CostUSD, res.Cumulative = o.end.Session.CostUSD, o.end.Cumulative
 		res.Turns = max(res.Turns, o.end.Turns)

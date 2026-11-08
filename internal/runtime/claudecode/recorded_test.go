@@ -21,6 +21,7 @@ func TestRecordedStreams(t *testing.T) {
 		fixture  string
 		expected []string // the tools of the session, as the init must list them
 		drop     string   // a subtype of system lines to remove before the replay
+		rename   string   // a tool whose hook events are renamed to another tool before the replay
 		accepted bool     // the MCP server accepted a kluzo_result
 		state    string
 		cause    ports.Cause
@@ -32,9 +33,11 @@ func TestRecordedStreams(t *testing.T) {
 		{fixture: "hook_deny", expected: []string{"Edit", "Read"}, state: ports.StateFailed, cause: ports.CauseNoResult, results: 1, failed: 1},
 		{fixture: "subagent_task_alias", expected: []string{"Agent", "Read"}, state: ports.StateFailed, cause: ports.CauseNoResult, results: 2},
 		{fixture: "success_kluzo_result", drop: "hook_started", expected: []string{"Read", "mcp__kluzo__kluzo_result"}, accepted: true, state: ports.StateFailed, cause: ports.CauseGuard, results: 2},
+		// A hook for another tool does not cover a call: the Read ran unguarded.
+		{fixture: "error_max_turns", rename: "Read", expected: []string{"Read"}, state: ports.StateFailed, cause: ports.CauseGuard, results: 2},
 	}
 	for _, tt := range tests {
-		t.Run(tt.fixture+"/"+tt.drop, func(t *testing.T) {
+		t.Run(tt.fixture+"/"+tt.drop+tt.rename, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join("testdata", "recorded", tt.fixture+".jsonl"))
 			if err != nil {
 				t.Fatal(err)
@@ -42,6 +45,9 @@ func TestRecordedStreams(t *testing.T) {
 			tr := newTracker(ports.SessionSpec{Role: ports.RoleConfig{Name: "reporter"}}, Name, tt.expected, nil, func(s string) string { return s })
 			var evs []ports.Event
 			var ab *abort
+			if tt.rename != "" {
+				raw = bytes.ReplaceAll(raw, []byte(`"hook_name":"PreToolUse:`+tt.rename+`"`), []byte(`"hook_name":"PreToolUse:Other"`))
+			}
 			for _, ln := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
 				var head struct{ Type, Subtype string }
 				_ = json.Unmarshal(ln, &head)
@@ -80,7 +86,7 @@ func TestRecordedStreams(t *testing.T) {
 			if tr.end == nil || res.Version != "2.1.319" || res.CostUSD <= 0 {
 				t.Errorf("end = %+v, result = %+v", tr.end, res)
 			}
-			if n := tr.unknown["system/hook_started"] + tr.unknown["system/hook_response"]; n != 0 {
+			if n := tr.unknown["system/hook_started"] + tr.unknown["system/hook_response"]; n != 0 || (tt.rename == "" && tr.unknown["system/hook_started-unmatched"] != 0) {
 				t.Errorf("hook events counted as unknown: %v", tr.unknown)
 			}
 		})

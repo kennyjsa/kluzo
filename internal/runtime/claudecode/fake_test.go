@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -48,6 +49,8 @@ import (
 // "<tool_use_id> <outcome>" line per call (outcome "allow", "deny" or
 // "blocked" when the hook failed and onFailure is "block").
 //
+// KLUZO_FAKE_UNKNOWN lists flags the fake rejects as an unknown option.
+//
 // With KLUZO_FAKE_RECORD set, the CLI first writes its argv, environment,
 // working directory and the files named by --mcp-config, --settings and
 // --append-system-prompt-file there.
@@ -71,6 +74,16 @@ func fakeClaude(args []string) int {
 			}
 			fmt.Println(`{"loggedIn": true}`)
 			return 0
+		}
+	}
+	for _, a := range args {
+		if slices.Contains(strings.Fields(os.Getenv("KLUZO_FAKE_UNKNOWN")), a) {
+			fmt.Fprintf(os.Stderr, "error: unknown option '%s'\n", a)
+			return 1
+		}
+		if a == "--append-system-prompt-file" && os.Getenv("KLUZO_FAKE_FIXTURE") == "" {
+			fmt.Fprintln(os.Stderr, "Error: Append system prompt file not found")
+			return 1
 		}
 	}
 	if rec := os.Getenv("KLUZO_FAKE_RECORD"); rec != "" {

@@ -9,7 +9,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,13 +34,18 @@ const DefaultMinVersion = "2.1.295"
 const DefaultKillGrace = 10 * time.Second
 
 // requiredFlags are the flags the invocation uses that --help documents.
-// --max-turns is hidden from --help and is not checked there.
 var requiredFlags = []string{
 	"--input-format", "--output-format", "--verbose", "--restricted", "--strict-mcp-config",
 	"--disable-slash-commands", "--session-id", "--resume", "--model", "--effort", "--max-budget-usd",
-	"--append-system-prompt-file", "--exclude-dynamic-system-prompt-sections", "--tools", "--allowedTools",
+	"--exclude-dynamic-system-prompt-sections", "--tools", "--allowedTools",
 	"--permission-mode", "--permission-prompts", "--mcp-config", "--settings", "--include-hook-events",
 }
+
+// hiddenFileFlags are flags the invocation uses that --help does not list
+// (2.1.319). Check probes each with a file that does not exist: a CLI that
+// knows the flag complains about the file, one that does not says "unknown
+// option", and neither reaches the model.
+var hiddenFileFlags = []string{"--append-system-prompt-file"}
 
 // Credential is the model credential passed to the sessions by variable:
 // CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY.
@@ -147,6 +154,11 @@ func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
 			missing = append(missing, f)
 		}
 	}
+	for _, f := range hiddenFileFlags {
+		if !rt.knowsFlag(ctx, home, f) {
+			missing = append(missing, f)
+		}
+	}
 	if err == nil && len(missing) > 0 {
 		problems = append(problems, fmt.Errorf("%w: %s", ports.ErrRuntimeFlags, strings.Join(missing, ", ")))
 	}
@@ -156,6 +168,23 @@ func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
 		problems = append(problems, fmt.Errorf("%w: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY for Kluzo, or run `claude auth login`", ports.ErrRuntimeAuth))
 	}
 	return info, errors.Join(problems...)
+}
+
+// knowsFlag probes a file flag hidden from --help with a file that does not
+// exist (see hiddenFileFlags). Stdin is closed, so no task can be sent.
+func (rt *Runtime) knowsFlag(ctx context.Context, home, flag string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	p, err := exec.Start(exec.Spec{Bin: rt.cfg.Bin, Args: []string{"-p", "--restricted", flag, filepath.Join(home, ".kluzo-flag-probe-missing")}, Env: rt.env(ports.SessionSpec{}, home)})
+	if err != nil {
+		return false
+	}
+	_ = p.Stdin().Close()
+	stop := context.AfterFunc(ctx, func() { p.Terminate(0) })
+	defer stop()
+	_, _ = io.Copy(io.Discard, p.Stdout())
+	p.Wait()
+	return !strings.Contains(p.Stderr(), "unknown option")
 }
 
 // authenticated reports whether a credential is available: the variable

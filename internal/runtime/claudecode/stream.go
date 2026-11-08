@@ -308,6 +308,9 @@ func (t *tracker) result(l line) []ports.Event {
 		cost = l.TotalCostUSD
 	}
 	total.CostUSD = int64(cost*1e6 + 0.5)
+	if total.CostUSD < t.prior.CostUSD || total.InputTokens < t.prior.InputTokens || total.OutputTokens < t.prior.OutputTokens {
+		t.unknown["usage/prior-exceeds-total"]++ // a wrong prior: the session counts zero, and the log says why
+	}
 	session := ports.Usage{
 		InputTokens:  max(total.InputTokens-t.prior.InputTokens, 0),
 		OutputTokens: max(total.OutputTokens-t.prior.OutputTokens, 0),
@@ -324,6 +327,11 @@ func (t *tracker) result(l line) []ports.Event {
 		e.APIStatus = *l.APIErrorStatus
 	}
 	t.end = e
+	for _, n := range t.hooks {
+		if n > 0 {
+			t.unknown["system/hook_started-unmatched"] += n // hooks no tool_result took; see the canary
+		}
+	}
 	return []ports.Event{event(contracts.EventCost, contracts.Cost{InputTokens: session.InputTokens, OutputTokens: session.OutputTokens, CostUSDMicros: session.CostUSD})}
 }
 

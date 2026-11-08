@@ -23,7 +23,7 @@ import (
 )
 
 const goodFlags = "--input-format --output-format --verbose --restricted --strict-mcp-config --disable-slash-commands " +
-	"--session-id --resume --model --effort --max-budget-usd --append-system-prompt-file --exclude-dynamic-system-prompt-sections " +
+	"--session-id --resume --model --effort --max-budget-usd --exclude-dynamic-system-prompt-sections " +
 	"--tools --allowedTools --permission-mode --permission-prompts --mcp-config --settings --include-hook-events"
 
 type counter struct {
@@ -323,7 +323,8 @@ func TestUnknownEventsAreOnlyCounted(t *testing.T) {
 	if res.State != ports.StateFinished {
 		t.Fatalf("result = %+v", res)
 	}
-	want := map[string]int{"active_goal": 1, "system/status": 1, "autocompact_state": 1, "invalid-json": 1, "assistant/server_tool_use": 1}
+	want := map[string]int{"active_goal": 1, "system/status": 1, "autocompact_state": 1, "invalid-json": 1, "assistant/server_tool_use": 1,
+		"system/hook_started-unmatched": 1} // the kluzo_result call has no tool_result in this fixture
 	if fmt.Sprint(res.Unknown) != fmt.Sprint(want) {
 		t.Errorf("unknown = %v, want %v", res.Unknown, want)
 	}
@@ -603,6 +604,30 @@ func TestResume(t *testing.T) {
 	if c := payload[contracts.Cost](t, find(evs, "cost")[0]); c != (contracts.Cost{InputTokens: 60, OutputTokens: 30, CostUSDMicros: 60_000}) {
 		t.Errorf("resumed cost = %+v", c)
 	}
+	// A resumed session that ends without a result carries the prior total
+	// forward, so the next resume does not count the earlier cost again.
+	hung := e.spec("hang", nil)
+	hung.SessionID = spec.SessionID
+	hung.PriorUsage = res.Cumulative
+	hs, err := e.rt.Resume(context.Background(), ref, hung)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	_ = hs.Cancel()
+	if hres, _ := e.finish(hs); hres.State != ports.StateCancelled || hres.Cumulative != res.Cumulative || hres.CostUSD != 0 {
+		t.Errorf("cancelled resume = %+v", hres)
+	}
+	// A prior larger than the harness total counts zero and says so.
+	wrong := e.spec("resumed", nil)
+	wrong.SessionID = spec.SessionID
+	wrong.PriorUsage = ports.Usage{CostUSD: 999_000_000}
+	ws, err := e.rt.Resume(context.Background(), ref, wrong)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if wres, _ := e.finish(ws); wres.CostUSD != 0 || wres.Unknown["usage/prior-exceeds-total"] != 1 {
+		t.Errorf("resume with a wrong prior = %+v", wres)
+	}
 	var got struct{ Argv []string }
 	data, _ := os.ReadFile(rec)
 	_ = json.Unmarshal(data, &got)
@@ -645,10 +670,15 @@ func TestCancelKillsTheProcessGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The fake says "ready" once it ignores SIGTERM and has started a grandchild.
+	ready := false
 	for ev := range s.Events() {
 		if ev.Kind == contracts.EventSessionMessage && payload[contracts.SessionMessage](t, ev).Text == "ready" {
+			ready = true
 			break
 		}
+	}
+	if !ready {
+		t.Fatal("the fake never said it was ready")
 	}
 	start := time.Now()
 	if err := s.Cancel(); err != nil {
@@ -722,6 +752,7 @@ func TestCheck(t *testing.T) {
 		{"too old", map[string]string{"KLUZO_FAKE_VERSION": "2.1.186"}, nil, "needs 2.1.295", ports.ErrRuntimeVersion, "2.1.186"},
 		{"exactly the minimum", map[string]string{"KLUZO_FAKE_VERSION": "2.1.295"}, nil, "", nil, "2.1.295"},
 		{"missing flag", map[string]string{"KLUZO_FAKE_FLAGS": strings.ReplaceAll(goodFlags, "--restricted", "")}, nil, "--restricted", ports.ErrRuntimeFlags, "2.1.319"},
+		{"hidden flag unknown", map[string]string{"KLUZO_FAKE_UNKNOWN": "--append-system-prompt-file"}, nil, "--append-system-prompt-file", ports.ErrRuntimeFlags, "2.1.319"},
 		{"not logged in", map[string]string{"KLUZO_FAKE_LOGGED_OUT": "1"}, &Credential{}, "claude auth login", ports.ErrRuntimeAuth, "2.1.319"},
 	}
 	for _, tt := range tests {
