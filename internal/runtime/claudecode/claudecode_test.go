@@ -2,6 +2,8 @@ package claudecode
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,7 +23,7 @@ import (
 )
 
 const goodFlags = "--input-format --output-format --verbose --restricted --strict-mcp-config --disable-slash-commands " +
-	"--session-id --resume --model --effort --max-budget-usd --append-system-prompt --exclude-dynamic-system-prompt-sections " +
+	"--session-id --resume --model --effort --max-budget-usd --exclude-dynamic-system-prompt-sections " +
 	"--tools --allowedTools --permission-mode --permission-prompts --mcp-config --settings --include-hook-events"
 
 type counter struct {
@@ -242,7 +244,7 @@ func TestSuccessNormalizesTheStream(t *testing.T) {
 	if c := payload[contracts.Cost](t, find(evs, "cost")[0]); c != (contracts.Cost{InputTokens: 120, OutputTokens: 60, CostUSDMicros: 120_000}) {
 		t.Errorf("cost = %+v", c)
 	}
-	if res.CostUSD != 120_000 || res.Turns != 4 || res.Version != "2.1.319" {
+	if res.CostUSD != 120_000 || res.Cumulative != (ports.Usage{InputTokens: 120, OutputTokens: 60, CostUSD: 120_000}) || res.Turns != 4 || res.Version != "2.1.319" {
 		t.Errorf("result totals = %+v", res)
 	}
 	fin := payload[contracts.SessionFinished](t, evs[len(evs)-1])
@@ -321,7 +323,8 @@ func TestUnknownEventsAreOnlyCounted(t *testing.T) {
 	if res.State != ports.StateFinished {
 		t.Fatalf("result = %+v", res)
 	}
-	want := map[string]int{"active_goal": 1, "system/status": 1, "autocompact_state": 1, "invalid-json": 1, "assistant/server_tool_use": 1}
+	want := map[string]int{"active_goal": 1, "system/status": 1, "autocompact_state": 1, "invalid-json": 1, "assistant/server_tool_use": 1,
+		"system/hook_started-unmatched": 1} // the kluzo_result call has no tool_result in this fixture
 	if fmt.Sprint(res.Unknown) != fmt.Sprint(want) {
 		t.Errorf("unknown = %v, want %v", res.Unknown, want)
 	}
@@ -365,6 +368,7 @@ func TestInvocationEnvironmentAndFiles(t *testing.T) {
 		Cwd  string
 		MCP  struct{ Path, Mode, Content string } `json:"--mcp-config"`
 		Set  struct{ Path, Mode, Content string } `json:"--settings"`
+		Sys  struct{ Path, Mode, Content string } `json:"--append-system-prompt-file"`
 	}
 	data, err := os.ReadFile(rec)
 	if err != nil {
@@ -380,7 +384,7 @@ func TestInvocationEnvironmentAndFiles(t *testing.T) {
 		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--restricted", "--strict-mcp-config", "--disable-slash-commands", "--session-id", id,
 		"--model", "sonnet", "--effort", "high", "--max-turns", "80", "--max-budget-usd", "1.900000",
-		"--append-system-prompt", "SYSTEM PROMPT", "--exclude-dynamic-system-prompt-sections",
+		"--append-system-prompt-file", got.Sys.Path, "--exclude-dynamic-system-prompt-sections",
 		"--tools", "Read,Glob,Grep,Edit,Write,NotebookEdit,Bash",
 		"--allowedTools", "Read,Glob,Grep,Edit,Write,NotebookEdit,Bash(go test ./...),mcp__kluzo__kluzo_result",
 		"--permission-mode", "dontAsk", "--permission-prompts", "none",
@@ -394,7 +398,10 @@ func TestInvocationEnvironmentAndFiles(t *testing.T) {
 	if strings.Contains(strings.Join(got.Argv, " "), spec.MCPToken) {
 		t.Error("the MCP token is in argv")
 	}
-	for _, f := range []struct{ name, mode, path string }{{"mcp", got.MCP.Mode, got.MCP.Path}, {"settings", got.Set.Mode, got.Set.Path}} {
+	if got.Sys.Content != spec.System {
+		t.Errorf("system prompt file = %q, want %q", got.Sys.Content, spec.System)
+	}
+	for _, f := range []struct{ name, mode, path string }{{"mcp", got.MCP.Mode, got.MCP.Path}, {"settings", got.Set.Mode, got.Set.Path}, {"system prompt", got.Sys.Mode, got.Sys.Path}} {
 		if f.mode != "-rw-------" {
 			t.Errorf("%s file mode = %s, want 0600", f.name, f.mode)
 		}
@@ -467,18 +474,39 @@ func TestToolMapping(t *testing.T) {
 func TestBudgetAndTurnsFlagsAreOptional(t *testing.T) {
 	spec := ports.SessionSpec{System: "s", Role: ports.RoleConfig{Tools: []string{"read"}}}
 	ts, _ := mapTools(spec.Role.Tools, nil, nil)
-	args, err := argv(spec, ts, "id", false, files{mcp: "m", settings: "s"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	args := argv(spec, ts, "id", false, files{mcp: "m", settings: "s", system: "p"})
 	for _, f := range []string{"--max-turns", "--max-budget-usd", "--model", "--effort"} {
 		if slices.Contains(args, f) {
 			t.Errorf("%s is set without a value", f)
 		}
 	}
-	spec.System = strings.Repeat("x", maxSystemPrompt+1)
-	if _, err := argv(spec, ts, "id", false, files{}); err == nil {
-		t.Error("a system prompt over the argument limit was accepted")
+}
+
+// The system prompt goes by file, so a prompt over the 128 KiB limit of one
+// argument still starts the session, whole.
+func TestLargeSystemPromptGoesByFile(t *testing.T) {
+	e := newEnv(t)
+	rec := filepath.Join(t.TempDir(), "record.json")
+	spec := e.spec("success", map[string]string{"KLUZO_FAKE_RECORD": rec})
+	spec.System = strings.Repeat("rule\n", 60_000) // 300 KB
+	if res, _ := e.play(spec); res.State != ports.StateFinished {
+		t.Fatalf("result = %+v", res)
+	}
+	var got struct {
+		Argv []string
+		Sys  struct{ Content string } `json:"--append-system-prompt-file"`
+	}
+	data, _ := os.ReadFile(rec)
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Sys.Content != spec.System {
+		t.Errorf("system prompt file has %d bytes, want %d", len(got.Sys.Content), len(spec.System))
+	}
+	for _, a := range got.Argv {
+		if len(a) > 4096 {
+			t.Errorf("argv carries a %d-byte argument", len(a))
+		}
 	}
 }
 
@@ -550,7 +578,7 @@ func TestResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.finish(s)
+	first, _ := e.finish(s)
 	ref := s.HarnessRef()
 	if !strings.HasPrefix(ref, "claude-code/"+harnessUUID(spec.SessionID, 0)+"/") {
 		t.Errorf("ref = %s", ref)
@@ -562,12 +590,43 @@ func TestResume(t *testing.T) {
 	again.MaxBudgetUSDMicros = 700_000
 	again.Role.MaxTurns = 10
 	again.Prompt = "reduced task"
+	again.PriorUsage = first.Cumulative
 	rs, err := e.rt.Resume(context.Background(), ref, again)
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	if res, _ := e.finish(rs); res.State != ports.StateFinished {
+	// The harness sums cost and tokens over the resumes (0.12 then 0.18):
+	// the resumed session counts only the difference.
+	res, evs := e.finish(rs)
+	if res.State != ports.StateFinished || res.CostUSD != 60_000 || res.Cumulative != (ports.Usage{InputTokens: 180, OutputTokens: 90, CostUSD: 180_000}) {
 		t.Errorf("resumed result = %+v", res)
+	}
+	if c := payload[contracts.Cost](t, find(evs, "cost")[0]); c != (contracts.Cost{InputTokens: 60, OutputTokens: 30, CostUSDMicros: 60_000}) {
+		t.Errorf("resumed cost = %+v", c)
+	}
+	// A resumed session that ends without a result carries the prior total
+	// forward, so the next resume does not count the earlier cost again.
+	hung := e.spec("hang", nil)
+	hung.SessionID = spec.SessionID
+	hung.PriorUsage = res.Cumulative
+	hs, err := e.rt.Resume(context.Background(), ref, hung)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	_ = hs.Cancel()
+	if hres, _ := e.finish(hs); hres.State != ports.StateCancelled || hres.Cumulative != res.Cumulative || hres.CostUSD != 0 {
+		t.Errorf("cancelled resume = %+v", hres)
+	}
+	// A prior larger than the harness total counts zero and says so.
+	wrong := e.spec("resumed", nil)
+	wrong.SessionID = spec.SessionID
+	wrong.PriorUsage = ports.Usage{CostUSD: 999_000_000}
+	ws, err := e.rt.Resume(context.Background(), ref, wrong)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if wres, _ := e.finish(ws); wres.CostUSD != 0 || wres.Unknown["usage/prior-exceeds-total"] != 1 {
+		t.Errorf("resume with a wrong prior = %+v", wres)
 	}
 	var got struct{ Argv []string }
 	data, _ := os.ReadFile(rec)
@@ -610,7 +669,17 @@ func TestCancelKillsTheProcessGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond) // the fake ignores SIGTERM and starts a grandchild
+	// The fake says "ready" once it ignores SIGTERM and has started a grandchild.
+	ready := false
+	for ev := range s.Events() {
+		if ev.Kind == contracts.EventSessionMessage && payload[contracts.SessionMessage](t, ev).Text == "ready" {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		t.Fatal("the fake never said it was ready")
+	}
 	start := time.Now()
 	if err := s.Cancel(); err != nil {
 		t.Fatal(err)
@@ -660,11 +729,6 @@ func TestStartErrors(t *testing.T) {
 	if _, err := e.rt.Start(context.Background(), spec); err == nil {
 		t.Error("an unmappable tool was accepted")
 	}
-	spec = e.spec("success", nil)
-	spec.System = strings.Repeat("x", maxSystemPrompt+1)
-	if _, err := e.rt.Start(context.Background(), spec); err == nil || !strings.Contains(err.Error(), "too large") {
-		t.Errorf("err = %v", err)
-	}
 	entries, _ := os.ReadDir(filepath.Join(e.dir, "config"))
 	if len(entries) != 0 {
 		t.Errorf("failed starts left %d config dirs behind", len(entries))
@@ -688,6 +752,7 @@ func TestCheck(t *testing.T) {
 		{"too old", map[string]string{"KLUZO_FAKE_VERSION": "2.1.186"}, nil, "needs 2.1.295", ports.ErrRuntimeVersion, "2.1.186"},
 		{"exactly the minimum", map[string]string{"KLUZO_FAKE_VERSION": "2.1.295"}, nil, "", nil, "2.1.295"},
 		{"missing flag", map[string]string{"KLUZO_FAKE_FLAGS": strings.ReplaceAll(goodFlags, "--restricted", "")}, nil, "--restricted", ports.ErrRuntimeFlags, "2.1.319"},
+		{"hidden flag unknown", map[string]string{"KLUZO_FAKE_UNKNOWN": "--append-system-prompt-file"}, nil, "--append-system-prompt-file", ports.ErrRuntimeFlags, "2.1.319"},
 		{"not logged in", map[string]string{"KLUZO_FAKE_LOGGED_OUT": "1"}, &Credential{}, "claude auth login", ports.ErrRuntimeAuth, "2.1.319"},
 	}
 	for _, tt := range tests {
@@ -747,7 +812,8 @@ func TestFrozenArgvHidesThePromptAndTheFiles(t *testing.T) {
 	}
 	st := payload[contracts.SessionStarted](t, evs[0])
 	joined := strings.Join(st.Argv, " ")
-	if strings.Contains(joined, "SYSTEM PROMPT") || strings.Contains(joined, e.dir) || !strings.Contains(joined, "--append-system-prompt sha256:") || !strings.Contains(joined, "--session-id") {
+	sum := sha256.Sum256([]byte("SYSTEM PROMPT"))
+	if strings.Contains(joined, "SYSTEM PROMPT") || strings.Contains(joined, e.dir) || !strings.Contains(joined, "--append-system-prompt-file sha256:"+hex.EncodeToString(sum[:])) || !strings.Contains(joined, "--session-id") {
 		t.Errorf("frozen argv = %s", joined)
 	}
 }

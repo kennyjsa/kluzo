@@ -74,7 +74,7 @@ func (rt *Runtime) launch(ctx context.Context, spec ports.SessionSpec, ref strin
 	s := &session{
 		ref: ref, spec: spec, proc: proc, grace: rt.cfg.KillGrace, now: rt.cfg.Clock.Now, started: rt.cfg.Clock.Now(),
 		cleanup: cleanup, log: logf, rd: rd, stdinOpen: true,
-		t:      newTracker(spec, rt.Name(), ts.expectedInit(), freeze(args, true), rd.String),
+		t:      newTracker(spec, rt.Name(), ts.expectedInit(), freeze(args, spec.System, true), rd.String),
 		events: make(chan ports.Event, eventBuffer), done: make(chan struct{}),
 	}
 	go s.pump()

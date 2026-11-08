@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -40,14 +41,19 @@ import (
 //
 // The fake also plays the harness for the guard hook: after an assistant line
 // with tool_use blocks, it reads the PreToolUse hook from --settings, posts each
-// tool call there as Claude Code would, and prints the hook event that
-// --include-hook-events adds (outcome "allow", "deny" or "blocked" when the hook
-// failed and onFailure is "block"). KLUZO_FAKE_NOHOOK=1 makes it ignore the
-// settings, as a CLI that dropped them would. KLUZO_FAKE_HOOKLOG names a file
-// that receives one "<tool_use_id> <outcome>" line per call.
+// tool call there with the body Claude Code sends, and prints the
+// hook_started and hook_response events that --include-hook-events adds, in
+// the recorded format (they name the tool in hook_name, not the tool_use id).
+// KLUZO_FAKE_NOHOOK=1 makes it ignore the settings, as a CLI that dropped them
+// would. KLUZO_FAKE_HOOKLOG names a file that receives one
+// "<tool_use_id> <outcome>" line per call (outcome "allow", "deny" or
+// "blocked" when the hook failed and onFailure is "block").
+//
+// KLUZO_FAKE_UNKNOWN lists flags the fake rejects as an unknown option.
 //
 // With KLUZO_FAKE_RECORD set, the CLI first writes its argv, environment,
-// working directory and the files named by --mcp-config and --settings there.
+// working directory and the files named by --mcp-config, --settings and
+// --append-system-prompt-file there.
 func fakeClaude(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -68,6 +74,16 @@ func fakeClaude(args []string) int {
 			}
 			fmt.Println(`{"loggedIn": true}`)
 			return 0
+		}
+	}
+	for _, a := range args {
+		if slices.Contains(strings.Fields(os.Getenv("KLUZO_FAKE_UNKNOWN")), a) {
+			fmt.Fprintf(os.Stderr, "error: unknown option '%s'\n", a)
+			return 1
+		}
+		if a == "--append-system-prompt-file" && os.Getenv("KLUZO_FAKE_FIXTURE") == "" {
+			fmt.Fprintln(os.Stderr, "Error: Append system prompt file not found")
+			return 1
 		}
 	}
 	if rec := os.Getenv("KLUZO_FAKE_RECORD"); rec != "" {
@@ -216,7 +232,7 @@ func deliver(arguments string, args []string) {
 func record(path string, args []string) {
 	wd, _ := os.Getwd()
 	info := map[string]any{"argv": args, "env": os.Environ(), "cwd": wd}
-	for _, f := range []string{"--mcp-config", "--settings"} {
+	for _, f := range []string{"--mcp-config", "--settings", "--append-system-prompt-file"} {
 		file := flagValue(args, f)
 		if st, err := os.Stat(file); err == nil {
 			data, _ := os.ReadFile(file)
@@ -258,14 +274,23 @@ func runHooks(line string, args []string) {
 		return
 	}
 	hook := doc.Hooks.PreToolUse[0].Hooks[0]
+	session := flagValue(args, "--session-id") + flagValue(args, "--resume")
 	for _, b := range l.Message.Content {
 		if b.Type != "tool_use" {
 			continue
 		}
-		outcome := callHook(hook.URL, hook.Headers, hook.OnFailure, b)
-		ev, _ := json.Marshal(map[string]any{"type": "system", "subtype": "hook_response", "hook_event": "PreToolUse",
-			"hook_name": "PreToolUse:*", "tool_use_id": b.ID, "outcome": outcome})
-		fmt.Println(string(ev))
+		hookEvent := func(subtype string, extra map[string]any) {
+			ev := map[string]any{"type": "system", "subtype": subtype, "hook_id": "hook-" + b.ID,
+				"hook_name": "PreToolUse:" + b.Name, "hook_event": "PreToolUse", "uuid": "uuid-" + subtype + "-" + b.ID, "session_id": session}
+			for k, v := range extra {
+				ev[k] = v
+			}
+			out, _ := json.Marshal(ev)
+			fmt.Println(string(out))
+		}
+		hookEvent("hook_started", nil)
+		outcome, output := callHook(hook.URL, hook.Headers, hook.OnFailure, session, b)
+		hookEvent("hook_response", map[string]any{"output": output, "stdout": output, "stderr": "", "exit_code": 200, "outcome": "success"})
 		if log := os.Getenv("KLUZO_FAKE_HOOKLOG"); log != "" {
 			f, _ := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 			_, _ = fmt.Fprintf(f, "%s %s\n", b.ID, outcome)
@@ -274,34 +299,42 @@ func runHooks(line string, args []string) {
 	}
 }
 
-func callHook(url string, headers map[string]string, onFailure string, b block) string {
-	body, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": b.Name, "tool_input": b.Input, "tool_use_id": b.ID})
+// callHook posts the PreToolUse body Claude Code 2.1.319 sends
+// and returns the outcome and the raw answer.
+func callHook(url string, headers map[string]string, onFailure, session string, b block) (string, string) {
+	wd, _ := os.Getwd()
+	body, _ := json.Marshal(map[string]any{
+		"session_id": session, "transcript_path": "/home/.claude/projects/x/" + session + ".jsonl", "cwd": wd,
+		"prompt_id": "prompt-1", "permission_mode": "dontAsk", "effort": map[string]string{"level": "high"},
+		"hook_event_name": "PreToolUse", "tool_name": b.Name, "tool_input": b.Input, "tool_use_id": b.ID,
+	})
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	failed := func() string {
+	failed := func() (string, string) {
 		if onFailure == "block" {
-			return "blocked"
+			return "blocked", ""
 		}
-		return "allow-on-failure"
+		return "allow-on-failure", ""
 	}
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
 		return failed()
 	}
 	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
 	var out struct {
 		Hook struct {
 			Decision string `json:"permissionDecision"`
 		} `json:"hookSpecificOutput"`
 	}
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&out) != nil {
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &out) != nil {
 		return failed()
 	}
 	if out.Hook.Decision == "deny" {
-		return "deny"
+		return "deny", string(raw)
 	}
-	return "allow"
+	return "allow", string(raw)
 }

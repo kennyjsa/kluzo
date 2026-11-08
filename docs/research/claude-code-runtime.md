@@ -139,6 +139,7 @@ Rodadas na máquina do Kenny, com haiku e orçamento baixo. Todas confirmaram o 
 | `HOME` sintético | Sem variável de token: não logado. Caminho com `CLAUDE_CODE_OAUTH_TOKEN` **ainda não verificado** (`claude setup-token` é interativo) |
 | Prompt grande e `stream-json` | 238 KB pelo stdin ok. **Cada mensagem gera `init` e `result` próprios no mesmo processo**, com custo acumulado: `result` não marca o fim do processo |
 | Recusa | `success`, `is_error: true`, `stop_reason: refusal` |
+| `--append-system-prompt-file` (08/11/2026, item 6e) | Funciona (o texto do arquivo entra no system prompt), mas **não aparece no `--help`**, como `--max-turns`. Arquivo inexistente: `Append system prompt file not found`, saída 1, antes de qualquer chamada; flag desconhecida: `unknown option`. O `Check` sonda a flag assim |
 
 Consequências no adaptador: custo calculado como diferença entre retomadas; system prompt por `--append-system-prompt-file`; formato real dos eventos de hook nos fixtures; alias `Task`/`Agent` quando subagentes forem mapeados.
 
