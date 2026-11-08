@@ -45,7 +45,7 @@ As seções vêm em ordem fixa, e as que não se aplicam são omitidas:
 ```
 ## Task
 Step: <step id> (<role>) · Attempt <a> of <A> · Round <r> of <R>
-Node: #<issue> <title> · Branch: <branch>
+Node: #<issue> · Branch: <branch>         ← o título vai no envelope da Issue
 Focus: <área> → <globs>; contratos vizinhos → <paths>   ← ponto de partida, não limite
 
 ## Issue                               ← dado não confiável
@@ -53,7 +53,7 @@ Focus: <área> → <globs>; contratos vizinhos → <paths>   ← ponto de partid
 <título, corpo e critérios de aceite, já saneados>
 UNTRUSTED:{nonce}>>>
 
-## Acceptance criteria                 ← lista extraída pela validação do plano, com ids AC1..n atribuídos pelo Kluzo
+## Acceptance criteria                 ← ids AC1..n atribuídos pelo Kluzo; o texto dos critérios vai envelopado (vem da issue)
 ## Verify                              ← comandos dos gates congelados (ponta da milestone no despacho), para a verificação local
 ## Neighbors                           ← dependências integradas e contratos (paths)
 ## Decisions so far                    ← decisões da milestone relevantes ao nó

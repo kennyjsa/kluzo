@@ -148,7 +148,7 @@ Entrada: o JSON do schema declarado em `output` do papel ([results.md](results.m
 
 Saída:
 - Válido: `{ "accepted": true }`. A sessão deve terminar em seguida.
-- Inválido: `{ "accepted": false, "errors": ["$.findings[0].severity: valor fora do enum"] }`. O agente pode corrigir e chamar de novo uma única vez.
+- Inválido: `{ "accepted": false, "errors": ["$.findings[0].severity: valor fora do enum"] }`. O agente pode corrigir e chamar de novo uma única vez. A correção única vale para os erros de schema e de cobertura (`criteria`, `responses`, `previous`, ADR 0023) somados: a segunda chamada inválida encerra a etapa como falha.
 
 ## Erros
 
@@ -157,5 +157,5 @@ Saída:
 | `forbidden` | Ferramenta não declarada no papel |
 | `invalid_input` | Entrada fora do schema da ferramenta |
 | `session_closed` | Sessão já terminou ou foi cancelada |
-| `unavailable` | Índice de código ainda em construção ou adaptador fora do ar |
+| `unavailable` | Ferramenta declarada no papel e conhecida, mas não servida agora: ainda não existe nesta versão, índice de código em construção ou adaptador fora do ar |
 | `rate_limited` | Mais de 20 chamadas por minuto da mesma ferramenta |

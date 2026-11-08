@@ -4,7 +4,7 @@ Cada papel declara em `output` o schema da sua saída ([config.md](config.md#pap
 
 **Saída inválida ou ausente conta como falha da etapa**, nunca como resultado vazio: um reviewer ou critic que não entregou não revisou. A sessão recebe o erro de validação uma vez para corrigir. Se falhar de novo, a triagem decide.
 
-Os exemplos abaixo mostram a forma. O schema formal fica no arquivo `.json` com o mesmo nome.
+Os exemplos abaixo mostram a forma. O schema formal fica no arquivo `.json` com o mesmo nome. Os schemas são estritos (`additionalProperties: false`): um campo desconhecido é erro, e o agente tem a correção única para tirá-lo.
 
 Campos comuns a todos os schemas:
 
