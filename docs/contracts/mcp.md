@@ -4,6 +4,8 @@ O binário do Kluzo expõe um servidor MCP (ADR 0007). Cada sessão de agente re
 
 - **Transporte:** HTTP no host local (`127.0.0.1`), com um token por sessão no cabeçalho. O token é revogado quando a sessão termina.
 - **Permissões:** o servidor só lista e aceita as ferramentas declaradas em `mcp:` no papel. Uma chamada fora disso retorna o erro `forbidden`.
+- **Disponibilidade:** a v0.1 expõe só `kluzo_result`; as demais ferramentas entram na v0.2 (ADR 0019).
+- **Texto externo:** todo campo com texto vindo de fora do Kluzo (issue, comentários, findings, logs, diff) é entregue como `{"trust": "untrusted", "source": "...", "text": "..."}`, saneado como em [prompt.md](prompt.md#envelope-de-dado-não-confiável).
 - **Journal:** toda chamada gera um evento `mcp.call`. As chamadas com efeito também geram os eventos próprios (`decision.recorded`, `question.asked`…).
 
 ## `kluzo_context`

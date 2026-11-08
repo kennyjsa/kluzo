@@ -19,6 +19,7 @@ version: 1
 
 project:
   name: agiclin
+  language: pt-BR             # idioma de summary, message e rationale (ADR 0019)
 
 tracker:
   kind: github                 # github | gitlab
@@ -40,12 +41,23 @@ areas:                         # ADR 0011
   auth: ["internal/auth/**"]
   # arquivos fora de qualquer área caem em 'shared'
 
-gates:
+protected_paths:                # ADR 0020: mudança aqui vira proposta para o humano
+  - ".kluzo/**"
+  - ".golangci.yml"
+  - ".github/workflows/**"
+  - "Makefile"
+
+gates:                         # lidos da ponta da milestone no despacho, nunca do worktree (ADR 0020)
+  - name: build
+    run: go build ./... && go vet ./...
+    fast: true                 # roda antes do review
+  - name: lint
+    run: golangci-lint run
+    fast: true
   - name: test
     run: go test ./...
     timeout: 15m
-  - name: lint
-    run: golangci-lint run
+    env_allow: [DATABASE_URL_TEST]   # gates não recebem segredos por padrão
   - name: ci                   # usa os checks do tracker em vez de um comando
     source: tracker
     required_checks: ["build", "test"]
@@ -57,6 +69,9 @@ milestone_gates:
 
 scheduler:
   max_parallel: 3              # v0.1 ignora e roda 1
+
+security:
+  allow_host_credentials: false   # true só com isolamento próprio (ADR 0020)
 
 budgets:                       # padrão; papéis e milestones podem sobrescrever
   node: { attempts: 3, minutes: 60, usd: 6 }
@@ -88,6 +103,7 @@ Um papel é um markdown com frontmatter YAML. O corpo é o prompt, que deve ser 
 ```markdown
 ---
 version: 1
+protocol: 1
 description: Implementa o nó e os testes
 harness: claude-code
 model: sonnet
@@ -99,16 +115,18 @@ skills: [testing-conventions]
 mcp: [kluzo_context, kluzo_decision, kluzo_ask, kluzo_propose_node, kluzo_result]
 output: node-result
 budget: { minutes: 45, usd: 4 }
+max_turns: 80
 fallback:
   - { model: opus }
   - { harness: opencode, model: openrouter/qwen3-coder }
 ---
-Você é o implementador deste nó. Comece chamando `kluzo_context`…
+You implement the node described in the task. Work test-first…
 ```
 
 | Chave | Tipo | Obrigatória | Descrição |
 |---|---|---|---|
 | `version` | int | sim | Versão do formato (1) |
+| `protocol` | int | sim | Versão do protocolo do Kluzo para a qual o papel foi escrito ([prompt.md](prompt.md)) |
 | `description` | string | sim | Uma linha; aparece na tela Times |
 | `harness` | enum | não | `claude-code` \| `opencode`; padrão em `defaults` |
 | `model` | string | não | Alias (`opus`, `sonnet`, `haiku`) ou id completo |
@@ -121,9 +139,16 @@ Você é o implementador deste nó. Comece chamando `kluzo_context`…
 | `output` | string | sim | Nome do schema de saída ([results.md](results.md)) |
 | `budget` | objeto | não | Limites desta etapa; somam ao orçamento do nó |
 | `fallback` | lista | não | Overrides aplicados em ordem quando a triagem decide `switch_model` ou `switch_harness` |
+| `max_turns` | int | não | Limite de turnos por sessão (padrão 80) |
+| `prompt_limits` | objeto | não | Sobrescreve os limites de [prompt.md](prompt.md#limites) |
 
-Validações:
-- O papel tem `kluzo_result` em `mcp` ou usa a saída estruturada do harness (v0.1).
+O corpo do papel é texto estático, sem variáveis, em qualquer idioma. Ele vira o segundo segmento do prompt ([prompt.md](prompt.md)).
+
+Validações (também em `kluzo roles check`):
+- Todo papel tem `kluzo_result` em `mcp`.
+- O `protocol` é igual ao do binário.
+- O corpo não contém marcadores reservados nem cita ferramenta `kluzo_*` fora de `mcp`.
+- O papel `reviewer` não pode ter `edit` nem `bash` (ADR 0020).
 - O `advisor` é recusado se o harness não for `claude-code`, e também se for mais fraco que `model`.
 - Toda ferramenta em `tools` deve existir no mapeamento do adaptador do harness.
 
@@ -138,13 +163,15 @@ steps:
   - id: implement
     role: implementer
     phase: running              # estado do nó durante esta etapa
+  - id: quick
+    gate: [build, lint]         # gates rápidos antes do review (ADR 0020)
   - id: review
     role: reviewer
     phase: in_review
     on_reject: implement        # devolução
     max_rounds: 2
   - id: gates
-    gate: [test, lint]          # nomes em kluzo.yaml
+    gate: [test]                # gates completos
   - id: merge
     merge_queue: milestone
 ```

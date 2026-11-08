@@ -28,3 +28,5 @@ Regras:
 | 0016 | [Stack do frontend](0016-stack-do-frontend.md) | aceito |
 | 0017 | [Critérios para aceitar dependências](0017-criterios-de-dependencias.md) | aceito |
 | 0018 | [Modelo de segurança dos agentes](0018-modelo-de-seguranca.md) | aceito |
+| 0019 | [Montagem do prompt em três segmentos, com fronteira de confiança única](0019-montagem-do-prompt.md) | aceito |
+| 0020 | [Garantias aplicadas em código, não pedidas no prompt](0020-garantias-fora-do-prompt.md) | aceito |

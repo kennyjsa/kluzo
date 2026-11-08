@@ -1,6 +1,6 @@
 # Resultados dos papéis
 
-Cada papel declara em `output` o schema da sua saída ([config.md](config.md#papéis-rolesrolemd)). A saída chega por `kluzo_result` (a partir da v0.2) ou pela saída estruturada do harness (v0.1). Em qualquer caso, ela é validada contra o JSON Schema embutido no binário (`internal/contracts/schemas/*.json`), que um projeto pode sobrescrever em `.kluzo/schemas/`.
+Cada papel declara em `output` o schema da sua saída ([config.md](config.md#papéis-rolesrolemd)). A saída chega por `kluzo_result` (MCP, desde a v0.1; ADR 0019). Para harness sem MCP, há a reserva do bloco cercado `kluzo-result` ([prompt.md](prompt.md#segmento-1--protocolo)). Em qualquer caso, ela é validada contra o JSON Schema embutido no binário (`internal/contracts/schemas/*.json`), que um projeto pode sobrescrever em `.kluzo/schemas/`.
 
 **Saída inválida conta como falha da etapa.** A sessão recebe o erro de validação uma vez para corrigir. Se falhar de novo, a triagem decide.
 

@@ -41,7 +41,7 @@ Uma feature pode ser entregue em partes; a tabela mostra o que entra em cada ver
 | F22 Fechamento | PR milestone→main sem relatório | | | ● |
 | F23 Tracker | GitHub | GitLab | | |
 | F24 Runtimes | Claude Code | OpenCode | | |
-| F25 MCP do Kluzo | | ● | | |
+| F25 MCP do Kluzo | só `kluzo_result` | completo | | |
 | F26 Acesso e permissões | | | ● | tela de ajustes |
 | F27 Notificações | | | ● | tela de ajustes |
 | F28 Journal e retomada | ● | | | |

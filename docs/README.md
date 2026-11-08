@@ -13,7 +13,7 @@ A documentação é organizada em camadas, da mais estável (por que o produto e
 | **Decisões** | Por que cada escolha técnica foi feita | [.agents/adr/](../.agents/adr/) |
 | **Contratos** | Formatos e interfaces exatos que o código implementa | [contracts/](contracts/) |
 | **Desenvolvimento** | Como compilar, testar e contribuir | [development.md](development.md) |
-| **Pesquisa** | O que existe no mercado e o que aproveitamos | [research/](research/) |
+| **Pesquisa** | O que existe no mercado, investigações e validações adversárias | [research/](research/) |
 
 ### Produto
 - [vision.md](product/vision.md): problema, proposta, princípios e não-objetivos.
@@ -40,7 +40,7 @@ A documentação é organizada em camadas, da mais estável (por que o produto e
 
 ### Contratos
 - [README.md](contracts/README.md): índice e regras gerais (versões, ids, dinheiro).
-- `state-machine`, `data-model`, `config`, `plan`, `results`, `events`, `interfaces`, `mcp`.
+- `state-machine`, `data-model`, `config`, `plan`, `results`, `events`, `interfaces`, `mcp`, `prompt`.
 
 ## Ordem de leitura
 
