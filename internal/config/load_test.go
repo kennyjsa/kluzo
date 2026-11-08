@@ -217,3 +217,45 @@ func TestInitProjectName(t *testing.T) {
 		t.Errorf("name = %q", p.Config.Project.Name)
 	}
 }
+
+func TestParseConfig(t *testing.T) {
+	read := func(dir string) []byte {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("testdata", dir, "kluzo.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr string // substring; empty for success
+	}{
+		{"valid", read("valid"), ""},
+		{"invalid value", read("cases/cfg-bad-runtime"), "tip:kluzo.yaml:"},
+		{"not yaml", []byte("version: [1\n"), "tip:kluzo.yaml"},
+		{"unknown key", []byte("version: 1\nnope: true\n"), "tip:kluzo.yaml:2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseConfig("tip:kluzo.yaml", tt.data)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ParseConfig: %v", err)
+				}
+				if cfg.Worktree.Timeout != 15*time.Minute || cfg.Project.Name != "agiclin" {
+					t.Errorf("config = %+v", cfg)
+				}
+				return
+			}
+			var es Errors
+			if !errors.As(err, &es) || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want Errors containing %q", err, tt.wantErr)
+			}
+			if cfg != nil {
+				t.Errorf("config = %+v, want nil with an error", cfg)
+			}
+		})
+	}
+}

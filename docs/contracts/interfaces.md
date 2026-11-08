@@ -90,6 +90,18 @@ type SCM interface {
 // Operações locais de git (worktree, rebase, merge --no-ff na milestone) ficam
 // no pacote internal/gitops, sobre o binário git: não dependem do tracker.
 
+// ---------- Files: leitura do worktree para a conferência de evidência ----------
+
+// O núcleo confere a evidência `caminho:linha` dos resultados (ADR 0023, item 5)
+// sem fazer I/O: lê o worktree do nó por este port (implementação: gitops.Files).
+type Files interface {
+	// Número de linhas do arquivo (quebras de linha, mais uma se a última não
+	// tiver). ok é false para caminho não normalizado ("./a.go"), absoluto,
+	// fora do worktree, inexistente, ilegível ou que não seja arquivo regular
+	// (inclusive FIFO, sem bloquear); err é falha de leitura do worktree.
+	Lines(path string) (n int, ok bool, err error)
+}
+
 // ---------- CI: checks e pipelines ----------
 
 type CI interface {

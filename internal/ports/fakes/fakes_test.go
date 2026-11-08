@@ -61,3 +61,7 @@ func TestRuntimeContract(t *testing.T) {
 		},
 	})
 }
+
+func TestFilesContract(t *testing.T) {
+	contracttest.RunFiles(t, func(_ *testing.T, files map[string]string) ports.Files { return fakes.Files(files) })
+}

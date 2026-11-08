@@ -22,18 +22,19 @@ func script(s string) Spec {
 }
 
 func TestRunReturnsOutputAndStatus(t *testing.T) {
-	out, st, err := Run(context.Background(), script(`echo "$KEEP"; exit 3`))
-	if err != nil || st.Code != 3 || out != "yes\n" {
-		t.Errorf("out %q, status %+v, err %v", out, st, err)
+	o, err := Run(context.Background(), script(`echo "$KEEP"; echo oops >&2; exit 3`))
+	if err != nil || o.Status.Code != 3 || o.Stdout != "yes\n" || o.Stderr != "oops\n" {
+		t.Errorf("output %+v, err %v", o, err)
 	}
-	if _, _, err := Run(context.Background(), Spec{Bin: "/nonexistent/bin"}); err == nil {
+	if o, err := Run(context.Background(), Spec{Bin: "/nonexistent/bin"}); err == nil || o.Status.Code != -1 {
 		t.Error("missing binary accepted")
 	}
 }
 
 func TestEnvironmentIsNotInherited(t *testing.T) {
 	t.Setenv("SECRET_FROM_PARENT", "leak")
-	out, _, err := Run(context.Background(), script(`echo "[$SECRET_FROM_PARENT]"`))
+	o, err := Run(context.Background(), script(`echo "[$SECRET_FROM_PARENT]"`))
+	out := o.Stdout
 	if err != nil || out != "[]\n" {
 		t.Errorf("out %q, err %v", out, err)
 	}
@@ -110,7 +111,7 @@ func TestRunStopsWithTheContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, _, err := Run(ctx, script(`sleep 30`))
+	_, err := Run(ctx, script(`sleep 30`))
 	if err == nil || time.Since(start) > 5*time.Second {
 		t.Errorf("err %v after %v", err, time.Since(start))
 	}

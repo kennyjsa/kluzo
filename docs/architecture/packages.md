@@ -13,7 +13,7 @@ kluzo/
 │   │   ├── fakes/              # implementações em memória para testes
 │   │   └── contracttest/       # suíte que todo adaptador deve passar
 │   ├── store/                  # SQLite, migrations, Tx, journal, projeções, outbox
-│   ├── gitops/                 # git local: worktree, rebase, merge, diff por área
+│   ├── gitops/                 # git local endurecido: worktree e preparo, conferência pós-sessão, rebase, merge, diff por área; port Files
 │   ├── config/                 # carga e validação de .kluzo/
 │   ├── contracts/              # tipos de eventos e resultados, JSON Schemas embutidos
 │   ├── guard/                  # política de ferramentas do agente (git, gh, caminhos protegidos e secretos), usada pelo hook e pela conferência do diff
@@ -43,7 +43,7 @@ kluzo/
 | `supervisor` | Laço do workspace; executa os efeitos pelos ports; timeouts; retomada | Decidir transições |
 | `ports` | Interfaces e tipos de fronteira | Implementação |
 | `store` | Persistência, `Tx`, reconstrução das projeções a partir do journal | Regras de domínio |
-| `gitops` | Executar `git` | Falar com o tracker |
+| `gitops` | Executar `git` (endurecido: sem hooks, fsmonitor nem configuração global ou de sistema); criar, preparar (`worktree.include` e `worktree.setup` da ponta da milestone) e remover o worktree do nó; conferir e restaurar refs, `.git/config` e `.git/hooks` depois de cada sessão; implementar o port `Files` | Falar com o tracker; decidir o nome da branch do nó |
 | `config` | Ler e validar `.kluzo/` (inclusive `plans/<milestone>.yaml`), com erro por arquivo e linha | Aplicar a precedência em tempo de execução (isso é do `core`) |
 | `contracts` | Tipos e schemas compartilhados por todas as camadas | Lógica |
 | `guard` | Decidir se uma chamada de ferramenta, ou uma mudança de arquivo da rodada, quebra as regras do ADR 0020 e 0024 | Falar com o harness, com o Kluzo ou com o disco |

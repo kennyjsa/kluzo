@@ -96,14 +96,34 @@ func (l *loader) loadConfig() (*Config, bool) {
 	if !ok {
 		return nil, false
 	}
-	var cfg Config
-	src, errs := decode(file, []byte(data), 0, &cfg)
-	if errs != nil {
-		l.errs = append(l.errs, errs...)
-		return nil, false
+	cfg, errs := parseConfig(file, []byte(data))
+	l.errs = append(l.errs, errs...)
+	return cfg, cfg != nil
+}
+
+// ParseConfig decodes and validates a kluzo.yaml given as bytes, for callers
+// that read it from somewhere else than the .kluzo directory, such as the tip
+// of the milestone branch. file only names the source in errors. The error is
+// an Errors value; the Config is nil whenever the error is not.
+func ParseConfig(file string, data []byte) (*Config, error) {
+	cfg, errs := parseConfig(file, data)
+	if err := errs.sorted().orNil(); err != nil {
+		return nil, err
 	}
-	cfg.validate(src.report(&l.errs))
-	return &cfg, true
+	return cfg, nil
+}
+
+// parseConfig returns a nil Config when the file cannot be decoded, and the
+// decoded Config with the validation errors otherwise, so Load can still judge
+// the roles and flows against it.
+func parseConfig(file string, data []byte) (*Config, Errors) {
+	var cfg Config
+	src, errs := decode(file, data, 0, &cfg)
+	if errs != nil {
+		return nil, errs
+	}
+	cfg.validate(src.report(&errs))
+	return &cfg, errs
 }
 
 func (l *loader) loadSchemas() []string {

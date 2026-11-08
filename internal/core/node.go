@@ -86,12 +86,16 @@ type Node struct {
 	BlockedReason BlockedReason // set while State == NodeBlocked
 	Attempt       int           // passes through the node flow; starts at 1 when dispatched
 	Round         int           // review rounds within the current attempt
+	// FastGateFailures counts the failures of the fast gates in the current
+	// attempt; they do not use review rounds (ADR 0023, item 7).
+	FastGateFailures int
 }
 
 // Limits bounds retries for a node.
 type Limits struct {
 	MaxAttempts     int // attempts per node (budget.attempts)
 	MaxReviewRounds int // review rounds per attempt (flow step max_rounds)
+	MaxFastRetries  int // fast gate failures per attempt (max_retries of the gate step, default 3)
 }
 
 // NodeEvent is a trigger plus its payload.
@@ -170,10 +174,31 @@ func NextNode(n Node, ev NodeEvent, lim Limits) (Node, error) {
 			return n, fmt.Errorf("%w: %d attempts", ErrLimitReached, lim.MaxAttempts)
 		}
 		n.Attempt++
-		n.Round = 0
+		n.Round, n.FastGateFailures = 0, 0
 	}
 	n.State = to
 	return n, nil
+}
+
+// TriggerFastGateFailed names a failure of the fast gates in errors. It is not
+// a row of the transition table: the node stays running until max_retries is
+// passed, and then it is blocked (FastGateFailed).
+const TriggerFastGateFailed NodeTrigger = "fast_gate_failed"
+
+// FastGateFailed counts a failure of the fast gates, which run while the node
+// is running, between the implementer and the reviewer
+// (docs/contracts/state-machine.md). Below max_retries the node stays running
+// and the implementer gets the failure in the same session and attempt; the
+// failure that passes the limit blocks the node for triage.
+func FastGateFailed(n Node, lim Limits) (Node, error) {
+	if n.State != NodeRunning {
+		return n, invalid(n.State, TriggerFastGateFailed)
+	}
+	n.FastGateFailures++
+	if n.FastGateFailures <= lim.MaxFastRetries {
+		return n, nil
+	}
+	return NextNode(n, NodeEvent{Trigger: TriggerBlock, Reason: BlockedTriage}, lim)
 }
 
 func lookupNode(from NodeState, t NodeTrigger) (NodeState, bool) {
