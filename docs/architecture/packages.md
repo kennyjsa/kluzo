@@ -42,7 +42,7 @@ kluzo/
 | `ports` | Interfaces e tipos de fronteira | Implementação |
 | `store` | Persistência, `Tx`, reconstrução das projeções a partir do journal | Regras de domínio |
 | `gitops` | Executar `git` | Falar com o tracker |
-| `config` | Ler e validar `.kluzo/`, com erro por arquivo e linha | Aplicar a precedência em tempo de execução (isso é do `core`) |
+| `config` | Ler e validar `.kluzo/` (inclusive `plans/<milestone>.yaml`), com erro por arquivo e linha | Aplicar a precedência em tempo de execução (isso é do `core`) |
 | `contracts` | Tipos e schemas compartilhados por todas as camadas | Lógica |
 | `mcp` | Servir as ferramentas `kluzo_*` e converter chamadas em entradas para o supervisor | Decidir o que acontece com elas |
 | `tracker/*`, `runtime/*`, `notify/*`, `codemap/*` | Implementar um port | Importar `core` |
