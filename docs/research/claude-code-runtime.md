@@ -119,6 +119,29 @@ Um agente sem acesso ao rascunho anterior leu o rascunho, os contratos e os ADRs
 
 [ADR 0024](../../.agents/adr/0024-adaptador-claude-code.md).
 
+## Resultado das verificações locais (08/11/2026, Claude Code 2.1.319)
+
+Rodadas na máquina do Kenny, com haiku e orçamento baixo. Todas confirmaram o ADR 0024; os fatos novos estão marcados.
+
+| Verificação | Resultado |
+|---|---|
+| `--restricted` + `--settings` | Hook HTTP dispara com o cabeçalho; hooks do projeto e do usuário ignorados |
+| `--settings` inválido | JSON malformado vira caminho de arquivo e falha com saída 1, sem stream. **Hook com `type` inválido é ignorado em silêncio**: o canário é necessário |
+| `onFailure: block` | Conexão recusada, timeout, 500 e JSON inválido bloqueiam; aparece em `permission_denials` |
+| Hook em subagente | Dispara no `Agent` e nas ferramentas do subagente, com `agent_id`. **O `init` lista `Task`, mas o `tool_use` se chama `Agent`** |
+| `dontAsk` sem `--allowedTools` | Negado; o hook roda antes da negação |
+| `Bash(go test *)` | `; touch …` e `$(…)` negados, nada criado |
+| `init` | Lista exata de ferramentas e MCP `connected` |
+| Sessões | `--session-id` repetido falha (saída 1, sem stream). Retomada após SIGKILL no meio de um `tool_use` funciona. **Retomada com `--append-system-prompt` diferente ignora o novo em silêncio** |
+| Custo | **`total_cost_usd` e `modelUsage` acumulam entre retomadas**; `usage` vale só a invocação. Custo de execução morta por SIGKILL se perde. Subagentes entram em `total_cost_usd` e `modelUsage` |
+| Limites | `--max-turns` aceito (`error_max_turns`); **`--max-budget-usd` é checado depois da chamada e pode estourar** |
+| 401/429 (servidor falso) | `success`, `is_error: true`, `terminal_reason: api_error`, `api_error_status` preenchido, saída 1 |
+| `HOME` sintético | Sem variável de token: não logado. Caminho com `CLAUDE_CODE_OAUTH_TOKEN` **ainda não verificado** (`claude setup-token` é interativo) |
+| Prompt grande e `stream-json` | 238 KB pelo stdin ok. **Cada mensagem gera `init` e `result` próprios no mesmo processo**, com custo acumulado: `result` não marca o fim do processo |
+| Recusa | `success`, `is_error: true`, `stop_reason: refusal` |
+
+Consequências no adaptador: custo calculado como diferença entre retomadas; system prompt por `--append-system-prompt-file`; formato real dos eventos de hook nos fixtures; alias `Task`/`Agent` quando subagentes forem mapeados.
+
 ## Verificações obrigatórias numa máquina autenticada (aceite do item 6)
 
 - `--restricted` com `--settings`: o hook HTTP dispara; o `.claude/settings.json` do projeto é ignorado.

@@ -53,7 +53,7 @@ Cada adaptador de runtime traduz o stream do seu harness para estes eventos. A w
 
 | `kind` | Payload | Origem no Claude Code (`stream-json`) |
 |---|---|---|
-| `session.started` | `{role, harness, model, attempt, round}` | mensagem `system` de init |
+| `session.started` | `{role, harness, model, attempt, round, harness_version, permission_mode, argv}` (`argv`: linha de comando congelada, com o system prompt como hash) | mensagem `system` de init |
 | `session.message` | `{role: assistant\|user, text}` | mensagens de texto |
 | `tool.call` | `{tool, input_summary}` | `tool_use` |
 | `tool.result` | `{tool, ok, output_summary}` | `tool_result` |

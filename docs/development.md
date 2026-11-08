@@ -72,6 +72,7 @@ Os testes golden garantem que o texto do prompt não mudou sem revisão, mas nã
   - `issue/<n>-<slug>`, a partir da branch da milestone em andamento (`milestone/v0.X`), integrada nela por merge commit (ADR 0009).
   - **Até o dogfooding (v0.1, item 11),** os itens da v0.1 ainda não são issues: a branch é `item/v0.1-<nn>-<slug>`.
   - A branch da milestone vai para a `main` por PR, com merge humano.
+  - A branch do item (ou da issue) é apagada, local e remota, logo depois do merge na branch da milestone. A branch da milestone é apagada depois do merge do PR na `main`.
   - Mudanças só de documentação podem ir direto para a `main`.
 - **Erros:** com contexto (`fmt.Errorf("approve plan %s: %w", id, err)`). Erros de domínio são tipados em `core` (`ErrInvalidTransition`, `ErrCycle`…).
 - **Logs:** `log/slog` estruturado, com `workspace`, `node` e `session` como atributos quando houver.
