@@ -105,22 +105,31 @@ func (p *Process) Terminate(grace time.Duration) {
 	}()
 }
 
-// Run runs a short program to the end and returns its standard output. When
-// ctx ends, the process group is killed.
-func Run(ctx context.Context, spec Spec) (string, Status, error) {
+// Output is what a program run by Run left.
+type Output struct {
+	Stdout string
+	Stderr string // the end of it, as Process.Stderr keeps
+	Status Status // Code -1 when the program did not start
+}
+
+// Run runs a short program to the end, with stdin closed. The error is the
+// failure to start it, the end of ctx (which kills the process group) or a
+// failure to read its output; a non-zero exit is only in the Status.
+func Run(ctx context.Context, spec Spec) (Output, error) {
 	p, err := Start(spec)
 	if err != nil {
-		return "", Status{}, err
+		return Output{Status: Status{Code: -1}}, err
 	}
 	_ = p.stdin.Close()
 	stop := context.AfterFunc(ctx, func() { p.Terminate(0) })
 	defer stop()
 	out, readErr := io.ReadAll(p.stdout)
 	st := p.Wait()
+	o := Output{Stdout: string(out), Stderr: p.Stderr(), Status: st}
 	if err := ctx.Err(); err != nil {
-		return string(out), st, err
+		return o, err
 	}
-	return string(out), st, readErr
+	return o, readErr
 }
 
 // tail keeps the end of what is written to it.

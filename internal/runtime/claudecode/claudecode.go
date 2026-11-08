@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -128,7 +127,8 @@ func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
 	run := func(args ...string) (string, exec.Status, error) {
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return exec.Run(ctx, exec.Spec{Bin: rt.cfg.Bin, Args: args, Env: rt.env(ports.SessionSpec{}, home)})
+		o, err := exec.Run(ctx, exec.Spec{Bin: rt.cfg.Bin, Args: args, Env: rt.env(ports.SessionSpec{}, home)})
+		return o.Stdout, o.Status, err
 	}
 
 	out, st, err := run("--version")
@@ -175,16 +175,8 @@ func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
 func (rt *Runtime) knowsFlag(ctx context.Context, home, flag string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	p, err := exec.Start(exec.Spec{Bin: rt.cfg.Bin, Args: []string{"-p", "--restricted", flag, filepath.Join(home, ".kluzo-flag-probe-missing")}, Env: rt.env(ports.SessionSpec{}, home)})
-	if err != nil {
-		return false
-	}
-	_ = p.Stdin().Close()
-	stop := context.AfterFunc(ctx, func() { p.Terminate(0) })
-	defer stop()
-	_, _ = io.Copy(io.Discard, p.Stdout())
-	p.Wait()
-	return !strings.Contains(p.Stderr(), "unknown option")
+	o, err := exec.Run(ctx, exec.Spec{Bin: rt.cfg.Bin, Args: []string{"-p", "--restricted", flag, filepath.Join(home, ".kluzo-flag-probe-missing")}, Env: rt.env(ports.SessionSpec{}, home)})
+	return err == nil && !strings.Contains(o.Stderr, "unknown option")
 }
 
 // authenticated reports whether a credential is available: the variable
