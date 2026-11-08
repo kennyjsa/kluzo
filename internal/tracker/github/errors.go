@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	gh "github.com/google/go-github/v75/github"
+	gh "github.com/google/go-github/v93/github"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 )

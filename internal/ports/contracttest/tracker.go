@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
 
@@ -26,6 +27,16 @@ func RunTracker(t *testing.T, env Env) {
 		}
 		return is
 	}
+
+	t.Run("says who Kluzo is", func(t *testing.T) {
+		login, err := tr.Whoami(ctx)
+		if err != nil || login == "" {
+			t.Fatalf("Whoami = %q, %v; want a login", login, err)
+		}
+		if again, _ := tr.Whoami(ctx); again != login {
+			t.Errorf("Whoami changed between calls: %q then %q", login, again)
+		}
+	})
 
 	t.Run("reads the milestone and its issues", func(t *testing.T) {
 		a, b := newIssue(t, "read-a"), newIssue(t, "read-b")
@@ -145,8 +156,8 @@ func RunTracker(t *testing.T, env Env) {
 	t.Run("dependencies", func(t *testing.T) {
 		a, b, c := newIssue(t, "dep-a"), newIssue(t, "dep-b"), newIssue(t, "dep-c")
 		deps := []ports.Dependency{
-			{FromRef: a.Ref, ToRef: c.Ref, Kind: ports.EdgeBlocks},
-			{FromRef: b.Ref, ToRef: c.Ref, Kind: ports.EdgeContract},
+			{FromRef: a.Ref, ToRef: c.Ref, Kind: contracts.EdgeBlocks},
+			{FromRef: b.Ref, ToRef: c.Ref, Kind: contracts.EdgeContract},
 		}
 		for range 2 { // setting twice changes nothing
 			if err := tr.SetDependencies(ctx, c.Ref, deps); err != nil {
@@ -158,8 +169,8 @@ func RunTracker(t *testing.T, env Env) {
 			t.Fatal(err)
 		}
 		want := []ports.Dependency{
-			{FromRef: a.Ref, ToRef: c.Ref, Kind: ports.EdgeBlocks, Source: ports.SourceNative},
-			{FromRef: b.Ref, ToRef: c.Ref, Kind: ports.EdgeContract, Source: ports.SourceDescription},
+			{FromRef: a.Ref, ToRef: c.Ref, Kind: contracts.EdgeBlocks, Source: ports.SourceNative},
+			{FromRef: b.Ref, ToRef: c.Ref, Kind: contracts.EdgeContract, Source: ports.SourceDescription},
 		}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("Dependencies (-want +got):\n%s", diff)
@@ -182,11 +193,11 @@ func RunTracker(t *testing.T, env Env) {
 			t.Errorf("body after clearing = %q, want the original %q", body, c.Body)
 		}
 
-		self := []ports.Dependency{{FromRef: c.Ref, ToRef: c.Ref, Kind: ports.EdgeBlocks}}
+		self := []ports.Dependency{{FromRef: c.Ref, ToRef: c.Ref, Kind: contracts.EdgeBlocks}}
 		if err := tr.SetDependencies(ctx, c.Ref, self); !errors.Is(err, ports.ErrInvalid) {
 			t.Errorf("self dependency: err = %v, want ErrInvalid", err)
 		}
-		ghost := []ports.Dependency{{FromRef: "999999", ToRef: c.Ref, Kind: ports.EdgeBlocks}}
+		ghost := []ports.Dependency{{FromRef: "999999", ToRef: c.Ref, Kind: contracts.EdgeBlocks}}
 		if err := tr.SetDependencies(ctx, c.Ref, ghost); !errors.Is(err, ports.ErrNotFound) {
 			t.Errorf("unknown blocker: err = %v, want ErrNotFound", err)
 		}
@@ -210,11 +221,15 @@ func RunTracker(t *testing.T, env Env) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		me, err := tr.Whoami(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
 		var got []string
 		for _, c := range changes {
 			if c.IssueRef == is.Ref {
-				if c.Actor == "" || c.At.IsZero() {
-					t.Errorf("change %+v has no actor or time", c)
+				if c.Actor != me || c.At.IsZero() {
+					t.Errorf("change %+v: want the actor %q (Whoami) and a time", c, me)
 				}
 				got = append(got, c.Kind+" "+c.Label)
 			}

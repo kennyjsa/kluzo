@@ -11,16 +11,21 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The two Go versions supported by the Go team (docs/architecture/stack.md).
+        go: ["1.26", "1.27"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go }}
           check-latest: true
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.5
+          version: v2.15
       - name: Architecture rules
         run: make arch
       - name: Tests

@@ -2,13 +2,14 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
-	gh "github.com/google/go-github/v75/github"
+	gh "github.com/google/go-github/v93/github"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
@@ -121,9 +122,9 @@ func (a *Adapter) CreateIssue(ctx context.Context, in ports.NewIssue, idemKey st
 			return toIssue(is), nil
 		}
 	}
-	req := &gh.IssueRequest{Title: &in.Title, Body: gh.Ptr(withMarker(in.Body, idemKey))}
+	req := gh.CreateIssueRequest{Title: in.Title, Body: new(withMarker(in.Body, idemKey))}
 	if len(in.Labels) > 0 {
-		req.Labels = &in.Labels
+		req.Labels = in.Labels
 	}
 	if in.MilestoneRef != "" {
 		m, err := number("milestone", in.MilestoneRef)
@@ -208,7 +209,7 @@ func (a *Adapter) Comment(ctx context.Context, issueRef, body, idemKey string) (
 			return toCommentRef(c), nil
 		}
 	}
-	c, _, err := a.gh.Issues.CreateComment(ctx, a.owner, a.repo, n, &gh.IssueComment{Body: gh.Ptr(withMarker(body, idemKey))})
+	c, _, err := a.gh.Issues.CreateComment(ctx, a.owner, a.repo, n, gh.IssueCommentRequest{Body: withMarker(body, idemKey)})
 	if err != nil {
 		return ports.CommentRef{}, a.fail("comment on issue "+issueRef, err)
 	}
@@ -305,6 +306,25 @@ func (a *Adapter) Changes(ctx context.Context, milestoneRef, cursor string) ([]p
 		out = append(out, e.change)
 	}
 	return out, strconv.FormatInt(head, 10), nil
+}
+
+// Whoami implements ports.Tracker: the login of the token's user, or
+// "<slug>[bot]" for a GitHub App.
+func (a *Adapter) Whoami(ctx context.Context) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.login != "" {
+		return a.login, nil
+	}
+	u, _, err := a.gh.Users.Get(ctx, "")
+	if err != nil {
+		return "", a.fail("read the authenticated user", err)
+	}
+	if u.GetLogin() == "" {
+		return "", a.fail("read the authenticated user", errors.New("empty login"))
+	}
+	a.login = u.GetLogin()
+	return a.login, nil
 }
 
 // toChange keeps the label events of the milestone's issues.

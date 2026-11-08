@@ -3,6 +3,8 @@ package ports
 import (
 	"context"
 	"time"
+
+	"github.com/kennyjsa/kluzo/internal/contracts"
 )
 
 // StateLabelPrefix starts every label the Kluzo owns (docs/contracts/state-machine.md).
@@ -44,6 +46,11 @@ type Tracker interface {
 	// cursor, oldest first, and the new cursor. An empty cursor returns no
 	// changes and a cursor positioned at the present, so polling starts "now".
 	Changes(ctx context.Context, milestoneRef string, cursor string) ([]Change, string, error)
+
+	// Whoami returns the login Kluzo acts as in the tracker (the bot of an App
+	// or the user of a token). It is the Actor of the changes Kluzo causes, so
+	// the supervisor can revert orch/* labels applied by anyone else.
+	Whoami(ctx context.Context) (string, error)
 }
 
 // Milestone is a tracker milestone.
@@ -69,20 +76,11 @@ type NewIssue struct {
 	MilestoneRef string
 }
 
-// EdgeKind is the kind of a dependency (same values as core.EdgeKind).
-type EdgeKind string
-
-// Dependency kinds.
-const (
-	EdgeBlocks   EdgeKind = "blocks"
-	EdgeContract EdgeKind = "contract"
-)
-
 // Dependency says FromRef must come before ToRef.
 type Dependency struct {
 	FromRef, ToRef string
-	Kind           EdgeKind // EdgeBlocks | EdgeContract
-	Source         string   // "native" | "description"
+	Kind           contracts.EdgeKind // EdgeBlocks | EdgeContract
+	Source         string             // "native" | "description"
 }
 
 // Where a Dependency was read from.

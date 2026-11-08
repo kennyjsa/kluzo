@@ -64,7 +64,12 @@ func readTable(t *testing.T, heading string) [][2]string {
 	return rows
 }
 
-func unquote(s string) string { return strings.Trim(s, "`") }
+// unquote drops the backticks of a table cell and a trailing annotation such
+// as "`blocked` (`triage`)", which names the reason, not another state.
+func unquote(s string) string {
+	s, _, _ = strings.Cut(s, " (")
+	return strings.Trim(s, "`")
+}
 
 func pairKey(from, to string) string { return from + " → " + to }
 

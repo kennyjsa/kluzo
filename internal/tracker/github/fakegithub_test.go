@@ -96,6 +96,9 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 	}
 	mux := http.NewServeMux()
 	base := "/repos/acme/sandbox"
+	mux.HandleFunc("GET /user", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"login": f.actor})
+	})
 	mux.HandleFunc("GET "+base+"/milestones/{n}", f.getMilestone)
 	mux.HandleFunc("GET "+base+"/issues", f.listIssues)
 	mux.HandleFunc("POST "+base+"/issues", f.createIssue)
