@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
@@ -58,6 +59,20 @@ func newGraphEnv(t *testing.T, planLines ...string) graphEnv {
 	link(t, tr, "2", "1")
 	link(t, tr, "3", "2")
 	dir := filepath.Join(t.TempDir(), DefaultConfigDir)
+	if _, err := config.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	areas := "\nareas:\n  store: [\"internal/store/**\"]\n  core: [\"internal/core/**\"]\n"
+	f, err := os.OpenFile(filepath.Join(dir, "kluzo.yaml"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(areas); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if planLines != nil {
 		if err := os.MkdirAll(filepath.Join(dir, "plans"), 0o755); err != nil {
 			t.Fatal(err)
@@ -124,6 +139,19 @@ func TestLoadGraphReportsProblemsWithFileAndLine(t *testing.T) {
 		{"plan link missing from the tracker", func(l []string) []string { l[13] = "    blocks_on: [2, 1]"; return l }, nil, 12, core.ErrDivergentEdge},
 		{"issue forgotten by the plan", func(l []string) []string { return l[:len(l)-2] }, nil, 1, core.ErrNotInPlan},
 		{"cycle through the tracker", nil, func(t *testing.T, e graphEnv) { link(t, e.tracker, "1", "3") }, 5, core.ErrCycle},
+		{"unknown area", func(l []string) []string { l[5] = "    areas: [stor]"; return l }, nil, 6, errors.New(`area "stor" is not in areas: of kluzo.yaml`)},
+		{"override of a missing role", func(l []string) []string {
+			l[6] = "    acceptance: [persists]\n    overrides: { ghost: { model: sonnet } }"
+			return l
+		}, nil, 8, errors.New(`role "ghost" does not exist`)},
+		{"override with an unknown key", func(l []string) []string {
+			l[6] = "    acceptance: [persists]\n    overrides: { implementer: { fallback: x } }"
+			return l
+		}, nil, 8, errors.New(`unknown override key "fallback"`)},
+		{"override with a model of another harness", func(l []string) []string {
+			l[6] = "    acceptance: [persists]\n    overrides: { implementer: { model: gpt-5 } }"
+			return l
+		}, nil, 8, errors.New(`model "gpt-5" is not valid`)},
 		{"no acceptance", func(l []string) []string { l[14] = "    acceptance: []"; return l }, nil, 12, core.ErrNoAcceptance},
 	}
 	for _, tt := range tests {

@@ -11,7 +11,8 @@ import (
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
 
-// LoadGraph reads the plan of a milestone, asks the tracker for the issues and
+// LoadGraph reads the plan of a milestone, checks it against the project
+// configuration (areas, role overrides), asks the tracker for the issues and
 // their dependencies, and builds the graph the scheduler works on (F10). It
 // reads only: persistence and events come with the workspace.
 type LoadGraph struct{ Tracker ports.Tracker }
@@ -48,6 +49,15 @@ func (u LoadGraph) Execute(ctx context.Context, in LoadGraphInput) (LoadGraphOut
 		return out, err
 	}
 	out.Plan = plan
+
+	proj, err := config.Load(in.ConfigDir)
+	if errors.As(err, &invalid) {
+		out.Problems = invalid // the plan cannot be judged against a broken configuration
+		return out, nil
+	} else if err != nil {
+		return out, err
+	}
+	out.Problems = plan.CheckProject(proj)
 
 	issues, err := u.Tracker.MilestoneIssues(ctx, in.MilestoneRef)
 	if err != nil {

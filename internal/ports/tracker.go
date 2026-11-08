@@ -60,10 +60,16 @@ type Milestone struct {
 	URL                     string
 }
 
+// Issue states.
+const (
+	IssueOpen   = "open"
+	IssueClosed = "closed"
+)
+
 // Issue is a tracker issue. Body is the text a human wrote: markers the
 // adapter hides in it are removed.
 type Issue struct {
-	Ref, Title, Body, State string // State: "open" | "closed"
+	Ref, Title, Body, State string // State: IssueOpen | IssueClosed
 	Labels                  []string
 	MilestoneRef            string
 	URL                     string

@@ -108,3 +108,52 @@ func TestLoadPlanFileProblems(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanCheckProject(t *testing.T) {
+	proj, err := Load(filepath.Join("testdata", "valid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The example plan uses areas the example kluzo.yaml does not declare.
+	plan := func(lines ...string) *Plan {
+		t.Helper()
+		head := []string{"version: 1", "plan_version: 1", "milestone: v2.0", "nodes:", "  - issue: 41", "    acceptance: [x]"}
+		p, err := LoadPlan(planDir(t, append(head, lines...)...), "v2.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	tests := []struct {
+		name  string
+		lines []string
+		want  string // substring of the first error; empty means none
+		line  int
+	}{
+		{"declared and shared areas", []string{"    areas: [agenda, shared]"}, "", 0},
+		{"unknown area", []string{"    areas: [agenda, billing]"}, `area "billing" is not in areas: of kluzo.yaml`, 7},
+		{"valid overrides", []string{"    areas: [agenda]", "    overrides: { implementer: { model: sonnet, advisor: opus, effort: high, harness: claude-code } }"}, "", 0},
+		{"missing role", []string{"    areas: [agenda]", "    overrides: { ghost: { model: sonnet } }"}, `role "ghost" does not exist in roles/`, 8},
+		{"key outside the accepted four", []string{"    areas: [agenda]", "    overrides: { implementer: { subagents: haiku } }"}, `unknown override key "subagents"`, 8},
+		{"invalid effort", []string{"    areas: [agenda]", "    overrides: { implementer: { effort: max } }"}, `unknown effort "max"`, 8},
+		{"model of the wrong harness", []string{"    areas: [agenda]", "    overrides: { implementer: { harness: opencode } }"}, "is not valid for opencode", 8},
+		{"advisor weaker than the model", []string{"    areas: [agenda]", "    overrides: { implementer: { model: opus, advisor: haiku } }"}, "is weaker than model", 8},
+		{"empty value", []string{"    areas: [agenda]", "    overrides: { implementer: { model: '' } }"}, "must not be empty", 8},
+		{"excluded node is not checked", []string{"    areas: [nowhere]", "    excluded: true"}, "", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := plan(tt.lines...).CheckProject(proj)
+			if tt.want == "" {
+				if len(errs) != 0 {
+					t.Fatalf("errors = %v", errs)
+				}
+				return
+			}
+			// Switching harness also breaks the role's advisor and subagents: the first error is the one asked for.
+			if len(errs) == 0 || !strings.Contains(errs[0].Msg, tt.want) || errs[0].Line != tt.line {
+				t.Errorf("errors = %v, want %q at line %d", errs, tt.want, tt.line)
+			}
+		})
+	}
+}

@@ -106,14 +106,24 @@ func (s *source) line(path string) int {
 
 // report collects semantic errors for one source file.
 type report struct {
-	src  *source
-	errs *Errors
+	src    *source
+	errs   *Errors
+	prefix string // key path every added path is relative to
 }
 
 func (s *source) report(errs *Errors) report { return report{src: s, errs: errs} }
 
 // add records an error at the given key path.
-func (r report) add(path, msg string) { r.addAt(r.src.line(path), path, msg) }
+func (r report) add(path, msg string) {
+	path = join(r.prefix, path)
+	r.addAt(r.src.line(path), path, msg)
+}
+
+// under returns a report whose paths are relative to prefix.
+func (r report) under(prefix string) report {
+	r.prefix = join(r.prefix, prefix)
+	return r
+}
 
 // addAt records an error at an explicit line, for problems found outside the
 // YAML structure (a role's markdown body).

@@ -1,18 +1,19 @@
 package core
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 )
 
-// SharedArea is the implicit area of files outside every declared area; it
-// never creates conflicts (ADR 0011).
-const SharedArea = "shared"
+// SharedArea is the implicit area of files outside every declared area (ADR 0011).
+const SharedArea = contracts.SharedArea
 
 // Graph errors. Each is the Rule of a Problem; callers use errors.Is.
 var (
@@ -204,7 +205,7 @@ func (g Graph) NextToDispatch(maxParallel int) []string {
 		if weights[ready[i]] != weights[ready[j]] {
 			return weights[ready[i]] > weights[ready[j]]
 		}
-		return ready[i] < ready[j]
+		return compareRefs(ready[i], ready[j]) < 0
 	})
 
 	var picked []string
@@ -229,8 +230,26 @@ func (g Graph) ids() []string {
 	for id := range g.Nodes {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+	slices.SortFunc(ids, compareRefs)
 	return ids
+}
+
+// compareRefs orders issue references for display and for the scheduler's
+// tie-break: numeric references first, by number (creation order in the
+// tracker, so 9 comes before 10), then the others as text. Equal numbers
+// (such as "7" and "07") fall back to text so the order stays total.
+func compareRefs(a, b string) int {
+	na, errA := strconv.ParseUint(a, 10, 64)
+	nb, errB := strconv.ParseUint(b, 10, 64)
+	switch {
+	case errA == nil && errB == nil:
+		return cmp.Or(cmp.Compare(na, nb), strings.Compare(a, b))
+	case errA == nil:
+		return -1
+	case errB == nil:
+		return 1
+	}
+	return strings.Compare(a, b)
 }
 
 // findCycle returns one cycle as a path (first node repeated at the end), or nil.

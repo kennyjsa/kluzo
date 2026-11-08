@@ -89,6 +89,21 @@ func TestGraphFromPlanRules(t *testing.T) {
 			*p = append(*p, PlanNode{Issue: "48", Excluded: true})
 			*is = append(*is, ports.Issue{Ref: "48"})
 		}, nil},
+		{"closed issue outside the plan is not an error", func(_ *[]PlanNode, is *[]ports.Issue, _ *[]ports.Dependency) {
+			*is = append(*is, ports.Issue{Ref: "48", State: ports.IssueClosed})
+		}, nil},
+		{"plan node pointing to a closed issue", func(_ *[]PlanNode, is *[]ports.Issue, _ *[]ports.Dependency) {
+			(*is)[4].State = ports.IssueClosed
+		}, []error{ErrClosedNode}},
+		{"dependency on a closed issue is met and its edge ignored", func(p *[]PlanNode, is *[]ports.Issue, d *[]ports.Dependency) {
+			*is = append(*is, ports.Issue{Ref: "40", State: ports.IssueClosed})
+			(*p)[0].BlocksOn = []string{"40"}
+			*d = append(*d, blocks("40", "41"))
+		}, nil},
+		{"tracker dependency on a closed issue absent from the plan is ignored", func(_ *[]PlanNode, is *[]ports.Issue, d *[]ports.Dependency) {
+			*is = append(*is, ports.Issue{Ref: "40", State: ports.IssueClosed})
+			*d = append(*d, blocks("40", "41"))
+		}, nil},
 		{"plan node outside the milestone", func(p *[]PlanNode, _ *[]ports.Issue, _ *[]ports.Dependency) {
 			*p = append(*p, PlanNode{Issue: "99", Areas: []string{"a"}, Acceptance: []string{"x"}})
 		}, []error{ErrNotInMilestone}},

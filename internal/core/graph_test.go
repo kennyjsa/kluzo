@@ -156,3 +156,17 @@ func TestBlockedNodeKeepsItsArea(t *testing.T) {
 		t.Fatalf("dispatched %v into the area of a blocked node", got)
 	}
 }
+
+// References are compared as numbers when both are numeric: 9 before 10.
+func TestNextToDispatchTieBreaksNumerically(t *testing.T) {
+	g := Graph{Nodes: map[string]GraphNode{}}
+	for _, id := range []string{"10", "9", "100", "x"} {
+		g.Nodes[id] = GraphNode{ID: id, State: NodePlanned, Areas: []string{SharedArea}}
+	}
+	if got, want := g.NextToDispatch(10), []string{"9", "10", "100", "x"}; !slices.Equal(got, want) {
+		t.Errorf("NextToDispatch() = %v, want %v", got, want)
+	}
+	if got, want := g.Ready(), []string{"9", "10", "100", "x"}; !slices.Equal(got, want) {
+		t.Errorf("Ready() = %v, want %v", got, want)
+	}
+}
