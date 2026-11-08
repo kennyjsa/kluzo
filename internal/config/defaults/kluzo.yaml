@@ -23,6 +23,7 @@ branches:
 
 protected_paths:                    # changes here become proposals for a human (ADR 0020)
   - ".kluzo/**"
+  - "AGENTS.md"                       # project memory (ADR 0022)
   - ".github/workflows/**"
 
 # TODO: replace the placeholder commands. They fail on purpose, so a gate that

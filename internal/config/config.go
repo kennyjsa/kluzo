@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -18,6 +20,7 @@ type Config struct {
 	Gates          []Gate              `yaml:"gates"`
 	MilestoneGates []Gate              `yaml:"milestone_gates"`
 	Scheduler      Scheduler           `yaml:"scheduler"`
+	CodeMap        CodeMap             `yaml:"code_map"`
 	Security       Security            `yaml:"security"`
 	Budgets        Budgets             `yaml:"budgets"`
 	Runtimes       map[Harness]Runtime `yaml:"runtimes"`
@@ -69,6 +72,12 @@ type Gate struct {
 // Scheduler configures node dispatch.
 type Scheduler struct {
 	MaxParallel int `yaml:"max_parallel"`
+}
+
+// CodeMap configures the code map used by the kluzo_code_* tools (v0.3, ADR 0021).
+type CodeMap struct {
+	Adapter string   `yaml:"adapter"` // none | cartog | lsp
+	Exclude []string `yaml:"exclude"` // globs left out of the map
 }
 
 // Security holds the switches that relax the default isolation (ADR 0020).
@@ -135,6 +144,7 @@ func (c *Config) validate(r report) {
 			r.add(join("areas", name), "area needs at least one glob")
 		}
 	}
+	c.validateCodeMap(r)
 	validateGates(r, "gates", c.Gates)
 	validateGates(r, "milestone_gates", c.MilestoneGates)
 	c.validateBudgets(r)
@@ -156,6 +166,17 @@ func (c *Config) validate(r report) {
 	}
 	if n := c.Notify; n != nil && n.Kind != "log" && n.Kind != "ntfy" {
 		r.add("notify.kind", fmt.Sprintf("unknown kind %q (want log or ntfy)", n.Kind))
+	}
+}
+
+func (c *Config) validateCodeMap(r report) {
+	if a := c.CodeMap.Adapter; !slices.Contains([]string{"", "none", "cartog", "lsp"}, a) {
+		r.add("code_map.adapter", fmt.Sprintf("unknown adapter %q (want none, cartog or lsp)", a))
+	}
+	for i, g := range c.CodeMap.Exclude {
+		if _, err := path.Match(g, ""); err != nil {
+			r.add(idx("code_map.exclude", i), fmt.Sprintf("invalid glob %q: %v", g, err))
+		}
 	}
 }
 

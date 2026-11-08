@@ -69,7 +69,7 @@ func TestInitAndRolesCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	broken := strings.Replace(string(data), "tools: [read]", "tools: [read, bash]", 1)
+	broken := strings.Replace(string(data), "tools: [read]", "tools: [read, grep]", 1)
 	if err := os.WriteFile(reviewer, []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -61,15 +61,6 @@ type Override struct {
 var (
 	roleName    = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 	toolMention = regexp.MustCompile(`kluzo_[a-z]+(?:_[a-z]+)*`)
-
-	// knownTools is the tool vocabulary of roles, translated by each harness
-	// adapter. Provisional until the adapters exist (docs/planning/questions.md, Q2).
-	knownTools = []string{"read", "edit", "bash", "test"}
-	// mcpTools are the kluzo_* tools of docs/contracts/mcp.md.
-	mcpTools = []string{"kluzo_context", "kluzo_decision", "kluzo_ask", "kluzo_propose_node", "kluzo_result"}
-
-	// reservedMarkers are the untrusted-data delimiters (docs/contracts/prompt.md).
-	reservedMarkers = []string{"<<<UNTRUSTED", "UNTRUSTED:"}
 )
 
 // splitFrontmatter separates the YAML block between the first two `---` lines
@@ -188,11 +179,8 @@ func (ro *Role) validateModels(r report, d Defaults) (Harness, string) {
 func (ro *Role) validateTools(r report) {
 	for i, t := range ro.Tools {
 		p := idx("tools", i)
-		switch {
-		case !slices.Contains(knownTools, t):
-			r.add(p, fmt.Sprintf("unknown tool %q (known: %s)", t, strings.Join(knownTools, ", ")))
-		case ro.Name == "reviewer" && (t == "edit" || t == "bash"):
-			r.add(p, fmt.Sprintf("the reviewer role must be read-only: remove %q (ADR 0020)", t))
+		if known := contracts.Tools(); !slices.Contains(known, t) {
+			r.add(p, fmt.Sprintf("unknown tool %q (known: %s)", t, strings.Join(known, ", ")))
 		}
 	}
 }
@@ -202,8 +190,8 @@ func (ro *Role) validateMCP(r report) {
 		r.add("mcp", "must include kluzo_result: every role delivers its output through it")
 	}
 	for i, t := range ro.MCP {
-		if !slices.Contains(mcpTools, t) {
-			r.add(idx("mcp", i), fmt.Sprintf("unknown tool %q (known: %s)", t, strings.Join(mcpTools, ", ")))
+		if known := contracts.MCPTools(); !slices.Contains(known, t) {
+			r.add(idx("mcp", i), fmt.Sprintf("unknown tool %q (known: %s)", t, strings.Join(known, ", ")))
 		}
 	}
 }
@@ -238,7 +226,7 @@ func (ro *Role) validateFallback(r report, harness Harness, model string) {
 func (ro *Role) validateBody(r report) {
 	for i, line := range strings.Split(ro.Body, "\n") {
 		n := ro.bodyLine + i
-		for _, m := range reservedMarkers {
+		for _, m := range contracts.ReservedMarkers() {
 			if strings.Contains(line, m) {
 				r.addAt(n, "", fmt.Sprintf("the body contains the reserved marker %q", m))
 			}

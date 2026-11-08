@@ -85,6 +85,10 @@ func TestLoadErrors(t *testing.T) {
 			{"kluzo.yaml", 60, "runtimes.claude-code.min_version", "not a version"},
 			{"kluzo.yaml", 62, "runtimes.codex", "unknown harness"},
 		}},
+		{"cfg-bad-code-map", []want{
+			{"kluzo.yaml", 76, "code_map.adapter", `unknown adapter "ctags"`},
+			{"kluzo.yaml", 77, "code_map.exclude[1]", "invalid glob"},
+		}},
 		// roles: frontmatter
 		{"role-no-frontmatter", []want{{"roles/implementer.md", 1, "", "must start with"}}},
 		{"role-unclosed-frontmatter", []want{{"roles/implementer.md", 1, "", "not closed"}}},
@@ -132,10 +136,6 @@ func TestLoadErrors(t *testing.T) {
 		}},
 		// roles: rules of config.md and prompt.md
 		{"role-no-kluzo-result", []want{{"roles/implementer.md", 6, "mcp", "must include kluzo_result"}}},
-		{"role-reviewer-writes", []want{
-			{"roles/reviewer.md", 5, "tools[0]", `remove "edit"`},
-			{"roles/reviewer.md", 5, "tools[2]", `remove "bash"`},
-		}},
 		{"role-body-markers", []want{
 			{"roles/implementer.md", 21, "", `reserved marker "<<<UNTRUSTED"`},
 			{"roles/implementer.md", 23, "", `reserved marker "UNTRUSTED:"`},
@@ -145,6 +145,11 @@ func TestLoadErrors(t *testing.T) {
 			{"roles/reviewer.md", 10, "", "kluzo_propose_node, which is not listed in mcp"},
 		}},
 		// flows
+		{"flow-reviewer-writes", []want{{"flows/node.yaml", 9, "steps[2].role", `must be read-only: remove "edit" and "bash"`}}},
+		{"flow-bad-on-fail", []want{
+			{"flows/node.yaml", 5, "steps[2].on_fail", `"q" is not an earlier role step`},
+			{"flows/node.yaml", 6, "steps[3].on_fail", `"later" is not an earlier role step`},
+		}},
 		{"flow-unknown-role", []want{{"flows/node.yaml", 9, "steps[2].role", `role "tester" does not exist`}}},
 		{"flow-unknown-gate", []want{
 			{"flows/node.yaml", 14, "steps[3].gate[1]", `gate "lint" is not defined in gates`},
@@ -167,7 +172,7 @@ func TestLoadErrors(t *testing.T) {
 		}},
 		{"flow-bad-references", []want{
 			{"flows/node.yaml", 3, "steps[0].on_reject", `"b" is not an earlier step`},
-			{"flows/node.yaml", 5, "steps[2].on_fail", `"nope" is not an earlier step`},
+			{"flows/node.yaml", 5, "steps[2].on_fail", `"nope" is not an earlier role step`},
 			{"flows/node.yaml", 6, "steps[3].on_reject", `"d" is not an earlier step`},
 		}},
 		{"flow-node-merge-queue", []want{
