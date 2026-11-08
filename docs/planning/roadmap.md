@@ -49,6 +49,7 @@ Uma feature pode ser entregue em partes; a tabela mostra o que entra em cada ver
 | F30 Visão Estrutura | | | ● | |
 | F31 Mapa de código | | `kluzo_changes` | `CodeMapper` + 1 adaptador | |
 | F32 Memória do projeto | | | | ● |
+| F33 Contexto adicional | | referências e contexto externo | | multi-repo: candidata pós-v0.4 |
 
 ## Por que o GitHub vem antes do GitLab
 
