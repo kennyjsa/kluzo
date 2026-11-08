@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
@@ -297,7 +298,9 @@ type ReviewOutcome struct {
 	Verdict  Verdict
 	Findings Findings
 	New      []Finding // the findings of this review, with their ids
-	Gaps     []Finding // majors left open at the last round, recorded as gaps
+	// Gaps are the majors still open at the last round of an approved node,
+	// recorded as gaps. A node sent to triage keeps them open.
+	Gaps []Finding
 	// Event is the trigger for the node in in_review: approved, rejected for
 	// a new round, or blocked for triage when the rounds are over.
 	Event NodeEvent
@@ -339,25 +342,35 @@ func DeriveReview(in ReviewInput) ReviewOutcome {
 		met = met && c.Met
 	}
 	last := in.Round >= in.MaxRounds
-	out := ReviewOutcome{Findings: fs, New: added}
-	blocking := false
-	for i, f := range fs.List {
-		switch {
-		case f.Status != FindingOpen || !f.Severity.Blocks():
-		case f.Severity == SeverityMajor && last:
-			fs.List[i].Status = FindingGap
-			out.Gaps = append(out.Gaps, fs.List[i])
-		default:
-			blocking = true
+	blocking, majors := false, false
+	for _, f := range fs.List {
+		if f.Status == FindingOpen {
+			blocking = blocking || f.Severity == SeverityBlocking
+			majors = majors || f.Severity == SeverityMajor
 		}
 	}
+	out := ReviewOutcome{Verdict: VerdictRequestChanges}
 	switch {
-	case met && !blocking:
+	case met && !blocking && (!majors || last):
 		out.Verdict, out.Event = VerdictApprove, NodeEvent{Trigger: TriggerReviewApproved}
 	case last:
-		out.Verdict, out.Event = VerdictRequestChanges, NodeEvent{Trigger: TriggerBlock, Reason: BlockedTriage}
+		out.Event = NodeEvent{Trigger: TriggerBlock, Reason: BlockedTriage}
 	default:
-		out.Verdict, out.Event = VerdictRequestChanges, NodeEvent{Trigger: TriggerReviewRejected}
+		out.Event = NodeEvent{Trigger: TriggerReviewRejected}
+	}
+	if out.Verdict == VerdictApprove && last {
+		// The node moves on: the majors left open no longer block and are
+		// recorded as gaps (results.md).
+		for i, f := range fs.List {
+			if f.Status == FindingOpen && f.Severity == SeverityMajor {
+				fs.List[i].Status = FindingGap
+				out.Gaps = append(out.Gaps, fs.List[i])
+			}
+		}
+	}
+	out.Findings = fs
+	for _, f := range added {
+		out.New = append(out.New, fs.List[fs.index(f.ID)])
 	}
 	return out
 }
@@ -388,6 +401,17 @@ func splitLine(ref string) (string, int, bool) {
 	return ref[:i], n, true
 }
 
+// isName reports whether s can be the Name of path:Name: a test or symbol
+// name, starting with a letter or an underscore. "0", "-3" and "41-50" are
+// bad line references, not names.
+func isName(s string) bool {
+	if s == "" {
+		return false
+	}
+	r := []rune(s)[0]
+	return r == '_' || unicode.IsLetter(r)
+}
+
 // checkEvidence verifies every evidence of the criteria in the worktree:
 // path:line needs the file with at least that many lines, path:Name needs the
 // file (ADR 0023, item 5; the test name is checked from v0.2).
@@ -398,7 +422,7 @@ func checkEvidence(criteria []CriterionEvidence, files ports.Files) ([]string, e
 			path, line, isLine := splitLine(ev)
 			if !isLine {
 				j := strings.LastIndexByte(ev, ':')
-				if j <= 0 || j == len(ev)-1 {
+				if j <= 0 || !isName(ev[j+1:]) {
 					problems = append(problems, fmt.Sprintf("criteria: %s evidence %q is not path:line or path:Name", c.ID, ev))
 					continue
 				}

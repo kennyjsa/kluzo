@@ -96,8 +96,9 @@ type SCM interface {
 // sem fazer I/O: lê o worktree do nó por este port (implementação: gitops.Files).
 type Files interface {
 	// Número de linhas do arquivo (quebras de linha, mais uma se a última não
-	// tiver). ok é false para caminho absoluto, fora do worktree, inexistente
-	// ou que não seja arquivo regular; err é falha de leitura.
+	// tiver). ok é false para caminho não normalizado ("./a.go"), absoluto,
+	// fora do worktree, inexistente, ilegível ou que não seja arquivo regular
+	// (inclusive FIFO, sem bloquear); err é falha de leitura do worktree.
 	Lines(path string) (n int, ok bool, err error)
 }
 

@@ -3,7 +3,9 @@ package gitops
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/ports/contracttest"
@@ -43,6 +45,31 @@ func TestFilesSymlinks(t *testing.T) {
 		n, ok, err := f.Lines(tt.path)
 		if err != nil || n != tt.n || ok != tt.ok {
 			t.Errorf("Lines(%q) = %d, %v, %v; want %d, %v, nil", tt.path, n, ok, err, tt.n, tt.ok)
+		}
+	}
+}
+
+// What an agent can leave in the worktree must give a problem to fix, never
+// hang the check or turn into an infrastructure error.
+func TestFilesSpecialFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(root, "pipe.go"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "locked.go"), "x\n", 0o000)
+	f := NewFiles(root)
+	for _, p := range []string{"pipe.go", "locked.go"} {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if n, ok, err := f.Lines(p); ok || err != nil {
+				t.Errorf("Lines(%q) = %d, %v, %v; want not citable", p, n, ok, err)
+			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("Lines(%q) blocked", p)
 		}
 	}
 }

@@ -21,11 +21,11 @@ func (f Files) Lines(p string) (int, bool, error) {
 	if !ok {
 		return 0, false, nil
 	}
-	return CountLines(content), true, nil
+	return countLines(content), true, nil
 }
 
-// CountLines counts lines as ports.Files does.
-func CountLines(s string) int {
+// countLines counts lines as ports.Files does.
+func countLines(s string) int {
 	n := strings.Count(s, "\n")
 	if s != "" && !strings.HasSuffix(s, "\n") {
 		n++

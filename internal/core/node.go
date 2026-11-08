@@ -180,6 +180,11 @@ func NextNode(n Node, ev NodeEvent, lim Limits) (Node, error) {
 	return n, nil
 }
 
+// TriggerFastGateFailed names a failure of the fast gates in errors. It is not
+// a row of the transition table: the node stays running until max_retries is
+// passed, and then it is blocked (FastGateFailed).
+const TriggerFastGateFailed NodeTrigger = "fast_gate_failed"
+
 // FastGateFailed counts a failure of the fast gates, which run while the node
 // is running, between the implementer and the reviewer
 // (docs/contracts/state-machine.md). Below max_retries the node stays running
@@ -187,7 +192,7 @@ func NextNode(n Node, ev NodeEvent, lim Limits) (Node, error) {
 // failure that passes the limit blocks the node for triage.
 func FastGateFailed(n Node, lim Limits) (Node, error) {
 	if n.State != NodeRunning {
-		return n, invalid(n.State, NodeTrigger("fast_gate_failed"))
+		return n, invalid(n.State, TriggerFastGateFailed)
 	}
 	n.FastGateFailures++
 	if n.FastGateFailures <= lim.MaxFastRetries {

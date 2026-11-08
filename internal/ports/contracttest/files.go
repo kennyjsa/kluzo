@@ -32,6 +32,8 @@ func RunFiles(t *testing.T, make func(t *testing.T, files map[string]string) por
 		{"dir/../../a.go", 0, false},
 		{"/etc/passwd", 0, false},
 		{"", 0, false},
+		{"./a.go", 0, false},
+		{"dir//nested/b.go", 0, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

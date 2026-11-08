@@ -84,6 +84,8 @@ func TestCheckNodeResult(t *testing.T) {
 		{name: "last line", status: "done", criteria: []map[string]any{good[0], ev("AC2", "internal/agenda/service_test.go:20")}},
 		{name: "test name in a missing file", status: "done", criteria: []map[string]any{good[0], ev("AC2", "internal/x_test.go:TestX")}, want: []string{"internal/x_test.go does not exist"}},
 		{name: "not path:line nor path:Name", status: "done", criteria: []map[string]any{good[0], ev("AC2", "service.go", "x.go:")}, want: []string{`"service.go" is not path:line`, `"x.go:" is not path:line`}},
+		{name: "bad line references are not names", status: "done", criteria: []map[string]any{good[0], ev("AC2", "internal/agenda/service.go:0", "internal/agenda/service.go:-3", "internal/agenda/service.go:41-50")},
+			want: []string{`service.go:0" is not path:line`, `service.go:-3" is not path:line`, `service.go:41-50" is not path:line`}},
 		{name: "outside the worktree", status: "done", criteria: []map[string]any{good[0], ev("AC2", "../secret.go:1")}, want: []string{"../secret.go does not exist"}},
 		{name: "response missing", status: "done", criteria: good, open: []Finding{openF1, openF2}, responses: []map[string]any{resp("F1", ActionFixed)}, want: []string{"responses: F2 is missing"}},
 		{name: "response to an unknown finding", status: "done", criteria: good, responses: []map[string]any{resp("F7", ActionFixed)}, want: []string{"responses: F7 is not one of the expected ids (none are expected)"}},
@@ -208,8 +210,10 @@ func TestDeriveReview(t *testing.T) {
 			Responses: []Response{{ID: "F1", Action: ActionContested}}},
 			verdict: VerdictRequestChanges, event: reject, statuses: map[string]FindingStatus{"F1": FindingOpen}, contested: []string{"F1"}},
 		{name: "an automatic finding of the round blocks", in: ReviewInput{Result: ReviewResult{Criteria: met}, Findings: ledger(autoF3), Round: 1, MaxRounds: 3}, verdict: VerdictRequestChanges, event: reject},
-		{name: "last round: a major becomes a gap", in: ReviewInput{Result: ReviewResult{Criteria: met, Previous: []PreviousStatus{{ID: "F2", Status: FindingOpen}}, Findings: []ReportedFinding{rf(SeverityMajor, "tests", "a.go", 12, "")}}, Findings: ledger(openF1, openF2), Round: 3, MaxRounds: 3, Changed: changed},
-			verdict: VerdictRequestChanges, event: triage, severity: []Severity{SeverityMajor}, newIDs: []string{"F3"}, gaps: []string{"F2", "F3"}, statuses: map[string]FindingStatus{"F1": FindingOpen, "F2": FindingGap, "F3": FindingGap}},
+		{name: "last round with a blocking: majors stay open for triage", in: ReviewInput{Result: ReviewResult{Criteria: met, Previous: []PreviousStatus{{ID: "F1", Status: FindingOpen}, {ID: "F2", Status: FindingOpen}}, Findings: []ReportedFinding{rf(SeverityMajor, "tests", "a.go", 12, "")}}, Findings: ledger(openF1, openF2), Round: 3, MaxRounds: 3, Changed: changed},
+			verdict: VerdictRequestChanges, event: triage, severity: []Severity{SeverityMajor}, newIDs: []string{"F3"}, statuses: map[string]FindingStatus{"F1": FindingOpen, "F2": FindingOpen, "F3": FindingOpen}},
+		{name: "last round: a new major becomes a gap too", in: ReviewInput{Result: ReviewResult{Criteria: met, Findings: []ReportedFinding{rf(SeverityMajor, "tests", "a.go", 12, "")}}, Round: 2, MaxRounds: 2, Changed: changed},
+			verdict: VerdictApprove, event: approve, severity: []Severity{SeverityMajor}, newIDs: []string{"F1"}, gaps: []string{"F1"}, statuses: map[string]FindingStatus{"F1": FindingGap}},
 		{name: "last round: only majors left approves with gaps", in: ReviewInput{Result: ReviewResult{Criteria: met, Previous: []PreviousStatus{{ID: "F1", Status: FindingResolved}, {ID: "F2", Status: FindingOpen}}}, Findings: ledger(openF1, openF2), Round: 3, MaxRounds: 3},
 			verdict: VerdictApprove, event: approve, gaps: []string{"F2"}, statuses: map[string]FindingStatus{"F1": FindingResolved, "F2": FindingGap}},
 		{name: "last round: an open blocking goes to triage", in: ReviewInput{Result: ReviewResult{Criteria: met, Previous: []PreviousStatus{{ID: "F1", Status: FindingOpen}}}, Findings: ledger(openF1), Round: 2, MaxRounds: 2},
@@ -243,6 +247,11 @@ func TestDeriveReview(t *testing.T) {
 			}
 			if !slices.Equal(sev, tt.severity) || !slices.Equal(findingIDs(out.New), tt.newIDs) {
 				t.Errorf("new = %+v, want severities %v ids %v", out.New, tt.severity, tt.newIDs)
+			}
+			for _, f := range out.New {
+				if g := out.Findings.List[out.Findings.index(f.ID)]; g != f {
+					t.Errorf("New %s = %+v, ledger has %+v", f.ID, f, g)
+				}
 			}
 			if !slices.Equal(findingIDs(out.Gaps), tt.gaps) {
 				t.Errorf("gaps = %v, want %v", findingIDs(out.Gaps), tt.gaps)

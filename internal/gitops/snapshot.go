@@ -20,11 +20,16 @@ var ErrTampered = errors.New("repository tampered with")
 // Snapshot is the state of the repository a session must not change. Its
 // fields are plain data so the caller can keep it across a restart.
 type Snapshot struct {
+	// CommonDir is the absolute git dir of the main checkout. Check works on
+	// it and never resolves it again: the .git file of a node worktree is the
+	// agent's to rewrite, and could point a new lookup at a decoy.
+	CommonDir string
 	// Refs maps every ref to its object id, or to "ref: <target>" when it is
 	// symbolic.
 	Refs map[string]string
-	// Files maps paths relative to the common git dir to their content: the
-	// config files (nil when absent) and every entry under hooks/.
+	// Files maps paths relative to the common git dir to their content: HEAD
+	// of the main checkout, the config files (nil when absent) and every
+	// entry under hooks/.
 	Files map[string]*File
 }
 
@@ -38,14 +43,22 @@ func (f *File) equal(o *File) bool {
 	return f == nil && o == nil || f != nil && o != nil && f.Mode == o.Mode && bytes.Equal(f.Data, o.Data)
 }
 
-// Snapshot captures the refs, the config files and the hooks of the
-// repository at repo, before a session.
+// Snapshot captures the refs, HEAD, the config files and the hooks of the
+// repository before a session. repo must be the main checkout: a linked
+// worktree is refused, because its .git file is under the agent's control.
 func (g *Git) Snapshot(ctx context.Context, repo string) (Snapshot, error) {
 	common, err := g.commonDir(ctx, repo)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	refs, err := g.refs(ctx, repo)
+	out, err := g.run(ctx, repo, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if dir := strings.TrimSpace(out); dir != common {
+		return Snapshot{}, fmt.Errorf("snapshot %s: a linked worktree (git dir %s); pass the main checkout", repo, dir)
+	}
+	refs, err := g.refs(ctx, common)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -53,56 +66,31 @@ func (g *Git) Snapshot(ctx context.Context, repo string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Refs: refs, Files: files}, nil
+	return Snapshot{CommonDir: common, Refs: refs, Files: files}, nil
 }
 
-// Check compares the repository with before, after a session. Every
-// difference is restored and reported in an error wrapping ErrTampered; a
-// failure to restore is joined to it. Changes to allowedRefs (full names, such
-// as the node branch) are expected and left alone. Kluzo's own changes to the
-// repository while the session ran must be among them, or not happen.
-func (g *Git) Check(ctx context.Context, repo string, before Snapshot, allowedRefs ...string) error {
-	common, err := g.commonDir(ctx, repo)
-	if err != nil {
-		return err
-	}
-	refs, err := g.refs(ctx, repo)
-	if err != nil {
-		return err
+// Check compares the repository of before with before, after a session.
+// Every difference is restored and reported in an error wrapping ErrTampered;
+// a failure to restore is joined to it. The files go first and without git,
+// so a configuration the agent broke or made hostile is gone before git reads
+// it; then the refs. Changes to allowedRefs (full names, such as the node
+// branch) are expected and left alone.
+//
+// Kluzo's own writes to the repository while the session ran must be among
+// allowedRefs, or not happen; and no git command of Kluzo may run in the
+// repository between the end of a session and Check, since until then its
+// configuration is the agent's (Q46).
+func (g *Git) Check(ctx context.Context, before Snapshot, allowedRefs ...string) error {
+	common := before.CommonDir
+	if common == "" {
+		return errors.New("check: the snapshot has no git dir")
 	}
 	files, err := readGitFiles(common)
 	if err != nil {
-		return err
+		return fmt.Errorf("check: read %s: %w", common, err)
 	}
 	var changes []string
 	var errs []error
-	for _, name := range union(before.Refs, refs) {
-		was, wasOK := before.Refs[name]
-		is, isOK := refs[name]
-		if was == is && wasOK == isOK || slices.Contains(allowedRefs, name) {
-			continue
-		}
-		var args []string
-		switch {
-		case !wasOK:
-			changes = append(changes, name+" created")
-			args = []string{"update-ref", "--no-deref", "-d", name}
-		case !isOK:
-			changes = append(changes, name+" deleted")
-		default:
-			changes = append(changes, name+" moved")
-		}
-		if wasOK {
-			if target, sym := strings.CutPrefix(was, "ref: "); sym {
-				args = []string{"symbolic-ref", name, target}
-			} else {
-				args = []string{"update-ref", "--no-deref", name, was}
-			}
-		}
-		if _, err := g.run(ctx, repo, args...); err != nil {
-			errs = append(errs, fmt.Errorf("restore %s: %w", name, err))
-		}
-	}
 	// Removals go first and deepest first, so a path an agent turned into a
 	// symlink or a directory is gone before the original is written back.
 	names := union(before.Files, files)
@@ -130,6 +118,45 @@ func (g *Git) Check(ctx context.Context, repo string, before Snapshot, allowedRe
 			errs = append(errs, fmt.Errorf("restore %s: %w", name, err))
 		}
 	}
+
+	refs, err := g.refs(ctx, common)
+	if err != nil {
+		changes = append(changes, "refs unreadable after restoring the files")
+		errs = append(errs, err)
+	}
+	// Refs the session created go first, so one that took the place of a
+	// deleted ref's directory (refs/heads/a/b for refs/heads/a) is gone
+	// before the deleted one is written back.
+	var restores [][]string
+	for _, name := range union(before.Refs, refs) {
+		was, wasOK := before.Refs[name]
+		is, isOK := refs[name]
+		if err != nil || was == is && wasOK == isOK || slices.Contains(allowedRefs, name) {
+			continue
+		}
+		switch {
+		case !wasOK:
+			changes = append(changes, name+" created")
+			if _, err := g.run(ctx, common, gitDir(common, "update-ref", "--no-deref", "-d", name)...); err != nil {
+				errs = append(errs, fmt.Errorf("restore %s: %w", name, err))
+			}
+			continue
+		case !isOK:
+			changes = append(changes, name+" deleted")
+		default:
+			changes = append(changes, name+" moved")
+		}
+		if target, sym := strings.CutPrefix(was, "ref: "); sym {
+			restores = append(restores, []string{name, "symbolic-ref", name, target})
+		} else {
+			restores = append(restores, []string{name, "update-ref", "--no-deref", name, was})
+		}
+	}
+	for _, r := range restores {
+		if _, err := g.run(ctx, common, gitDir(common, r[1:]...)...); err != nil {
+			errs = append(errs, fmt.Errorf("restore %s: %w", r[0], err))
+		}
+	}
 	if len(changes) == 0 {
 		return errors.Join(errs...)
 	}
@@ -137,14 +164,21 @@ func (g *Git) Check(ctx context.Context, repo string, before Snapshot, allowedRe
 	return errors.Join(append([]error{fmt.Errorf("%w: %s", ErrTampered, strings.Join(changes, "; "))}, errs...)...)
 }
 
+// gitDir prefixes a command with the git dir to work on, so no lookup from
+// the working directory takes place.
+func gitDir(common string, args ...string) []string {
+	return append([]string{"--git-dir=" + common}, args...)
+}
+
 func (g *Git) commonDir(ctx context.Context, repo string) (string, error) {
 	out, err := g.run(ctx, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	return strings.TrimSpace(out), err
 }
 
-// refs lists every ref with its object id, or its target when symbolic.
-func (g *Git) refs(ctx context.Context, repo string) (map[string]string, error) {
-	out, err := g.run(ctx, repo, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)")
+// refs lists every ref of the git dir common with its object id, or its
+// target when symbolic.
+func (g *Git) refs(ctx context.Context, common string) (map[string]string, error) {
+	out, err := g.run(ctx, common, gitDir(common, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)")...)
 	if err != nil {
 		return nil, err
 	}
@@ -162,10 +196,11 @@ func (g *Git) refs(ctx context.Context, repo string) (map[string]string, error) 
 	return refs, nil
 }
 
-// readGitFiles reads the config files of the common dir, recording the ones
-// that are absent, and every entry under hooks/ except directories.
+// readGitFiles reads HEAD and the config files of the common dir, recording
+// the ones that are absent, and every entry under hooks/ except directories.
+// HEAD is the branch of the main checkout, which for-each-ref does not list.
 func readGitFiles(common string) (map[string]*File, error) {
-	names := []string{"config", "config.worktree"}
+	names := []string{"HEAD", "config", "config.worktree"}
 	// Each worktree may have its own; recording the absent ones catches an
 	// agent that adds one.
 	dirs, err := os.ReadDir(filepath.Join(common, "worktrees"))

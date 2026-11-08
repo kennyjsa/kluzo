@@ -22,16 +22,20 @@ type Config struct {
 }
 
 // Git runs git hardened: no hooks, no fsmonitor and no global or system
-// configuration, so nothing an agent planted in the repository or in a
-// configuration file runs with the privileges of Kluzo.
+// configuration. The configuration of the repository is still read, and keys
+// such as filter.*.smudge, diff.external or core.sshCommand run commands, so
+// the protection rests on an order: Check restores the configuration after
+// every session, before any other git command of Kluzo, and Kluzo never runs
+// git with a node worktree as the working directory while a session may
+// still write there (its .git file is the agent's).
 type Git struct {
 	bin string
 	env []string
 }
 
-// hardening goes before every subcommand. The configuration of the repository
-// is still read (it may hold remotes), but these two keys win over it: a hook
-// or an fsmonitor command written there by an agent never runs.
+// hardening goes before every subcommand. These keys win over the
+// configuration of the repository: a hook or an fsmonitor command written
+// there never runs.
 var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
 
 // New returns the runner.

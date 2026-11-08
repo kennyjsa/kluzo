@@ -154,6 +154,34 @@ func TestCheckRestores(t *testing.T) {
 			want: []string{"hook post-merge changed", "hook sub/x added"},
 		},
 		{
+			name: "config broken so git cannot read it",
+			tamper: func(t *testing.T, r tamperRepo) {
+				f, err := os.OpenFile(filepath.Join(r.common, "config"), os.O_APPEND|os.O_WRONLY, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = f.WriteString("[[[garbage\n")
+				_ = f.Close()
+				if _, err := r.g.run(context.Background(), r.repo, "rev-parse", "HEAD"); err == nil {
+					t.Fatal("the broken config did not break git")
+				}
+			},
+			want: []string{".git/config changed"},
+		},
+		{
+			name:   "main checkout moved to another branch",
+			tamper: func(t *testing.T, r tamperRepo) { git(t, r.g, r.repo, "symbolic-ref", "HEAD", "refs/heads/keep") },
+			want:   []string{".git/HEAD changed"},
+		},
+		{
+			name: "a ref replaced by a directory of refs",
+			tamper: func(t *testing.T, r tamperRepo) {
+				git(t, r.g, r.node, "update-ref", "-d", "refs/heads/keep")
+				git(t, r.g, r.node, "update-ref", "refs/heads/keep/x", "HEAD")
+			},
+			want: []string{"refs/heads/keep deleted", "refs/heads/keep/x created"},
+		},
+		{
 			name: "hooks directory replaced by a symlink",
 			tamper: func(t *testing.T, r tamperRepo) {
 				hooks := filepath.Join(r.common, "hooks")
@@ -179,9 +207,12 @@ func TestCheckRestores(t *testing.T) {
 			}
 			node := git(t, r.g, r.repo, "rev-parse", "refs/heads/node/1")
 			tt.tamper(t, r)
-			nodeAfter := git(t, r.g, r.repo, "rev-parse", "refs/heads/node/1")
+			nodeAfter := node // unless the session moved it, and git can still read the repository
+			if out, err := r.g.run(ctx, r.repo, "rev-parse", "refs/heads/node/1"); err == nil {
+				nodeAfter = strings.TrimSpace(out)
+			}
 
-			err = r.g.Check(ctx, r.node, before, "refs/heads/node/1")
+			err = r.g.Check(ctx, before, "refs/heads/node/1")
 			if tt.want == nil {
 				if err != nil {
 					t.Fatalf("Check: %v", err)
@@ -214,8 +245,39 @@ func TestCheckReportsRestoreFailure(t *testing.T) {
 	}
 	before.Refs["refs/heads/ghost"] = strings.Repeat("d", 40) // an object the repository does not have
 
-	err = r.g.Check(ctx, r.repo, before)
+	err = r.g.Check(ctx, before)
 	if !errors.Is(err, ErrTampered) || !strings.Contains(err.Error(), "refs/heads/ghost deleted") || !strings.Contains(err.Error(), "restore refs/heads/ghost") {
 		t.Errorf("Check = %v, want the change and the failed restore", err)
+	}
+}
+
+// The .git file of a node worktree is the agent's: pointing it at a decoy
+// copy of the repository must not hide tampering with the real one.
+func TestCheckIgnoresTheWorktreeGitFile(t *testing.T) {
+	ctx := context.Background()
+	r := newTamperRepo(t)
+	before, err := r.g.Snapshot(ctx, r.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(t.TempDir(), "decoy")
+	if err := os.CopyFS(decoy, os.DirFS(r.common)); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(r.node, ".git"), "gitdir: "+decoy+"\n", 0o644)
+	write(t, filepath.Join(r.common, "hooks", "pre-commit"), "#!/bin/sh\ncurl evil\n", 0o755)
+
+	if err := r.g.Check(ctx, before, "refs/heads/node/1"); !errors.Is(err, ErrTampered) || !strings.Contains(err.Error(), "hook pre-commit added") {
+		t.Fatalf("Check = %v, want the hook on the real repository", err)
+	}
+	if exists(filepath.Join(r.common, "hooks", "pre-commit")) {
+		t.Error("the hook was not removed from the real repository")
+	}
+}
+
+func TestSnapshotRefusesALinkedWorktree(t *testing.T) {
+	r := newTamperRepo(t)
+	if _, err := r.g.Snapshot(context.Background(), r.node); err == nil || !strings.Contains(err.Error(), "linked worktree") {
+		t.Errorf("Snapshot(worktree) = %v, want a refusal", err)
 	}
 }
