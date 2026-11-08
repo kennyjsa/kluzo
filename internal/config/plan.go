@@ -2,10 +2,14 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/kennyjsa/kluzo/internal/contracts"
 )
 
 // PlansDir is the directory of .kluzo/ that holds the approved plans.
@@ -25,6 +29,7 @@ type Plan struct {
 	NewIssues   []int      `yaml:"new_issues"`
 
 	file      string
+	src       *source
 	lines     map[int]int // issue number -> line of its entry
 	milestone int         // line of the milestone key
 }
@@ -46,8 +51,9 @@ type PlanNode struct {
 	Acceptance []string   `yaml:"acceptance"`
 	Subtasks   []string   `yaml:"subtasks"`
 	Budget     NodeBudget `yaml:"budget"`
-	// Overrides per role, e.g. implementer: {model: sonnet}. The roles and
-	// keys are checked where the precedence is applied, not here.
+	// Overrides per role, e.g. implementer: {model: sonnet}. Only harness,
+	// model, advisor and effort are accepted; the roles are checked against
+	// the project by Plan.CheckProject.
 	Overrides map[string]map[string]string `yaml:"overrides"`
 	// Excluded marks a milestone issue that Kluzo must leave alone.
 	Excluded bool `yaml:"excluded"`
@@ -92,6 +98,7 @@ func LoadPlan(dir, milestone string) (*Plan, error) {
 		return nil, errs
 	}
 	p.validate(src.report(&l.errs), milestone)
+	p.src = src
 	p.index(src)
 	if err := l.errs.sorted().orNil(); err != nil {
 		return nil, err
@@ -107,6 +114,67 @@ func (p *Plan) index(src *source) {
 			p.lines[n.Issue] = src.line(idx("nodes", i))
 		}
 	}
+}
+
+// OverrideKeys are the keys a node may override per role (docs/contracts/plan.md).
+var OverrideKeys = []string{"harness", "model", "advisor", "effort"}
+
+// CheckProject checks what depends on the project configuration: every area of
+// a node exists in areas: of kluzo.yaml (except shared) and every override
+// names an existing role, an accepted key and a value that would be valid in
+// the role's frontmatter. The errors name the plan file and line.
+func (p *Plan) CheckProject(proj *Project) Errors {
+	var errs Errors
+	r := p.src.report(&errs)
+	for i, n := range p.Nodes {
+		if n.Excluded {
+			continue
+		}
+		key := idx("nodes", i)
+		for j, a := range n.Areas {
+			if _, ok := proj.Config.Areas[a]; !ok && a != contracts.SharedArea {
+				r.add(idx(join(key, "areas"), j), fmt.Sprintf("area %q is not in areas: of kluzo.yaml (declared: %s; %s needs no entry)", a, strings.Join(slices.Sorted(maps.Keys(proj.Config.Areas)), ", "), contracts.SharedArea))
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(n.Overrides)) {
+			p.checkOverride(r.under(join(join(key, "overrides"), name)), proj, name, n.Overrides[name])
+		}
+	}
+	return errs.sorted()
+}
+
+// checkOverride applies one role override to a copy of the role and validates
+// the result the way the role's frontmatter is validated.
+func (p *Plan) checkOverride(r report, proj *Project, name string, o map[string]string) {
+	role, ok := proj.Roles[name]
+	if !ok {
+		r.add("", fmt.Sprintf("role %q does not exist in roles/", name))
+		return
+	}
+	eff := *role
+	for _, k := range slices.Sorted(maps.Keys(o)) {
+		v := o[k]
+		switch {
+		case !slices.Contains(OverrideKeys, k):
+			r.add(k, fmt.Sprintf("unknown override key %q (accepted: %s)", k, strings.Join(OverrideKeys, ", ")))
+			continue
+		case strings.TrimSpace(v) == "":
+			r.add(k, "must not be empty")
+			continue
+		}
+		switch k {
+		case "harness":
+			eff.Harness = Harness(v)
+		case "model":
+			eff.Model = v
+		case "advisor":
+			eff.Advisor = v
+		case "effort":
+			eff.Effort = v
+		}
+	}
+	eff.validateEffort(r)
+	eff.validateModels(r, proj.Config.Defaults)
 }
 
 // validate checks the shape of the file. What depends on the tracker (every
@@ -147,6 +215,15 @@ func (p *Plan) validate(r report, name string) {
 	}
 }
 
+// nonEmpty reports every blank item of the list at path.
+func (r report) nonEmpty(path string, items []string, msg string) {
+	for i, it := range items {
+		if strings.TrimSpace(it) == "" {
+			r.add(idx(path, i), msg)
+		}
+	}
+}
+
 func (n PlanNode) validate(r report, key string) {
 	if n.Issue < 1 {
 		r.add(join(key, "issue"), "required, an issue number")
@@ -154,21 +231,9 @@ func (n PlanNode) validate(r report, key string) {
 	if n.Excluded {
 		return // a node left out of Kluzo is only a marker
 	}
-	for i, a := range n.Areas {
-		if strings.TrimSpace(a) == "" {
-			r.add(idx(join(key, "areas"), i), "must not be empty")
-		}
-	}
-	for i, c := range n.Acceptance {
-		if strings.TrimSpace(c) == "" {
-			r.add(idx(join(key, "acceptance"), i), "a criterion must not be empty")
-		}
-	}
-	for i, s := range n.Subtasks {
-		if strings.TrimSpace(s) == "" {
-			r.add(idx(join(key, "subtasks"), i), "must not be empty")
-		}
-	}
+	r.nonEmpty(join(key, "areas"), n.Areas, "must not be empty")
+	r.nonEmpty(join(key, "acceptance"), n.Acceptance, "a criterion must not be empty")
+	r.nonEmpty(join(key, "subtasks"), n.Subtasks, "must not be empty")
 	for field, refs := range map[string][]int{"blocks_on": n.BlocksOn, "contract_on": n.ContractOn} {
 		for i, ref := range refs {
 			if ref < 1 {

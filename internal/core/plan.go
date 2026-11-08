@@ -17,6 +17,7 @@ var (
 	ErrExcludedDependency = errors.New("dependency on an issue excluded from the plan")
 	ErrDivergentEdge      = errors.New("plan and tracker disagree on a dependency")
 	ErrNoAcceptance       = errors.New("node has no acceptance criterion")
+	ErrClosedNode         = errors.New("plan node is a closed issue")
 )
 
 // Problem is one reason a plan cannot start. Rule is the sentinel to match
@@ -62,17 +63,21 @@ type edgeKey struct {
 // only when there are none; a divergence leaves the union in the graph so the
 // approval can sync the tracker with the plan.
 //
-// Rules (docs/contracts/plan.md): every issue of the milestone is in the plan
-// or excluded; every plan node is an issue of the milestone; dependencies
-// stay inside the milestone and on non-excluded issues; plan and tracker agree;
+// Rules (docs/contracts/plan.md): every open issue of the milestone is in the
+// plan or excluded (a closed one stays out without being listed, and a plan
+// node that points to it is an error); every plan node is an issue of the
+// milestone; dependencies stay inside the milestone and on non-excluded open
+// issues, while a dependency on a closed issue is satisfied and its edge is
+// ignored; plan and tracker agree;
 // no cycles; every node has an area and at least one acceptance criterion.
 // Conflicts are not stored: Graph.Conflicts derives them from the areas, and
 // the shared area never conflicts.
 func GraphFromPlan(plan []PlanNode, issues []ports.Issue, deps []ports.Dependency) (Graph, []Problem) {
 	var problems []Problem
-	inMilestone := map[string]bool{}
+	inMilestone, closed := map[string]bool{}, map[string]bool{}
 	for _, is := range issues {
 		inMilestone[is.Ref] = true
+		closed[is.Ref] = is.State == ports.IssueClosed
 	}
 	planned := make(map[string]PlanNode, len(plan))
 	for _, n := range plan {
@@ -80,7 +85,7 @@ func GraphFromPlan(plan []PlanNode, issues []ports.Issue, deps []ports.Dependenc
 	}
 
 	for _, is := range issues {
-		if _, ok := planned[is.Ref]; !ok {
+		if _, ok := planned[is.Ref]; !ok && !closed[is.Ref] {
 			problems = append(problems, Problem{ErrNotInPlan, is.Ref, fmt.Sprintf("#%s (%s) is in the milestone but not in the plan: add it as a node, or list it with excluded: true", is.Ref, is.Title)})
 		}
 	}
@@ -89,6 +94,10 @@ func GraphFromPlan(plan []PlanNode, issues []ports.Issue, deps []ports.Dependenc
 	for _, n := range plan {
 		if !inMilestone[n.Issue] {
 			problems = append(problems, Problem{ErrNotInMilestone, n.Issue, fmt.Sprintf("#%s is in the plan but not in the milestone: move the issue to the milestone or remove the node", n.Issue)})
+			continue
+		}
+		if closed[n.Issue] {
+			problems = append(problems, Problem{ErrClosedNode, n.Issue, fmt.Sprintf("#%s is closed: remove it from the plan, or reopen the issue", n.Issue)})
 			continue
 		}
 		if n.Excluded {
@@ -119,6 +128,9 @@ func GraphFromPlan(plan []PlanNode, issues []ports.Issue, deps []ports.Dependenc
 			continue
 		}
 		for _, e := range planEdges(n) {
+			if closed[e.from] {
+				continue // already integrated elsewhere: the dependency is met
+			}
 			if !reject(e, "plan") {
 				fromPlan[e] = true
 			}
@@ -127,6 +139,9 @@ func GraphFromPlan(plan []PlanNode, issues []ports.Issue, deps []ports.Dependenc
 	for _, d := range deps {
 		if !g.has(d.ToRef) {
 			continue // the edge is about an excluded issue or one outside the plan
+		}
+		if closed[d.FromRef] {
+			continue
 		}
 		if e := (edgeKey{d.FromRef, d.ToRef, d.Kind}); !reject(e, "tracker") {
 			fromTracker[e] = true

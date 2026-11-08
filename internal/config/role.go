@@ -106,9 +106,7 @@ func (ro *Role) validate(r report, d Defaults, outputs []string) {
 	if ro.Description == "" {
 		r.add("description", "required")
 	}
-	if e := ro.Effort; e != "" && !slices.Contains([]string{"low", "medium", "high"}, e) {
-		r.add("effort", fmt.Sprintf("unknown effort %q (want low, medium or high)", e))
-	}
+	ro.validateEffort(r)
 	harness, model := ro.validateModels(r, d)
 	if !r.src.has("tools") {
 		r.add("tools", "required")
@@ -133,6 +131,12 @@ func (ro *Role) validate(r report, d Defaults, outputs []string) {
 	}
 	ro.validateFallback(r, harness, model)
 	ro.validateBody(r)
+}
+
+func (ro *Role) validateEffort(r report) {
+	if e := ro.Effort; e != "" && !slices.Contains([]string{"low", "medium", "high"}, e) {
+		r.add("effort", fmt.Sprintf("unknown effort %q (want low, medium or high)", e))
+	}
 }
 
 func (p PromptLimits) negative() bool {
