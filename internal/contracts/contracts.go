@@ -58,3 +58,6 @@ func OutputSchema(name string) ([]byte, bool) {
 	data, err := schemaFS.ReadFile("schemas/" + name + ".json")
 	return data, err == nil
 }
+
+// CacheEcosystems returns the ecosystems `caches:` accepts (ADR 0025).
+func CacheEcosystems() []string { return []string{"go", "node", "python", "rust", "java"} }

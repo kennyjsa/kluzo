@@ -4,8 +4,8 @@ protocol: 1
 description: Implements the node and its tests
 harness: claude-code
 model: gpt-5
-advisor: opus
-subagents: haiku
+# advisor is refused by claude-code (ADR 0024)
+# subagents is refused by claude-code (ADR 0024)
 effort: high
 tools: [read, edit, bash, test]
 skills: [testing-conventions]

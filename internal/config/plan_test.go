@@ -33,7 +33,7 @@ func TestLoadPlanReadsTheExample(t *testing.T) {
 		t.Errorf("approved_at = %v, want %v", p.ApprovedAt, want)
 	}
 	n := p.Nodes[2]
-	if n.Issue != 42 || len(n.BlocksOn) != 1 || n.BlocksOn[0] != 41 || len(n.Acceptance) != 2 || n.Budget.USD != 6 || n.Overrides["implementer"]["advisor"] != "opus" {
+	if n.Issue != 42 || len(n.BlocksOn) != 1 || n.BlocksOn[0] != 41 || len(n.Acceptance) != 2 || n.Budget.USD != 6 || n.Overrides["implementer"]["effort"] != "high" {
 		t.Errorf("node 42 = %+v", n)
 	}
 	if !p.Nodes[4].Excluded || p.Nodes[1].PublishesContract != "openapi/agenda.yaml" || p.Nodes[3].ContractOn[0] != 43 {
@@ -132,12 +132,12 @@ func TestPlanCheckProject(t *testing.T) {
 	}{
 		{"declared and shared areas", []string{"    areas: [agenda, shared]"}, "", 0},
 		{"unknown area", []string{"    areas: [agenda, billing]"}, `area "billing" is not in areas: of kluzo.yaml`, 7},
-		{"valid overrides", []string{"    areas: [agenda]", "    overrides: { implementer: { model: sonnet, advisor: opus, effort: high, harness: claude-code } }"}, "", 0},
+		{"valid overrides", []string{"    areas: [agenda]", "    overrides: { implementer: { model: sonnet, effort: high, harness: claude-code } }"}, "", 0},
 		{"missing role", []string{"    areas: [agenda]", "    overrides: { ghost: { model: sonnet } }"}, `role "ghost" does not exist in roles/`, 8},
 		{"key outside the accepted four", []string{"    areas: [agenda]", "    overrides: { implementer: { subagents: haiku } }"}, `unknown override key "subagents"`, 8},
 		{"invalid effort", []string{"    areas: [agenda]", "    overrides: { implementer: { effort: max } }"}, `unknown effort "max"`, 8},
 		{"model of the wrong harness", []string{"    areas: [agenda]", "    overrides: { implementer: { harness: opencode } }"}, "is not valid for opencode", 8},
-		{"advisor weaker than the model", []string{"    areas: [agenda]", "    overrides: { implementer: { model: opus, advisor: haiku } }"}, "is weaker than model", 8},
+		{"advisor is refused by claude-code", []string{"    areas: [agenda]", "    overrides: { implementer: { model: opus, advisor: haiku } }"}, "not supported by the claude-code adapter yet", 8},
 		{"empty value", []string{"    areas: [agenda]", "    overrides: { implementer: { model: '' } }"}, "must not be empty", 8},
 		{"excluded node is not checked", []string{"    areas: [nowhere]", "    excluded: true"}, "", 0},
 	}

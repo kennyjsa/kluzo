@@ -66,3 +66,81 @@ type EdgeAdded struct {
 type MergeDone struct {
 	MergeSHA string `json:"merge_sha"`
 }
+
+// Session event kinds, normalized by the runtime adapters (docs/contracts/events.md).
+const (
+	EventSessionStarted  = "session.started"
+	EventSessionMessage  = "session.message"
+	EventToolCall        = "tool.call"
+	EventToolResult      = "tool.result"
+	EventFileEdited      = "file.edited"
+	EventCommandRun      = "command.run"
+	EventMCPCall         = "mcp.call"
+	EventCost            = "cost"
+	EventSessionFinished = "session.finished"
+)
+
+// SummaryMax is the longest *_summary field (events.md).
+const SummaryMax = 300
+
+// SessionStarted is the payload of session.started.
+type SessionStarted struct {
+	Role           string `json:"role"`
+	Harness        string `json:"harness"`
+	Model          string `json:"model"`
+	Attempt        int    `json:"attempt"`
+	Round          int    `json:"round"`
+	HarnessVersion string `json:"harness_version,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+	// Argv is the frozen command line of the harness (the system prompt as its
+	// hash), for the session manifest (docs/contracts/prompt.md).
+	Argv []string `json:"argv,omitempty"`
+}
+
+// SessionMessage is the payload of session.message.
+type SessionMessage struct {
+	Role string `json:"role"` // assistant | user
+	Text string `json:"text"`
+}
+
+// ToolCall is the payload of tool.call.
+type ToolCall struct {
+	Tool         string `json:"tool"`
+	InputSummary string `json:"input_summary"`
+}
+
+// ToolResult is the payload of tool.result.
+type ToolResult struct {
+	Tool          string `json:"tool"`
+	OK            bool   `json:"ok"`
+	OutputSummary string `json:"output_summary"`
+}
+
+// FileEdited is the payload of file.edited.
+type FileEdited struct {
+	Path    string `json:"path"`
+	Added   int    `json:"added"`
+	Removed int    `json:"removed"`
+}
+
+// CommandRun is the payload of command.run.
+type CommandRun struct {
+	Command    string `json:"command"`
+	ExitCode   *int   `json:"exit_code,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+}
+
+// Cost is the payload of cost.
+type Cost struct {
+	InputTokens   int64 `json:"input_tokens"`
+	OutputTokens  int64 `json:"output_tokens"`
+	CostUSDMicros int64 `json:"cost_usd_micros"`
+}
+
+// SessionFinished is the payload of session.finished.
+type SessionFinished struct {
+	State         string `json:"state"`
+	DurationMS    int64  `json:"duration_ms"`
+	CostUSDMicros int64  `json:"cost_usd_micros"`
+	Cause         string `json:"cause,omitempty"`
+}

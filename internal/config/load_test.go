@@ -26,8 +26,8 @@ func TestLoadValid(t *testing.T) {
 	if got := p.Config.Gates[1]; got.Timeout != 15*time.Minute || !slices.Equal(got.EnvAllow, []string{"DATABASE_URL_TEST"}) {
 		t.Errorf("gate test = %+v", got)
 	}
-	if got := p.Config.Runtimes[ClaudeCode].MinVersion; got != "2.1.186" {
-		t.Errorf("min_version = %q, want 2.1.186", got)
+	if got := p.Config.Runtimes[ClaudeCode].MinVersion; got != "2.1.295" {
+		t.Errorf("min_version = %q, want 2.1.295", got)
 	}
 	if got := p.Config.Budgets.Milestone; got != (MilestoneBudget{USD: 60, AlertAt: 1.1}) {
 		t.Errorf("milestone budget = %+v", got)
@@ -38,7 +38,7 @@ func TestLoadValid(t *testing.T) {
 	if diff := cmp.Diff(wantFallback, impl.Fallback); diff != "" {
 		t.Errorf("fallback mismatch (-want +got):\n%s", diff)
 	}
-	if impl.Advisor != "opus" || impl.PromptLimits.Findings != 10 || impl.Budget.USD != 4 {
+	if impl.Advisor != "" || impl.PromptLimits.Findings != 10 || impl.Budget.USD != 4 {
 		t.Errorf("implementer = %+v", impl)
 	}
 	if !strings.HasPrefix(impl.Body, "You implement the node") {

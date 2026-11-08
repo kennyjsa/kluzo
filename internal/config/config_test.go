@@ -60,6 +60,15 @@ func TestLoadErrors(t *testing.T) {
 		{"cfg-syntax", []want{{"kluzo.yaml", 10, "", "must be specified"}}},
 		{"cfg-wrong-type", []want{{"kluzo.yaml", 14, "", "cannot unmarshal"}}},
 		{"cfg-duplicate-key", []want{{"kluzo.yaml", 9, "", "already defined"}}},
+		{"cfg-bad-resources", []want{
+			{"kluzo.yaml", 79, "secret_paths[0]", "not a valid glob"},
+			{"kluzo.yaml", 82, "worktree.include[0]", "clean path"},
+			{"kluzo.yaml", 83, "worktree.timeout", "negative"},
+			{"kluzo.yaml", 85, "caches[1]", `unknown ecosystem "cobol"`},
+			{"kluzo.yaml", 88, "retention.logs", "days like 90d"},
+			{"kluzo.yaml", 89, "retention.disk_warn", "size like 20GB"},
+			{"kluzo.yaml", 90, "retention.docker_build_cache", "or off"},
+		}},
 		{"cfg-bad-values", []want{
 			{"kluzo.yaml", 1, "version", "unsupported version 2"},
 			{"kluzo.yaml", 3, "project.name", "required"},
@@ -130,7 +139,10 @@ func TestLoadErrors(t *testing.T) {
 			{"roles/implementer.md", 7, "advisor", "only supported by claude-code"},
 			{"roles/implementer.md", 8, "subagents", "only supported by claude-code"},
 		}},
-		{"role-advisor-weaker", []want{{"roles/implementer.md", 7, "advisor", "weaker than model"}}},
+		{"role-advisor-weaker", []want{
+			{"roles/implementer.md", 7, "advisor", "not supported by the claude-code adapter yet"},
+			{"roles/implementer.md", 7, "advisor", "weaker than model"},
+		}},
 		{"role-bad-fallback", []want{
 			{"roles/implementer.md", 8, "fallback[0]", "set harness, model or both"},
 			{"roles/implementer.md", 9, "fallback[1].model", "not valid for claude-code"},

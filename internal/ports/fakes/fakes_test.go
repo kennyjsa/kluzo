@@ -1,6 +1,7 @@
 package fakes_test
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -40,4 +41,23 @@ func TestFakesPassTheContract(t *testing.T) {
 	t.Run("tracker", func(t *testing.T) { contracttest.RunTracker(t, env) })
 	t.Run("scm", func(t *testing.T) { contracttest.RunSCM(t, env) })
 	t.Run("ci", func(t *testing.T) { contracttest.RunCI(t, env) })
+}
+
+func TestRuntimeContract(t *testing.T) {
+	var n int
+	contracttest.RunRuntime(t, contracttest.RuntimeEnv{
+		Runtime: fakes.NewRuntime(),
+		Spec: func(_ *testing.T, s contracttest.Scenario) ports.SessionSpec {
+			n++
+			env := map[string]string{}
+			switch s {
+			case contracttest.Hang:
+				env[fakes.ScenarioEnv] = fakes.ScenarioHang
+			case contracttest.Crash:
+				env[fakes.ScenarioEnv] = fakes.ScenarioCrash
+			}
+			return ports.SessionSpec{SessionID: fmt.Sprintf("ss_%d", n), Role: ports.RoleConfig{Name: "implementer"}, Env: env,
+				Segments: ports.SegmentHashes{Protocol: "p", Role: "r", Rules: "k"}}
+		},
+	})
 }

@@ -23,7 +23,7 @@ var tokenPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`github_pat_[A-Za-z0-9_]{20,}`),
 	regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)`),
 	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*`),
-	regexp.MustCompile(`(?i)\b(bearer|token)\s+[A-Za-z0-9._~+/=-]{12,}`),
+	regexp.MustCompile(`(?i)\b(bearer|token)[\s:=]+[A-Za-z0-9._~+/=-]{12,}`),
 }
 
 // Redactor masks a fixed set of secret values plus the token shapes above.

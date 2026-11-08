@@ -115,28 +115,48 @@ type Runtime interface {
 }
 
 type SessionSpec struct {
-	SessionID   string            // ss_<ulid> do Kluzo
-	Role        RoleConfig        // já com a precedência de overrides aplicada
-	Prompt      string            // prompt do papel + contexto montado pelo núcleo
-	Workdir     string            // worktree do nó, ou o repositório no upstream
-	MCPEndpoint string            // servidor MCP do Kluzo para esta sessão
-	Env         map[string]string // sem segredos do Kluzo; só os do projeto
-	OutputSchema []byte           // JSON Schema da saída esperada
-	Timeout     time.Duration
+	SessionID string // ss_<ulid> do Kluzo
+	Counter   int    // numera as sessões do harness de um mesmo SessionID (0, 1…); entra no UUID
+	Attempt, Round int
+	Role      RoleConfig // já com a precedência de overrides aplicada
+	System    string     // system prompt: segmentos 1, 2 e 2b (protocolo, papel, regras do projeto)
+	Prompt    string     // segmento 3, a primeira mensagem do usuário
+	Segments  SegmentHashes // hashes que a retomada compara (ADR 0024, item 9)
+	Workdir   string     // worktree do nó, ou o repositório no upstream
+	Verify    []string   // comandos dos gates que a ferramenta `test` pode rodar
+
+	MCPEndpoint string // servidor MCP do Kluzo para esta sessão
+	MCPToken    string // token da sessão
+	MCPTools    []string
+	Accepted    func() (json.RawMessage, bool) // o kluzo_result aceito pelo servidor MCP
+
+	Env                map[string]string // sem segredos do Kluzo; só os do projeto (env_allow, caches)
+	MaxBudgetUSDMicros int64             // o que resta ao nó
+	Timeout            time.Duration
 }
 
 type Session interface {
 	HarnessRef() string               // id da sessão no harness, para Resume
-	Events() <-chan Event             // eventos normalizados (events.md); fecha ao terminar
-	Wait() (Result, error)            // bloqueia até o fim; Result.Raw validado pelo núcleo
+	Events() <-chan Event             // eventos normalizados (events.md); fecha ao terminar; o chamador precisa continuar lendo
+	Wait() (Result, error)            // bloqueia até o fim
 	Send(ctx context.Context, msg string) error // entrevistas e respostas a escalações
-	Cancel() error                    // mata o grupo de processos
+	Cancel() error                    // mata o grupo de processos; pode ser chamado duas vezes
+}
+
+type Event struct {
+	Kind    string          // events.md
+	Payload json.RawMessage // o JSON do tipo de internal/contracts
 }
 
 type Result struct {
 	State   string          // "finished" | "failed" | "cancelled" | "timeout"
-	Raw     json.RawMessage // saída estruturada, antes da validação
+	Cause   Cause           // se failed: max_turns, budget, auth, rate_limit, runtime, refusal, no_result, guard (ADR 0024, item 7)
+	Detail  string
+	Raw     json.RawMessage // o kluzo_result aceito, antes da validação de cobertura do núcleo
 	CostUSD int64           // micro-dólares
+	Turns   int
+	Unknown map[string]int  // tipos de evento do stream que o adaptador não conhece
+	Version string          // versão do harness vista no início
 }
 
 // ---------- Notifier ----------
@@ -151,6 +171,8 @@ type Notification struct {
 	Group            string // agrupa rajadas
 }
 ```
+
+`Resume` falha com `ErrResumeMismatch` quando os segmentos, o diretório, o `HOME` ou a linha de comando mudaram; o chamador então abre uma sessão nova com o `Counter` seguinte.
 
 ## Implementações previstas
 

@@ -131,8 +131,7 @@ protocol: 1
 description: Implementa o nó e os testes
 harness: claude-code
 model: sonnet
-advisor: opus
-subagents: haiku
+# advisor e subagents: recusados pelo roles check no claude-code até o mapeamento ser verificado (ADR 0024)
 effort: high
 tools: [read, edit, bash, test]
 skills: [testing-conventions]
@@ -154,8 +153,8 @@ You implement the node described in the task. Work test-first…
 | `description` | string | sim | Uma linha; aparece na tela Times |
 | `harness` | enum | não | `claude-code` \| `opencode`; padrão em `defaults` |
 | `model` | string | não | `claude-code`: alias (`opus`, `sonnet`, `haiku`) ou id `claude-*`. `opencode`: `provedor/modelo`. Validado por formato, sem catálogo embutido |
-| `advisor` | string | não | Só `claude-code`; não pode ser mais fraco que `model` (família `haiku` < `sonnet` < `opus`; família não reconhecida não é comparada) |
-| `subagents` | string | não | Modelo dos subagents; só `claude-code` |
+| `advisor` | string | não | Só `claude-code`, e hoje recusado pelo adaptador (ADR 0024); não pode ser mais fraco que `model` (família `haiku` < `sonnet` < `opus`; família não reconhecida não é comparada) |
+| `subagents` | string | não | Modelo dos subagents; só `claude-code`, e hoje recusado pelo adaptador (ADR 0024) |
 | `effort` | enum | não | `low` \| `medium` \| `high` |
 | `tools` | lista | sim | Vocabulário canônico do Kluzo: `read`, `edit`, `bash`, `test`. Cada adaptador traduz para as ferramentas do harness. A lista mora em `internal/contracts` e pode crescer com a investigação 3 |
 | `skills` | lista | não | Pastas em `.agents/skills/` carregadas na sessão |
@@ -173,7 +172,7 @@ Validações (também em `kluzo roles check`, que carrega a configuração intei
 - O `protocol` é igual ao do binário.
 - O corpo não contém marcadores reservados nem cita ferramenta `kluzo_*` fora de `mcp`.
 - Um papel usado em etapa com `phase: in_review` (o `reviewer` no padrão) não pode ter `edit` nem `bash` (ADR 0020). A checagem é feita ao carregar os flows.
-- O `advisor` é recusado se o harness não for `claude-code`, e também se for mais fraco que `model`.
+- O `advisor` é recusado se o harness não for `claude-code`, e também se for mais fraco que `model`. No `claude-code`, `advisor` e `subagents` são recusados enquanto o adaptador não tiver o mapeamento verificado (ADR 0024).
 - Toda ferramenta em `tools` pertence ao vocabulário canônico.
 
 Obrigatórias em `kluzo.yaml`: `version`, `project.name`, `tracker.kind` e `tracker.repo`. `tracker.auth` só é exigido pelos comandos que falam com o tracker (`doctor`, `run`). Um papel sem harness ou modelo efetivo (nem nele, nem em `defaults`) é erro no papel.
