@@ -21,7 +21,7 @@ Toda feature com tela precisa funcionar em 390, 768 e 1280 px de largura, sem ro
 | F01 | [Projetos](F01-projetos.md) | Navegação e organização | v0.3 (na v0.1, um projeto via CLI) | planejada |
 | F02 | [Workspaces](F02-workspaces.md) | Navegação e organização | v0.1 | planejada |
 | F03 | [Inbox](F03-inbox.md) | Navegação e organização | v0.3 | planejada |
-| F04 | [Configuração `.kluzo/`](F04-configuracao-kluzo.md) | Configuração | v0.1 | planejada |
+| F04 | [Configuração `.kluzo/`](F04-configuracao-kluzo.md) | Configuração | v0.1 | em andamento |
 | F05 | [Times por flow](F05-times-por-flow.md) | Configuração | v0.3 | planejada |
 | F06 | [Perfis](F06-perfis.md) | Configuração | v0.4 | planejada |
 | F07 | [Entrevistas](F07-entrevistas.md) | Upstream | v0.3 | planejada |

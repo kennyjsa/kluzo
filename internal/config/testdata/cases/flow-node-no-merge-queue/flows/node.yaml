@@ -1,0 +1,3 @@
+version: 1
+steps:
+  - { id: a, role: implementer }

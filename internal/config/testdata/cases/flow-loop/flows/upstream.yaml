@@ -1,0 +1,13 @@
+version: 1
+steps:
+  - id: l1
+    loop:
+      steps: []
+  - id: l2
+    loop:
+      max_rounds: 2
+      steps:
+        - id: inner
+          loop:
+            max_rounds: 1
+            steps: [{ id: x, role: implementer }]

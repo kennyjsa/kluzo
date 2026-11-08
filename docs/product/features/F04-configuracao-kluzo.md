@@ -1,7 +1,7 @@
 # F04 · Configuração `.kluzo/`
 
 - **Grupo:** B. Configuração
-- **Status:** planejada
+- **Status:** em andamento
 
 - **O quê:** `kluzo.yaml`, `roles/`, `flows/`, `schemas/` e `plans/`.
 - **Comportamento:**

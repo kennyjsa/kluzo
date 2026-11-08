@@ -25,6 +25,7 @@ A documentação é organizada em camadas, da mais estável (por que o produto e
 ### Planejamento
 - [roadmap.md](planning/roadmap.md): sequência de entregas e features por versão (fonte única da ordem).
 - [milestones/](planning/milestones/): itens de cada entrega, já no formato de issue.
+- [questions.md](planning/questions.md): dúvidas de implementação em aberto, com a escolha provisória do código.
 
 ### Design
 - [README.md](design/README.md): princípios, tokens, cores de estado e componentes-chave.
