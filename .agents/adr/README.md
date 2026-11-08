@@ -32,3 +32,4 @@ Regras:
 | 0020 | [Garantias aplicadas em código, não pedidas no prompt](0020-garantias-fora-do-prompt.md) | aceito |
 | 0021 | [MCP do Kluzo como camada de contexto, com o mapa de código atrás de um port](0021-mcp-como-camada-de-contexto.md) | aceito |
 | 0022 | [Memória do projeto: só o Kluzo grava, e só o que o humano aprovou](0022-memoria-do-projeto.md) | aceito |
+| 0023 | [Papéis padrão do implementer e do reviewer, com veredito derivado pelo Kluzo](0023-papeis-padrao.md) | aceito |

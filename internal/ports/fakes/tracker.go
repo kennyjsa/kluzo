@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
@@ -67,6 +68,9 @@ func (t *Tracker) AddMilestone(title, description string) string {
 	return ref
 }
 
+// Whoami implements ports.Tracker.
+func (t *Tracker) Whoami(context.Context) (string, error) { return Actor, nil }
+
 // Milestone implements ports.Tracker.
 func (t *Tracker) Milestone(_ context.Context, ref string) (ports.Milestone, error) {
 	t.mu.Lock()
@@ -115,10 +119,10 @@ func (t *Tracker) Dependencies(_ context.Context, issueRef string) ([]ports.Depe
 	}
 	var deps []ports.Dependency
 	for _, from := range is.blockedBy {
-		deps = append(deps, ports.Dependency{FromRef: from, ToRef: issueRef, Kind: ports.EdgeBlocks, Source: ports.SourceNative})
+		deps = append(deps, ports.Dependency{FromRef: from, ToRef: issueRef, Kind: contracts.EdgeBlocks, Source: ports.SourceNative})
 	}
 	for _, from := range is.contractBy {
-		deps = append(deps, ports.Dependency{FromRef: from, ToRef: issueRef, Kind: ports.EdgeContract, Source: ports.SourceDescription})
+		deps = append(deps, ports.Dependency{FromRef: from, ToRef: issueRef, Kind: contracts.EdgeContract, Source: ports.SourceDescription})
 	}
 	return deps, nil
 }
@@ -131,24 +135,24 @@ func (t *Tracker) SetDependencies(_ context.Context, issueRef string, deps []por
 	if err != nil {
 		return err
 	}
-	var blocks, contracts []string
+	var blocks, contractRefs []string
 	for _, d := range deps {
 		switch {
 		case d.ToRef != issueRef || d.FromRef == issueRef:
 			return fmt.Errorf("dependency %s -> %s of issue %s: %w", d.FromRef, d.ToRef, issueRef, ports.ErrInvalid)
-		case d.Kind != ports.EdgeBlocks && d.Kind != ports.EdgeContract:
+		case d.Kind != contracts.EdgeBlocks && d.Kind != contracts.EdgeContract:
 			return fmt.Errorf("dependency kind %q: %w", d.Kind, ports.ErrInvalid)
 		}
 		if _, err := t.find(d.FromRef); err != nil {
 			return err
 		}
-		if d.Kind == ports.EdgeBlocks {
+		if d.Kind == contracts.EdgeBlocks {
 			blocks = appendUnique(blocks, d.FromRef)
 		} else {
-			contracts = appendUnique(contracts, d.FromRef)
+			contractRefs = appendUnique(contractRefs, d.FromRef)
 		}
 	}
-	is.blockedBy, is.contractBy = blocks, contracts
+	is.blockedBy, is.contractBy = blocks, contractRefs
 	return nil
 }
 

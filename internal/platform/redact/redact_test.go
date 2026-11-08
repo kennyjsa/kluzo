@@ -44,9 +44,27 @@ func TestErrorKeepsTheChain(t *testing.T) {
 		t.Errorf("message leaks the secret: %q", err)
 	}
 	if !errors.Is(err, sentinel) {
-		t.Error("the redacted error must still unwrap to the original")
+		t.Error("the redacted error must still match the original with errors.Is")
+	}
+	if errors.Unwrap(err) != nil {
+		t.Error("the chain must stop at the redacted error: the original message has the secret")
 	}
 	if r.Error(nil) != nil {
 		t.Error("nil must stay nil")
+	}
+}
+
+type codedError struct{ code int }
+
+func (e *codedError) Error() string { return fmt.Sprintf("code %d topsecret", e.code) }
+
+func TestErrorKeepsErrorsAs(t *testing.T) {
+	err := fmt.Errorf("outer: %w", New("topsecret").Error(&codedError{code: 7}))
+	var coded *codedError
+	if !errors.As(err, &coded) || coded.code != 7 {
+		t.Errorf("errors.As lost the typed error: %v", err)
+	}
+	if strings.Contains(err.Error(), "topsecret") {
+		t.Errorf("re-wrapping must not bring the secret back: %q", err)
 	}
 }

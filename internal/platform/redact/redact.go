@@ -4,6 +4,7 @@
 package redact
 
 import (
+	"errors"
 	"regexp"
 	"slices"
 	"strings"
@@ -55,9 +56,10 @@ func (r *Redactor) String(s string) string {
 	return s
 }
 
-// Error returns an error whose message is err's with the secrets masked and
-// that still unwraps to err, so errors.Is and errors.As keep working. A nil err
-// stays nil.
+// Error returns an error whose message is err's with the secrets masked. It
+// answers errors.Is and errors.As from err, so classification keeps working,
+// but it does not expose err through Unwrap: walking the chain would reach the
+// original message, secrets included. A nil err stays nil.
 func (r *Redactor) Error(err error) error {
 	if err == nil {
 		return nil
@@ -70,5 +72,6 @@ type redacted struct {
 	err error
 }
 
-func (e *redacted) Error() string { return e.msg }
-func (e *redacted) Unwrap() error { return e.err }
+func (e *redacted) Error() string        { return e.msg }
+func (e *redacted) Is(target error) bool { return errors.Is(e.err, target) }
+func (e *redacted) As(target any) bool   { return errors.As(e.err, target) }

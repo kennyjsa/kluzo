@@ -4,6 +4,8 @@ import (
 	"errors"
 	"slices"
 	"testing"
+
+	"github.com/kennyjsa/kluzo/internal/contracts"
 )
 
 // agenda builds the example milestone used across the docs and the prototype:
@@ -23,12 +25,12 @@ func agenda() Graph {
 			"47": n("47", NodePlanned, "e2e"),
 		},
 		Edges: []Edge{
-			{"41", "42", EdgeBlocks},
-			{"43", "44", EdgeContract},
-			{"44", "46", EdgeContract},
-			{"42", "45", EdgeBlocks},
-			{"45", "47", EdgeBlocks},
-			{"46", "47", EdgeBlocks},
+			{"41", "42", contracts.EdgeBlocks},
+			{"43", "44", contracts.EdgeContract},
+			{"44", "46", contracts.EdgeContract},
+			{"42", "45", contracts.EdgeBlocks},
+			{"45", "47", contracts.EdgeBlocks},
+			{"46", "47", contracts.EdgeBlocks},
 		},
 	}
 }
@@ -45,16 +47,16 @@ func TestValidate(t *testing.T) {
 	}
 
 	cyclic := agenda()
-	cyclic.Edges = append(cyclic.Edges, Edge{"47", "41", EdgeBlocks})
+	cyclic.Edges = append(cyclic.Edges, Edge{"47", "41", contracts.EdgeBlocks})
 	if err := cyclic.Validate(); !errors.Is(err, ErrCycle) {
 		t.Fatalf("cycle not detected: %v", err)
 	}
 
 	broken := agenda()
 	broken.Edges = append(broken.Edges,
-		Edge{"99", "41", EdgeBlocks},
-		Edge{"42", "42", EdgeBlocks},
-		Edge{"41", "43", EdgeConflict},
+		Edge{"99", "41", contracts.EdgeBlocks},
+		Edge{"42", "42", contracts.EdgeBlocks},
+		Edge{"41", "43", contracts.EdgeConflict},
 	)
 	n := broken.Nodes["43"]
 	n.Areas = nil

@@ -26,6 +26,12 @@ Campos comuns a todos os schemas:
     { "title": "Modelo e repositório", "state": "done" },
     { "title": "Cancelamento e remarcação", "state": "done" }
   ],
+  "criteria": [
+    { "id": "AC1", "evidence": ["internal/agenda/conflict.go:41", "internal/agenda/conflict_test.go:TestOverlap"] }
+  ],
+  "responses": [
+    { "id": "F1", "action": "fixed", "note": "Remarcar agora chama CheckConflict." }
+  ],
   "files_changed": ["internal/agenda/service.go", "internal/agenda/conflict.go"],
   "tests": { "added": 9, "command": "go test ./internal/agenda/..." },
   "decisions": [{ "title": "Horários em UTC no banco", "rationale": "Conversão só na borda da API." }],
@@ -33,34 +39,51 @@ Campos comuns a todos os schemas:
 }
 ```
 
-`status`: `done` (vai para a revisão) · `needs_input` (houve `kluzo_ask` bloqueante) · `failed` (o agente desistiu; precisa de `reason`).
+`status`: `done` (vai para a revisão) · `failed` (o agente desistiu; precisa de `reason`) · `needs_input` (houve `kluzo_ask` bloqueante; só a partir da v0.2, quando a ferramenta existe).
+
+Validação feita pelo Kluzo, além do schema (ADR 0023):
+- `criteria` cobre exatamente os ids de critério do nó (`AC1..n`, atribuídos pelo Kluzo a partir do plano). Com `status: done`, todo critério tem ao menos uma evidência.
+- Toda evidência `caminho:linha` aponta para um arquivo que existe no worktree, com a linha dentro do arquivo. Evidência `caminho:Nome` aponta para um arquivo que existe. A partir da v0.2, um nome de teste citado precisa constar como executado e aprovado no relatório estruturado do gate `test`; se não constar, o nó volta com a causa `evidence_unverified`.
+- `responses` cobre exatamente os ids de findings abertos recebidos. `action`: `fixed` ou `contested`. Um finding automático (`auto: true`) não aceita `contested`.
 
 ## `review-result` (reviewer)
 
 ```json
 {
   "v": 1,
-  "verdict": "request_changes",
   "summary": "Falta tratar remarcação para horário já ocupado.",
+  "criteria": [
+    { "id": "AC1", "met": false, "evidence": ["internal/agenda/handler.go:88"] }
+  ],
+  "previous": [
+    { "id": "F1", "status": "open", "note": "A contestação não procede: o handler ainda chama Save direto." }
+  ],
   "findings": [
     {
       "severity": "blocking",
       "category": "correctness",
       "file": "internal/agenda/handler.go",
       "line": 88,
-      "message": "Remarcar não chama CheckConflict."
+      "message": "Remarcar não chama CheckConflict.",
+      "check": "Um teste que remarca para um slot ocupado falha com ErrConflict.",
+      "caused_by": null
     }
-  ],
-  "criteria": [
-    { "criterion": "Não permite dois agendamentos no mesmo slot", "met": false }
   ]
 }
 ```
 
-- `verdict`: `approve` · `request_changes`.
-- `severity`: `blocking` · `major` · `minor`. Só `blocking` e `major` justificam `request_changes`.
+- **O reviewer não declara veredito.** O Kluzo o deriva (ADR 0023): `approve` quando não há finding `blocking` ou `major` novo, nenhum `previous` está `open` e todo critério tem `met: true`. Caso contrário, `request_changes`. Na última rodada (`round == max_rounds`), findings `major` não bloqueiam: viram `gaps` registrados e o nó segue. `blocking` sempre bloqueia.
+- `severity`: `blocking` · `major` · `minor`. Desempate: critério sem evidência executável é `blocking`.
 - `category`: `correctness`, `tests`, `security`, `duplication`, `dead_code`, `style`, `scope`. Código duplicado e código morto são `blocking`.
-- Cada critério de aceite da issue aparece em `criteria`.
+- `check` é obrigatório em `blocking` e `major`.
+- Os ids dos findings (`F1`, `F2`…) são atribuídos pelo Kluzo depois da validação, estáveis por nó e através das tentativas.
+- Os findings que o próprio Kluzo gera (supressão nova, teste removido ou desativado, ADR 0020) vêm com `auto: true` e não são contestáveis.
+
+Validação feita pelo Kluzo, além do schema:
+- `criteria` cobre exatamente os ids de critério do nó.
+- Da rodada 2 em diante, `previous` cobre exatamente os findings `blocking` e `major` abertos (inclusive os de tentativas anteriores).
+- Da rodada 2 em diante, um finding fora dos trechos alterados na rodada exige `caused_by` (o `caminho:linha` alterado que o causou). Sem isso, é rebaixado para `minor`, exceto `security`.
+- Saída que falha em qualquer regra é inválida: o reviewer recebe o erro uma vez para corrigir.
 
 ## `triage-result` (triage)
 

@@ -6,16 +6,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
-)
 
-// EdgeKind is the kind of relation between two nodes (ADR 0002).
-type EdgeKind string
-
-// Edge kinds.
-const (
-	EdgeBlocks   EdgeKind = "blocks"   // To needs From's code integrated
-	EdgeContract EdgeKind = "contract" // To needs only From's published interface
-	EdgeConflict EdgeKind = "conflict" // From and To touch the same area; never run together
+	"github.com/kennyjsa/kluzo/internal/contracts"
 )
 
 // SharedArea is the implicit area of files outside every declared area; it
@@ -34,7 +26,7 @@ var (
 // Edge is a directed relation From → To.
 type Edge struct {
 	From, To string
-	Kind     EdgeKind
+	Kind     contracts.EdgeKind
 }
 
 // GraphNode is what the scheduler needs to know about a node.
@@ -66,7 +58,7 @@ func (g Graph) Validate() error {
 	}
 	for _, e := range g.Edges {
 		switch {
-		case e.Kind != EdgeBlocks && e.Kind != EdgeContract:
+		case e.Kind != contracts.EdgeBlocks && e.Kind != contracts.EdgeContract:
 			errs = append(errs, fmt.Errorf("%w: %q (%s → %s)", ErrEdgeKind, e.Kind, e.From, e.To))
 		case e.From == e.To:
 			errs = append(errs, fmt.Errorf("%w: %s", ErrSelfEdge, e.From))
@@ -90,7 +82,7 @@ func (g Graph) Conflicts() []Edge {
 	for i, a := range ids {
 		for _, b := range ids[i+1:] {
 			if shareArea(g.Nodes[a].Areas, g.Nodes[b].Areas) {
-				out = append(out, Edge{From: a, To: b, Kind: EdgeConflict})
+				out = append(out, Edge{From: a, To: b, Kind: contracts.EdgeConflict})
 			}
 		}
 	}
@@ -117,11 +109,11 @@ func (g Graph) depsSatisfied(id string) bool {
 		}
 		from := g.Nodes[e.From]
 		switch e.Kind {
-		case EdgeBlocks:
+		case contracts.EdgeBlocks:
 			if from.State != NodeIntegrated {
 				return false
 			}
-		case EdgeContract:
+		case contracts.EdgeContract:
 			if from.State != NodeIntegrated && !from.ContractPublished {
 				return false
 			}
@@ -150,7 +142,7 @@ func (g Graph) CriticalWeights() map[string]float64 {
 		}
 		best := 0.0
 		for _, e := range g.Edges {
-			if e.From == id && e.Kind != EdgeConflict {
+			if e.From == id && e.Kind != contracts.EdgeConflict {
 				best = max(best, weight(e.To))
 			}
 		}
@@ -240,7 +232,7 @@ func (g Graph) findCycle() []string {
 		color[id] = grey
 		stack = append(stack, id)
 		for _, e := range g.Edges {
-			if e.From != id || e.Kind == EdgeConflict {
+			if e.From != id || e.Kind == contracts.EdgeConflict {
 				continue
 			}
 			switch color[e.To] {

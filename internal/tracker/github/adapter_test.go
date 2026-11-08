@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/ports/contracttest"
@@ -251,16 +252,16 @@ func TestDependenciesReadTheDescription(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ports.Dependency{
-		{FromRef: "1", ToRef: "3", Kind: ports.EdgeBlocks, Source: ports.SourceNative},
-		{FromRef: "2", ToRef: "3", Kind: ports.EdgeBlocks, Source: ports.SourceDescription},
-		{FromRef: "1", ToRef: "3", Kind: ports.EdgeContract, Source: ports.SourceDescription},
+		{FromRef: "1", ToRef: "3", Kind: contracts.EdgeBlocks, Source: ports.SourceNative},
+		{FromRef: "2", ToRef: "3", Kind: contracts.EdgeBlocks, Source: ports.SourceDescription},
+		{FromRef: "1", ToRef: "3", Kind: contracts.EdgeContract, Source: ports.SourceDescription},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Dependencies (-want +got):\n%s", diff)
 	}
 
 	// Rewriting contracts replaces the human's line and keeps the rest.
-	if err := h.a.SetDependencies(ctx, "3", []ports.Dependency{{FromRef: "2", ToRef: "3", Kind: ports.EdgeContract}}); err != nil {
+	if err := h.a.SetDependencies(ctx, "3", []ports.Dependency{{FromRef: "2", ToRef: "3", Kind: contracts.EdgeContract}}); err != nil {
 		t.Fatal(err)
 	}
 	is, _ := h.a.Issue(ctx, "3")
@@ -275,8 +276,8 @@ func TestSetDependenciesWithAnUnknownBlockerChangesNothing(t *testing.T) {
 	h.a.CreateIssue(ctx, ports.NewIssue{Title: "a"}, "u/a") //nolint:errcheck // seeding
 	h.a.CreateIssue(ctx, ports.NewIssue{Title: "b"}, "u/b") //nolint:errcheck // seeding
 	deps := []ports.Dependency{
-		{FromRef: "1", ToRef: "2", Kind: ports.EdgeBlocks},
-		{FromRef: "999", ToRef: "2", Kind: ports.EdgeBlocks},
+		{FromRef: "1", ToRef: "2", Kind: contracts.EdgeBlocks},
+		{FromRef: "999", ToRef: "2", Kind: contracts.EdgeBlocks},
 	}
 	if err := h.a.SetDependencies(ctx, "2", deps); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
@@ -505,6 +506,18 @@ func TestBadCredentialsAreNotLeaked(t *testing.T) {
 	}
 }
 
+func TestWhoamiOfATokenIsTheUserLogin(t *testing.T) {
+	h := newHarness(t)
+	for range 2 { // the second call is served from memory
+		if login, err := h.a.Whoami(context.Background()); err != nil || login != h.f.actor {
+			t.Fatalf("Whoami = %q, %v; want %q", login, err, h.f.actor)
+		}
+	}
+	if n := h.f.requestCount("GET /user"); n != 1 {
+		t.Errorf("GET /user was called %d times, want 1", n)
+	}
+}
+
 func TestNewValidatesOptions(t *testing.T) {
 	ctx := context.Background()
 	tok := Auth{Kind: AuthToken, Token: "ghp_" + strings.Repeat("a", 36)}
@@ -541,6 +554,9 @@ func TestGitHubAppAuthentication(t *testing.T) {
 	var asked []string
 	h.f.intercept = func(w http.ResponseWriter, r *http.Request) bool {
 		switch r.URL.Path {
+		case "/app":
+			asked = append(asked, "app")
+			writeJSON(w, http.StatusOK, map[string]any{"id": 4242, "slug": "kluzo-test"})
 		case "/repos/acme/sandbox/installation":
 			asked = append(asked, "installation")
 			if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer eyJ") {
@@ -561,8 +577,11 @@ func TestGitHubAppAuthentication(t *testing.T) {
 	if _, err := a.Milestone(context.Background(), ms); err != nil {
 		t.Fatalf("Milestone with an installation token: %v", err)
 	}
-	if want := []string{"installation", "token"}; !slices.Equal(asked, want) {
+	if want := []string{"app", "installation", "token"}; !slices.Equal(asked, want) {
 		t.Errorf("app handshake = %v, want %v", asked, want)
+	}
+	if login, err := a.Whoami(context.Background()); err != nil || login != "kluzo-test[bot]" {
+		t.Errorf("Whoami of an App = %q, %v; want kluzo-test[bot]", login, err)
 	}
 
 	_, err = New(context.Background(), Options{Repo: "acme/sandbox", Auth: Auth{Kind: AuthGitHubApp, AppID: 1, PrivateKey: []byte("not a key")}, BaseURL: h.f.srv.URL, HTTPClient: h.f.srv.Client()})

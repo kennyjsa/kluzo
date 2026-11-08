@@ -9,10 +9,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
-	gh "github.com/google/go-github/v75/github"
+	gh "github.com/google/go-github/v93/github"
 
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/platform/redact"
@@ -65,6 +66,9 @@ type Adapter struct {
 	gh          *gh.Client
 	owner, repo string
 	redactor    *redact.Redactor
+
+	mu    sync.Mutex
+	login string // who the adapter acts as; set at once for an App, on demand for a token
 }
 
 var (
@@ -155,7 +159,13 @@ func (a *Adapter) authTransport(ctx context.Context, opts Options, base *http.Cl
 	if err != nil {
 		return nil, err
 	}
-	inst, _, err := appClient.Apps.FindRepositoryInstallation(ctx, a.owner, a.repo)
+	self, _, err := appClient.Apps.Get(ctx, "")
+	if err != nil {
+		return nil, a.fail("read the app", err)
+	}
+	// An App acts as its bot user; its installation token cannot call /user.
+	a.login = self.GetSlug() + "[bot]"
+	inst, _, err := appClient.Apps.GetRepositoryInstallation(ctx, a.owner, a.repo)
 	if err != nil {
 		return nil, a.fail("find the app installation of "+a.owner+"/"+a.repo, err)
 	}
@@ -165,17 +175,19 @@ func (a *Adapter) authTransport(ctx context.Context, opts Options, base *http.Cl
 // newClient builds a go-github client for httpClient, pointing at apiRoot when
 // it is not empty.
 func (a *Adapter) newClient(httpClient *http.Client, apiRoot string) (*gh.Client, error) {
-	client := gh.NewClient(httpClient)
 	// The rateLimiter transport does the waiting, with the injected clock.
-	client.DisableRateLimitCheck = true
-	if apiRoot == "" {
-		return client, nil
+	opts := []gh.ClientOptionsFunc{gh.WithHTTPClient(httpClient), gh.WithDisableRateLimitCheck()}
+	if apiRoot != "" {
+		u, err := url.Parse(apiRoot + "/")
+		if err != nil || u.Host == "" {
+			return nil, a.fail("configure the API url", fmt.Errorf("invalid base url %q", apiRoot))
+		}
+		opts = append(opts, gh.WithURLs(new(u.String()), nil))
 	}
-	u, err := url.Parse(apiRoot + "/")
-	if err != nil || u.Host == "" {
-		return nil, a.fail("configure the API url", fmt.Errorf("invalid base url %q", apiRoot))
+	client, err := gh.NewClient(opts...)
+	if err != nil {
+		return nil, a.fail("configure the API client", err)
 	}
-	client.BaseURL = u
 	return client, nil
 }
 

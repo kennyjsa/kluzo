@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	gh "github.com/google/go-github/v75/github"
+	gh "github.com/google/go-github/v93/github"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
@@ -24,7 +24,7 @@ func (a *Adapter) Checks(ctx context.Context, sha string, required []string) ([]
 }
 
 func (a *Adapter) checkRuns(ctx context.Context, sha string) ([]ports.CheckRun, error) {
-	opts := &gh.ListCheckRunsOptions{Filter: gh.Ptr("latest"), ListOptions: gh.ListOptions{PerPage: pageSize}}
+	opts := &gh.ListCheckRunsOptions{Filter: new("latest"), ListOptions: gh.ListOptions{PerPage: pageSize}}
 	var out []ports.CheckRun
 	err := pages(func(page int) (int, error) {
 		opts.Page = page

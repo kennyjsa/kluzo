@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strconv"
 
-	gh "github.com/google/go-github/v75/github"
+	gh "github.com/google/go-github/v93/github"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
@@ -68,8 +68,8 @@ func (a *Adapter) OpenPR(ctx context.Context, in ports.NewPR, idemKey string) (p
 	if pr := pickPR(existing); pr != nil {
 		return toPR(pr), nil
 	}
-	pr, _, err := a.gh.PullRequests.Create(ctx, a.owner, a.repo, &gh.NewPullRequest{
-		Title: &in.Title, Head: &in.Head, Base: &in.Base, Body: gh.Ptr(withMarker(in.Body, idemKey)),
+	pr, _, err := a.gh.PullRequests.Create(ctx, a.owner, a.repo, gh.CreatePullRequest{
+		Title: &in.Title, Head: in.Head, Base: in.Base, Body: new(withMarker(in.Body, idemKey)),
 	})
 	if err != nil {
 		return ports.PR{}, a.fail(fmt.Sprintf("open PR %s -> %s", in.Head, in.Base), err)

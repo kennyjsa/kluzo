@@ -71,8 +71,9 @@ Qual etapa do flow corresponde a `running` ou a `in_review` é definido pelo cam
 | `planned` | `ready` | uma dependência vira `integrated` | todas as arestas `blocks` de entrada `integrated`; todas as `contract` de entrada com o contrato publicado |
 | `ready` | `running` | scheduler despacha | vaga livre; nenhum nó em execução com área em comum |
 | `running` | `in_review` | resultado do implementer com `status: done` | resultado válido pelo schema |
-| `in_review` | `running` | reviewer com `verdict: request_changes` | `rounds < max_rounds` |
-| `in_review` | `gating` | reviewer com `verdict: approve` | — |
+| `in_review` | `running` | veredito derivado `request_changes` ([results.md](results.md#review-result-reviewer)) | `rounds < max_rounds` |
+| `in_review` | `blocked` (`triage`) | veredito derivado `request_changes` | `rounds == max_rounds`: as rodadas acabaram com finding `blocking` aberto. A Inbox mostra os findings abertos e as respostas do implementer |
+| `in_review` | `gating` | veredito derivado `approve` | — |
 | `gating` | `running` | algum gate falha | tentativas restantes |
 | `gating` | `queued` | todos os gates verdes | conferência de áreas feita (ADR 0011) |
 | `queued` | `integrating` | chega a vez na fila | nenhum outro nó `integrating` no workspace |
@@ -83,7 +84,7 @@ Qual etapa do flow corresponde a `running` ou a `in_review` é definido pelo cam
 | qualquer não final | `failed` | triagem decide desistir | — |
 | qualquer não final | `cancelled` | humano remove o nó | nenhum dependente ativo, ou dependentes também cancelados |
 
-Os **gates rápidos** (`fast: true`, ADR 0020) rodam com o nó ainda em `running`, entre o implementer e o reviewer. Uma falha volta ao implementer na mesma sessão e na mesma tentativa, como uma rodada, limitada pelo `max_rounds` da etapa. O gatilho `implementer_done` só é emitido depois que os gates rápidos passam.
+Os **gates rápidos** (`fast: true`, ADR 0020) rodam com o nó ainda em `running`, entre o implementer e o reviewer. Uma falha volta ao implementer na mesma sessão e na mesma tentativa. Ela tem contador próprio, limitado pelo `max_retries` da etapa `gate` (padrão 3), e não consome as rodadas de review. Esgotado o limite, o nó vai para `blocked` (`triage`). O gatilho `implementer_done` só é emitido depois que os gates rápidos passam.
 
 Uma **tentativa** (`attempt`) começa a cada entrada em `running` vinda de `ready`, `gating` ou `integrating`. Uma devolução do reviewer (`in_review → running`) é uma **rodada** dentro da mesma tentativa.
 

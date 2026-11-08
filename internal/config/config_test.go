@@ -72,6 +72,8 @@ func TestLoadErrors(t *testing.T) {
 			{"roles/reviewer.md", 1, "model", "gpt-5"},
 			{"roles/reporter.md", 1, "model", "gpt-5"},
 		}},
+		{"cfg-bad-token-env", []want{{"kluzo.yaml", 12, "tracker.auth.token_env", "not an environment variable name"}}},
+		{"cfg-token-env-with-app", []want{{"kluzo.yaml", 14, "tracker.auth.token_env", "only valid when tracker.auth.kind is token"}}},
 		{"cfg-bad-gates", []want{
 			{"kluzo.yaml", 41, "gates[3]", "either run or source"},
 			{"kluzo.yaml", 44, "gates[4]", "needs run"},
@@ -227,5 +229,25 @@ func assertErrors(t *testing.T, dir string, err error, want []want) {
 		if !found {
 			t.Errorf("missing error %+v in:\n%v", w, err)
 		}
+	}
+}
+
+func TestTokenEnvDefaultsByTracker(t *testing.T) {
+	tests := []struct {
+		name    string
+		auth    TrackerAuth
+		tracker string
+		want    string
+	}{
+		{"github default", TrackerAuth{Kind: "token"}, "github", "KLUZO_GH_TOKEN"},
+		{"gitlab default", TrackerAuth{Kind: "token"}, "gitlab", "KLUZO_GL_TOKEN"},
+		{"explicit", TrackerAuth{Kind: "token", TokenEnv: "MY_TOKEN"}, "github", "MY_TOKEN"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.auth.TokenEnvName(tt.tracker); got != tt.want {
+				t.Errorf("TokenEnvName = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
