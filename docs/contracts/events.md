@@ -62,6 +62,7 @@ Cada adaptador de runtime traduz o stream do seu harness para estes eventos. A w
 | `subagent.started` / `subagent.finished` | `{model, task_summary}` | chamadas de subagent |
 | `advisor.consulted` | `{model, advice_summary}` | chamada do advisor |
 | `mcp.call` | `{tool, ok}` | chamadas `kluzo_*` |
+| `guard.denied` | `{tool, rule, reason, input_summary}` | hook `PreToolUse` do Kluzo que negou a chamada (ADR 0024); `rule` é `git_write`, `hosting_cli`, `protected_path`, `secret_path` ou `outside_worktree` |
 | `cost` | `{input_tokens, output_tokens, cost_usd_micros}` | totais de uso |
 | `session.finished` | `{state, duration_ms, cost_usd_micros}` | mensagem `result` |
 

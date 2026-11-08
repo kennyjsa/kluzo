@@ -1,7 +1,8 @@
 // Package mcp serves the kluzo_* tools to agent sessions over MCP
-// (docs/contracts/mcp.md, ADR 0007). Each session gets its own endpoint on
-// 127.0.0.1, protected by a token that is revoked when the session ends. The
-// package validates and relays; what happens with a result is decided by the
+// (docs/contracts/mcp.md, ADR 0007). Each session gets its own endpoints on
+// 127.0.0.1 (the MCP one and the PreToolUse hook of the guard, ADR 0024),
+// protected by a token that is revoked when the session ends. The package
+// validates and relays; what happens with a result is decided by the
 // supervisor and the core.
 //
 // v0.1 serves only kluzo_result (ADR 0019).
@@ -34,9 +35,22 @@ type CallEvent struct {
 	OK        bool
 }
 
-// Recorder writes the mcp.call event of every call to the journal.
+// DenyEvent is the payload of guard.denied: a tool call the guard hook refused.
+type DenyEvent struct {
+	Session   string
+	Workspace string
+	Node      string
+	Tool      string
+	Rule      string
+	Reason    string
+	Input     string // summary of the tool input, at most contracts.SummaryMax characters
+}
+
+// Recorder writes the events of the server to the journal: mcp.call for every
+// call, guard.denied for every tool call the hook refuses.
 type Recorder interface {
 	Call(ctx context.Context, e CallEvent)
+	Denied(ctx context.Context, e DenyEvent)
 }
 
 // Server is the local MCP server of the Kluzo process.
@@ -65,7 +79,8 @@ func (s *Server) Start() error {
 		return fmt.Errorf("listen for MCP: %w", err)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/s/{id}/mcp", s.serve)
+	mux.HandleFunc("/s/{id}/mcp", s.serve(func(sess *Session) http.Handler { return sess.handler }))
+	mux.HandleFunc("/s/{id}/hook", s.serve(func(sess *Session) http.Handler { return http.HandlerFunc(sess.hook) }))
 	s.http = &http.Server{Handler: mux}
 	s.addr = ln.Addr().String()
 	go func() { _ = s.http.Serve(ln) }() // Serve ends with ErrServerClosed after Shutdown
@@ -108,17 +123,19 @@ func (s *Server) newToken() (string, error) {
 }
 
 // serve authenticates the request with the token of the session in the path
-// and hands it to that session's MCP handler.
-func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	sess := s.sessions[r.PathValue("id")]
-	s.mu.Unlock()
-	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if sess == nil || !ok || !sess.authorize(token) {
-		http.Error(w, `{"error":"session_closed"}`, http.StatusUnauthorized)
-		return
+// and hands it to the handler the session has for this endpoint.
+func (s *Server) serve(handler func(*Session) http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		sess := s.sessions[r.PathValue("id")]
+		s.mu.Unlock()
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if sess == nil || !ok || !sess.authorize(token) {
+			http.Error(w, `{"error":"session_closed"}`, http.StatusUnauthorized)
+			return
+		}
+		handler(sess).ServeHTTP(w, r)
 	}
-	sess.handler.ServeHTTP(w, r)
 }
 
 // authorize compares the token in constant time; a revoked token never matches.

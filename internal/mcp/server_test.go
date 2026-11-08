@@ -13,6 +13,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
+	"github.com/kennyjsa/kluzo/internal/guard"
 )
 
 // counter is a deterministic entropy source: every read returns distinct bytes.
@@ -34,6 +35,13 @@ func (c *counter) Read(p []byte) (int, error) {
 type recorder struct {
 	mu     sync.Mutex
 	events []CallEvent
+	denied []DenyEvent
+}
+
+func (r *recorder) Denied(_ context.Context, e DenyEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.denied = append(r.denied, e)
 }
 
 func (r *recorder) Call(_ context.Context, e CallEvent) {
@@ -67,7 +75,7 @@ func newEnv(t *testing.T) env {
 func (e env) open(t *testing.T, id string, tools ...string) *Session {
 	t.Helper()
 	schema, _ := contracts.OutputSchema("report-result")
-	s, err := e.srv.Open(SessionSpec{ID: id, Workspace: "v1", Node: "42", Role: "reporter", Tools: tools, Schema: schema})
+	s, err := e.srv.Open(SessionSpec{ID: id, Workspace: "v1", Node: "42", Role: "reporter", Tools: tools, Schema: schema, Guard: testGuard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +117,8 @@ func call(t *testing.T, cs *sdk.ClientSession, tool string, args any) (map[strin
 	}
 	return out, res.IsError
 }
+
+var testGuard = guard.Policy{Workdir: "/work/tree", ProtectedPaths: []string{".kluzo/**"}, SecretPaths: []string{".env"}}
 
 var (
 	validReport   = map[string]any{"v": 1, "summary": "done", "markdown": "## Report"}
@@ -201,7 +211,7 @@ func TestSecondInvalidResultEndsTheStep(t *testing.T) {
 
 func TestErrorsNameThePath(t *testing.T) {
 	schema, _ := contracts.OutputSchema("review-result")
-	sess, err := newSession(New(&recorder{}, &counter{}, "t"), SessionSpec{ID: "x", Schema: schema})
+	sess, err := newSession(New(&recorder{}, &counter{}, "t"), SessionSpec{ID: "x", Schema: schema, Guard: testGuard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,13 +286,13 @@ func TestOpenRejectsBadInput(t *testing.T) {
 	e := newEnv(t)
 	e.open(t, "s1", ToolResult)
 	schema, _ := contracts.OutputSchema("report-result")
-	if _, err := e.srv.Open(SessionSpec{ID: "s1", Schema: schema}); err == nil {
+	if _, err := e.srv.Open(SessionSpec{ID: "s1", Schema: schema, Guard: testGuard}); err == nil {
 		t.Error("duplicate session accepted")
 	}
-	if _, err := e.srv.Open(SessionSpec{ID: "s2", Schema: []byte(`{"type":`)}); err == nil {
+	if _, err := e.srv.Open(SessionSpec{ID: "s2", Schema: []byte(`{"type":`), Guard: testGuard}); err == nil {
 		t.Error("broken schema accepted")
 	}
-	if _, err := New(&recorder{}, &counter{}, "t").Open(SessionSpec{ID: "s3", Schema: schema}); err == nil {
+	if _, err := New(&recorder{}, &counter{}, "t").Open(SessionSpec{ID: "s3", Schema: schema, Guard: testGuard}); err == nil {
 		t.Error("Open before Start accepted")
 	}
 }
@@ -312,7 +322,7 @@ func TestCloseFreesTheIDForAResumedSession(t *testing.T) {
 func TestCoverageAndSchemaShareTheSingleCorrection(t *testing.T) {
 	e := newEnv(t)
 	schema, _ := contracts.OutputSchema("report-result")
-	s, err := e.srv.Open(SessionSpec{ID: "s1", Workspace: "v1", Node: "42", Role: "reporter", Tools: []string{ToolResult}, Schema: schema,
+	s, err := e.srv.Open(SessionSpec{ID: "s1", Workspace: "v1", Node: "42", Role: "reporter", Tools: []string{ToolResult}, Schema: schema, Guard: testGuard,
 		Check: func(r json.RawMessage) []string {
 			if strings.Contains(string(r), "bad coverage") {
 				return []string{"$.criteria: AC2 is missing"}
@@ -337,5 +347,108 @@ func TestCoverageAndSchemaShareTheSingleCorrection(t *testing.T) {
 	}
 	if out := s.Outcome(); out.Accepted || out.Invalid != 2 {
 		t.Errorf("outcome = %+v", out)
+	}
+}
+
+func TestOpenNeedsTheWorktreeForTheGuard(t *testing.T) {
+	e := newEnv(t)
+	schema, _ := contracts.OutputSchema("report-result")
+	if _, err := e.srv.Open(SessionSpec{ID: "s9", Schema: schema}); err == nil {
+		t.Error("a session without a guard policy was opened")
+	}
+}
+
+// hookCall posts a PreToolUse event to the hook endpoint of the session.
+func hookCall(t *testing.T, url, token, body string) (int, map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+func TestHookDeniesWhatThePolicyForbids(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(t, "s1", ToolResult)
+	pre := func(tool, input string) string {
+		return `{"hook_event_name":"PreToolUse","tool_name":"` + tool + `","tool_input":` + input + `,"tool_use_id":"toolu_1"}`
+	}
+
+	code, out := hookCall(t, s.HookURL(), s.Token(), pre("Bash", `{"command":"git push origin HEAD"}`))
+	decision, _ := out["hookSpecificOutput"].(map[string]any)
+	if code != 200 || decision["permissionDecision"] != "deny" || decision["hookEventName"] != "PreToolUse" || !strings.Contains(decision["permissionDecisionReason"].(string), "git push") {
+		t.Fatalf("deny reply = %d %v", code, out)
+	}
+	if len(e.rec.denied) != 1 {
+		t.Fatalf("denials = %+v", e.rec.denied)
+	}
+	if d := e.rec.denied[0]; d.Session != "s1" || d.Workspace != "v1" || d.Node != "42" || d.Tool != "Bash" || d.Rule != guard.RuleGitWrite || !strings.Contains(d.Input, "git push") {
+		t.Errorf("denied event = %+v", d)
+	}
+
+	for name, body := range map[string]string{
+		"an allowed command":    pre("Bash", `{"command":"go test ./..."}`),
+		"a read of source":      pre("Read", `{"file_path":"internal/a.go"}`),
+		"the result tool":       pre("mcp__kluzo__kluzo_result", `{}`),
+		"another hook event":    `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"git push"}}`,
+		"a protected path read": pre("Read", `{"file_path":".kluzo/kluzo.yaml"}`),
+		"an unknown tool":       pre("WebFetch", `{"url":"http://x"}`),
+	} {
+		if code, out := hookCall(t, s.HookURL(), s.Token(), body); code != 200 || len(out) != 0 {
+			t.Errorf("%s: %d %v, want an empty answer (no opinion)", name, code, out)
+		}
+	}
+	if code, out := hookCall(t, s.HookURL(), s.Token(), pre("Edit", `{"file_path":".kluzo/kluzo.yaml"}`)); code != 200 || out["hookSpecificOutput"] == nil {
+		t.Errorf("protected edit: %d %v", code, out)
+	}
+	if code, out := hookCall(t, s.HookURL(), s.Token(), pre("Read", `{"file_path":".env"}`)); code != 200 || out["hookSpecificOutput"] == nil {
+		t.Errorf("secret read: %d %v", code, out)
+	}
+	if len(e.rec.denied) != 3 {
+		t.Errorf("denials = %d, want 3", len(e.rec.denied))
+	}
+}
+
+// A request the hook cannot use is an error status, so the harness blocks the tool (onFailure: block).
+func TestHookFailsClosed(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(t, "s1", ToolResult)
+	for name, tt := range map[string]struct {
+		token, body string
+		want        int
+	}{
+		"no token":    {"", `{"hook_event_name":"PreToolUse"}`, http.StatusUnauthorized},
+		"wrong token": {"nope", `{"hook_event_name":"PreToolUse"}`, http.StatusUnauthorized},
+		"not JSON":    {s.Token(), `<html>`, http.StatusBadRequest},
+		"empty body":  {s.Token(), ``, http.StatusBadRequest},
+	} {
+		if code, _ := hookCall(t, s.HookURL(), tt.token, tt.body); code != tt.want {
+			t.Errorf("%s: status %d, want %d", name, code, tt.want)
+		}
+	}
+	req, _ := http.NewRequest(http.MethodGet, s.HookURL(), nil)
+	req.Header.Set("Authorization", "Bearer "+s.Token())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET: status %d", resp.StatusCode)
+	}
+	// The token dies with the session, for the hook as for MCP.
+	token := s.Token()
+	s.Close()
+	if code, _ := hookCall(t, s.HookURL(), token, `{}`); code != http.StatusUnauthorized {
+		t.Errorf("after Close: status %d", code)
 	}
 }

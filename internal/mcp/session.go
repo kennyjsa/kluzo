@@ -17,6 +17,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
+	"github.com/kennyjsa/kluzo/internal/guard"
 )
 
 // Tool errors (docs/contracts/mcp.md#erros).
@@ -48,6 +49,8 @@ type SessionSpec struct {
 	// It returns the problems to send back to the agent; nil accepts. Its
 	// rejections and the schema's share the single correction (mcp.md).
 	Check func(result json.RawMessage) []string
+	// Guard judges the tool calls the harness reports to the hook endpoint.
+	Guard guard.Policy
 }
 
 // Outcome is what the session delivered through kluzo_result.
@@ -76,6 +79,9 @@ type Session struct {
 }
 
 func newSession(s *Server, spec SessionSpec) (*Session, error) {
+	if spec.Guard.Workdir == "" {
+		return nil, errors.New("the guard policy needs the worktree of the session")
+	}
 	schema, err := compile(spec.Schema)
 	if err != nil {
 		return nil, fmt.Errorf("output schema of role %s: %w", spec.Role, err)
@@ -111,8 +117,16 @@ func compile(schema []byte) (*jsonschema.Schema, error) {
 	return c.Compile("mem:///output.json")
 }
 
-// URL is the endpoint of the session.
-func (s *Session) URL() string { return "http://" + s.server.addr + "/s/" + s.spec.ID + "/mcp" }
+// URL is the MCP endpoint of the session.
+func (s *Session) URL() string { return s.endpoint("mcp") }
+
+// HookURL is the endpoint of the PreToolUse hook of the session. It takes the
+// same token as the MCP one.
+func (s *Session) HookURL() string { return s.endpoint("hook") }
+
+func (s *Session) endpoint(name string) string {
+	return "http://" + s.server.addr + "/s/" + s.spec.ID + "/" + name
+}
 
 // Token is the bearer token of the session.
 func (s *Session) Token() string {
