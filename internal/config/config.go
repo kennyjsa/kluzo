@@ -48,6 +48,28 @@ type TrackerAuth struct {
 	Kind       string `yaml:"kind"`
 	AppIDEnv   string `yaml:"app_id_env"`
 	KeyFileEnv string `yaml:"key_file_env"`
+	// TokenEnv names the variable that holds the token when Kind is token.
+	// Empty means the default of the tracker (see TokenEnvName).
+	TokenEnv string `yaml:"token_env"`
+}
+
+// Default token variables by tracker kind (docs/contracts/config.md).
+const (
+	DefaultGitHubTokenEnv = "KLUZO_GH_TOKEN"
+	DefaultGitLabTokenEnv = "KLUZO_GL_TOKEN"
+)
+
+// TokenEnvName returns the variable the token is read from: token_env, or the
+// default of the tracker kind. Only meaningful when Kind is token.
+func (a TrackerAuth) TokenEnvName(trackerKind string) string {
+	switch {
+	case a.TokenEnv != "":
+		return a.TokenEnv
+	case trackerKind == "gitlab":
+		return DefaultGitLabTokenEnv
+	default:
+		return DefaultGitHubTokenEnv
+	}
 }
 
 // Branches holds the branch naming scheme.
@@ -125,6 +147,7 @@ type Notify struct {
 
 var (
 	versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	envName        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	repoSegment    = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
@@ -200,6 +223,14 @@ func (c *Config) validateTracker(r report) {
 	}
 	if k := t.Auth.Kind; k != "" && k != "github_app" && k != "token" {
 		r.add("tracker.auth.kind", fmt.Sprintf("unknown kind %q (want github_app or token)", k))
+	}
+	if env := t.Auth.TokenEnv; env != "" {
+		switch {
+		case t.Auth.Kind != "token":
+			r.add("tracker.auth.token_env", "only valid when tracker.auth.kind is token")
+		case !envName.MatchString(env):
+			r.add("tracker.auth.token_env", fmt.Sprintf("%q is not an environment variable name", env))
+		}
 	}
 	if t.PollInterval < 0 {
 		r.add("tracker.poll_interval", "must not be negative")
