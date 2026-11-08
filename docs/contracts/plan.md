@@ -25,6 +25,9 @@ nodes:
     title: API de agendamentos
     areas: [agenda]
     blocks_on: [41]             # arestas 'blocks' (também lidas do tracker)
+    acceptance:                 # numerados AC1, AC2… nesta ordem (ADR 0023)
+      - Não permite dois agendamentos no mesmo slot
+      - Remarcar para um slot ocupado falha com conflito
     subtasks:
       - Modelo e repositório
       - Checagem de conflito de horário
@@ -54,6 +57,7 @@ new_issues: []                  # issues criadas na aprovação, já com número
 ```
 
 Regras:
+- Todo nó tem ao menos um critério em `acceptance`. Os ids `AC1..n` seguem a ordem da lista e ficam estáveis enquanto o `plan_version` não mudar. Na v0.1, o plano escrito à mão copia os critérios da issue; a partir da v0.3, o planner os extrai.
 - Toda issue da milestone no tracker deve estar no plano, ou ser marcada como fora com `excluded: true`. Isso impede que uma issue seja esquecida.
 - As arestas `blocks` vêm da união do plano com o tracker. Se houver divergência, a validação acusa, e a aprovação sincroniza o tracker com o plano.
 - Uma aresta `contract` só libera o nó dependente quando o nó de origem publicou o contrato. Ou seja: o caminho em `publishes_contract` existe na branch da milestone, ou o nó de origem está `integrated`.
