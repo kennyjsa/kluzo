@@ -43,6 +43,7 @@ areas:                         # ADR 0011
 
 protected_paths:                # ADR 0020: mudança aqui vira proposta para o humano
   - ".kluzo/**"
+  - "AGENTS.md"                 # memória do projeto (ADR 0022)
   - ".golangci.yml"
   - ".github/workflows/**"
   - "Makefile"

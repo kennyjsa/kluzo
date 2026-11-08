@@ -49,3 +49,4 @@ Toda feature com tela precisa funcionar em 390, 768 e 1280 px de largura, sem ro
 | F29 | [CLI](F29-cli.md) | Plataforma | v0.1 | planejada |
 | F30 | [Visão Estrutura](F30-visao-estrutura.md) | Visualização do progresso | v0.3 | planejada |
 | F31 | [Mapa de código](F31-mapa-de-codigo.md) | Plataforma | `kluzo_changes` v0.2; `CodeMapper` v0.3 | planejada |
+| F32 | [Memória do projeto](F32-memoria-do-projeto.md) | Plataforma | v0.4 | planejada |

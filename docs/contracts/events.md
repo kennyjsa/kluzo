@@ -39,7 +39,8 @@ Um único formato de evento serve para três coisas:
 | `main.synced` | `{main_sha, merge_sha}` |
 | `decision.recorded` | `{decision_id, author, title}` |
 | `question.asked` / `question.answered` | `{question_id, blocking?, by?}` |
-| `proposal.created` / `proposal.decided` | `{proposal_id, kind, state?}` |
+| `proposal.created` / `proposal.decided` | `{proposal_id, kind, state?}` (`kind` inclui `lesson`, ADR 0022) |
+| `pattern.detected` | `{pattern_id, kind: finding\|gate_failure\|question, occurrences: [node], sample}` |
 | `budget.alert` | `{scope: node\|milestone, spent_usd_micros, limit_usd_micros}` |
 | `tracker.sync_failed` | `{op, error, retry_in}` |
 

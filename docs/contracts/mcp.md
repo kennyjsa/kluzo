@@ -67,6 +67,14 @@ Saída:
 - `symbols` só vem preenchido quando há um `CodeMapper` configurado.
 - `active_in_my_areas` lista nós em execução que tocam as mesmas áreas (por arestas de conflito, isso só acontece com a área `shared` ou com uma área não declarada no plano).
 
+## `kluzo_decisions`
+
+Busca decisões de milestones anteriores do mesmo projeto (ADR 0022). Não tem efeito colateral.
+
+Entrada: `{ "query": "slots", "areas": ["agenda"], "limit": 10 }` (todos opcionais; sem `areas`, usa as do nó)
+
+Saída: lista de `{ "milestone": "v1.4", "node": 41, "title": "…", "rationale": { "trust": "untrusted", "source": "decision:…", "text": "…" } }`, da mais recente para a mais antiga.
+
 ## Navegação de código (`kluzo_code_*`)
 
 Consultas ao índice do `CodeMapper` (ADR 0021). Não têm efeito colateral. O índice é o da ponta da milestone, mais as mudanças do worktree do nó quando o adaptador suporta atualização incremental. Todo trecho de código retornado vai no envelope não confiável.
