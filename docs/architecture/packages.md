@@ -16,6 +16,7 @@ kluzo/
 │   ├── gitops/                 # git local: worktree, rebase, merge, diff por área
 │   ├── config/                 # carga e validação de .kluzo/
 │   ├── contracts/              # tipos de eventos e resultados, JSON Schemas embutidos
+│   ├── prompt/                 # montagem dos três segmentos de prompt, envelope e manifesto
 │   ├── mcp/                    # servidor MCP por sessão
 │   ├── tracker/github/         # Tracker + SCM + CI
 │   ├── tracker/gitlab/
@@ -44,6 +45,7 @@ kluzo/
 | `gitops` | Executar `git` | Falar com o tracker |
 | `config` | Ler e validar `.kluzo/` (inclusive `plans/<milestone>.yaml`), com erro por arquivo e linha | Aplicar a precedência em tempo de execução (isso é do `core`) |
 | `contracts` | Tipos e schemas compartilhados por todas as camadas | Lógica |
+| `prompt` | Montar protocolo, papel e tarefa; sanear e envelopar texto externo; aplicar os limites; gerar o manifesto da sessão | Chamar LLM, fazer I/O ou gerar o nonce sozinho (o chamador injeta a fonte) |
 | `mcp` | Servir as ferramentas `kluzo_*` e converter chamadas em entradas para o supervisor | Decidir o que acontece com elas |
 | `tracker/*`, `runtime/*`, `notify/*`, `codemap/*` | Implementar um port | Importar `core` |
 | `web` | HTTP, SSE, autenticação via tailnet; chama `app` | Regra de negócio |
