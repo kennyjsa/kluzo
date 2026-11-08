@@ -28,6 +28,8 @@ tracker:
     kind: github_app           # github_app | token
     app_id_env: KLUZO_GH_APP_ID
     key_file_env: KLUZO_GH_APP_KEY
+    # kind: token → token_env: KLUZO_GH_TOKEN (padrão; GitLab: KLUZO_GL_TOKEN)
+    # installation_id do App: descoberto pela API
   poll_interval: 30s
   operators: [kennyjsa]        # quem pode aprovar e usar /kluzo pelo tracker
 

@@ -31,6 +31,10 @@ type Tracker interface {
 
 	// Eventos de label/estado desde o cursor (polling).
 	Changes(ctx context.Context, milestoneRef string, cursor string) ([]Change, string, error)
+
+	// Login com que o Kluzo age no tracker (bot ou usuário do token). Usado
+	// para reverter labels orch/* aplicadas por outros (security.md).
+	Whoami(ctx context.Context) (string, error)
 }
 
 type Issue struct {
@@ -46,7 +50,29 @@ type Dependency struct {
 	Source         string   // "native" | "description"
 }
 
-// ---------- SCM: branches, PRs/MRs, merge ----------
+// Semântica (decidida no item 4 da v0.1):
+// - Referências (milestone, issue, PR) são os números do tracker em decimal ("42"),
+//   opacos para o núcleo.
+// - Dependencies devolve só as dependências de entrada (ToRef == issueRef),
+//   nativas primeiro, depois as da descrição. A mesma aresta nos dois lugares vale
+//   como nativa.
+// - Sintaxe na descrição: uma linha que começa por "Depende de:" ou "Contrato:"
+//   (sem diferenciar maiúsculas), com referências #n em qualquer quantidade.
+//   SetDependencies grava os bloqueios como links nativos e reescreve uma única
+//   linha "Contrato: #a, #b" (ou a remove). "Depende de:" só é lido. No GitLab
+//   Free, sem link nativo, os bloqueios também vão para uma linha "Depende de:"
+//   reescrita pelo Kluzo.
+// - Cursores: o de CommentsSince é o id do último comentário visto; o de Changes,
+//   o id do último evento. Cursor vazio em Changes não devolve mudanças e posiciona
+//   no presente.
+// - Change cobre labeled e unlabeled, com o autor (Actor).
+// - EdgeKind é um só tipo, em internal/contracts, usado por core e ports.
+// - Erros tipados: ErrNotFound, ErrInvalid, ErrPermanent e IsPermanent, para o
+//   executor do outbox decidir entre repetir e falhar (data-model.md).
+// - Uma escrita com idemKey grava a chave num marcador oculto no fim do corpo
+//   (<!-- kluzo:idem=KEY -->), removido na leitura.
+
+// ---------- SCM: branches e PRs/MRs ----------
 
 type SCM interface {
 	EnsureBranch(ctx context.Context, name, fromRef string) (sha string, err error)
@@ -56,7 +82,8 @@ type SCM interface {
 	UpdatePR(ctx context.Context, ref string, body string) error
 	PR(ctx context.Context, ref string) (PR, error)
 
-	// Merge da branch da milestone na main: só verifica se aconteceu; nunca executa.
+	// Só observa. O merge do nó na branch da milestone é local (gitops), e o merge
+	// da milestone na main é humano (ADR 0003): nenhum port executa merge.
 	IsMerged(ctx context.Context, prRef string) (bool, error)
 }
 
