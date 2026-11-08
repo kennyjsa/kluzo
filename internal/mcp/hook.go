@@ -7,6 +7,7 @@ import (
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/guard"
+	"github.com/kennyjsa/kluzo/internal/platform/text"
 )
 
 // maxHookBody bounds a hook request; tool inputs can carry whole files.
@@ -48,18 +49,9 @@ func (s *Session) hook(w http.ResponseWriter, r *http.Request) {
 	}
 	s.server.rec.Denied(r.Context(), DenyEvent{
 		Session: s.spec.ID, Workspace: s.spec.Workspace, Node: s.spec.Node,
-		Tool: in.Tool, Rule: d.Rule, Reason: d.Reason, Input: summarize(in.Input),
+		Tool: in.Tool, Rule: d.Rule, Reason: d.Reason, Input: text.Clip(s.redact.String(string(in.Input)), contracts.SummaryMax, text.Ellipsis),
 	})
 	_ = json.NewEncoder(w).Encode(map[string]any{"hookSpecificOutput": map[string]string{
 		"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": d.Reason,
 	}})
-}
-
-// summarize cuts a tool input to the size of a *_summary field.
-func summarize(raw json.RawMessage) string {
-	s := []rune(string(raw))
-	if len(s) > contracts.SummaryMax {
-		return string(s[:contracts.SummaryMax-1]) + "…"
-	}
-	return string(s)
 }

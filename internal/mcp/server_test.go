@@ -9,11 +9,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/guard"
+	"github.com/kennyjsa/kluzo/internal/platform/redact"
 )
 
 // counter is a deterministic entropy source: every read returns distinct bytes.
@@ -379,8 +381,11 @@ func hookCall(t *testing.T, url, token, body string) (int, map[string]any) {
 func TestHookDeniesWhatThePolicyForbids(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(t, "s1", ToolResult)
+	// The body Claude Code 2.1.319 posts (recorded; a subagent adds agent_id and agent_type).
 	pre := func(tool, input string) string {
-		return `{"hook_event_name":"PreToolUse","tool_name":"` + tool + `","tool_input":` + input + `,"tool_use_id":"toolu_1"}`
+		return `{"session_id":"00000000-0000-4000-8000-000000000001","transcript_path":"/home/user/.claude/projects/-work/00000000-0000-4000-8000-000000000001.jsonl",` +
+			`"cwd":"/work","prompt_id":"00000000-0000-4000-8000-000000000002","permission_mode":"dontAsk","agent_id":"agent01","agent_type":"general-purpose",` +
+			`"effort":{"level":"medium"},"hook_event_name":"PreToolUse","tool_name":"` + tool + `","tool_input":` + input + `,"tool_use_id":"toolu_1"}`
 	}
 
 	code, out := hookCall(t, s.HookURL(), s.Token(), pre("Bash", `{"command":"git push origin HEAD"}`))
@@ -415,6 +420,35 @@ func TestHookDeniesWhatThePolicyForbids(t *testing.T) {
 	}
 	if len(e.rec.denied) != 3 {
 		t.Errorf("denials = %d, want 3", len(e.rec.denied))
+	}
+}
+
+// The input summary of guard.denied goes through redact and is cut to the
+// size of a *_summary field before it reaches the Recorder.
+func TestHookDenialInputIsRedactedAndCut(t *testing.T) {
+	e := newEnv(t)
+	schema, _ := contracts.OutputSchema("report-result")
+	s, err := e.srv.Open(SessionSpec{ID: "s1", Workspace: "v1", Node: "42", Role: "reporter", Schema: schema, Guard: testGuard, Secrets: []string{"hunter2-db-password"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := "git push https://x:hunter2-db-password@example.com HEAD # ghp_" + strings.Repeat("a", 36) + " " + s.Token() + " " + strings.Repeat("z", 400)
+	input, _ := json.Marshal(map[string]string{"command": cmd})
+	body := `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":` + string(input) + `,"tool_use_id":"toolu_1"}`
+	if code, out := hookCall(t, s.HookURL(), s.Token(), body); code != 200 || out["hookSpecificOutput"] == nil {
+		t.Fatalf("deny reply = %d %v", code, out)
+	}
+	if len(e.rec.denied) != 1 {
+		t.Fatalf("denials = %+v", e.rec.denied)
+	}
+	got := e.rec.denied[0].Input
+	for _, secret := range []string{"hunter2-db-password", "ghp_aaaa", s.Token()} {
+		if strings.Contains(got, secret) {
+			t.Errorf("input summary leaks %q: %s", secret, got)
+		}
+	}
+	if !strings.Contains(got, redact.Mask) || !strings.HasSuffix(got, "…") || utf8.RuneCountInString(got) != contracts.SummaryMax {
+		t.Errorf("input summary = %q (%d chars)", got, utf8.RuneCountInString(got))
 	}
 }
 

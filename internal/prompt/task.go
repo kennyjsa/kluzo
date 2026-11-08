@@ -10,6 +10,7 @@ import (
 
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/core"
+	"github.com/kennyjsa/kluzo/internal/platform/text"
 )
 
 // Task is the data of segment 3 (docs/contracts/prompt.md#segmento-3--tarefa).
@@ -344,7 +345,7 @@ func (r *renderer) gates(gs []GateFailure) string {
 				if f.Line > 0 {
 					loc += ":" + strconv.Itoa(f.Line)
 				}
-				lines[i] = fmt.Sprintf("- %s (%s): %s", f.Test, loc, truncateChars(f.Message, r.limits.FailureMessage))
+				lines[i] = fmt.Sprintf("- %s (%s): %s", f.Test, loc, text.Clip(f.Message, r.limits.FailureMessage, truncatedMark))
 			}
 			b.WriteString("\n" + r.wrap("gate", "failures", "", strings.Join(lines, "\n")))
 			if n := len(g.Failures) - len(listed); n > 0 {

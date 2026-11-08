@@ -53,18 +53,8 @@ func envelope(nonce, source, kind, author, text string) (out string, collided bo
 	return out, strings.Contains(attrs+"\n"+body, "UNTRUSTED:"+nonce)
 }
 
-// truncateChars cuts s to at most max characters, marking the cut.
-func truncateChars(s string, max int) string {
-	const mark = "…(truncated)"
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	keep := max - utf8.RuneCountInString(mark)
-	if keep < 0 {
-		keep = 0
-	}
-	return string([]rune(s)[:keep]) + mark
-}
+// truncatedMark ends a failure message cut to its limit (prompt.md).
+const truncatedMark = "…(truncated)"
 
 // clipLog keeps the first head and the last tail lines of a log, and at most
 // maxChars characters in total. Where it cuts, it says how much is omitted and

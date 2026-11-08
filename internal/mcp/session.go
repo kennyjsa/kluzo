@@ -18,6 +18,7 @@ import (
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/guard"
+	"github.com/kennyjsa/kluzo/internal/platform/redact"
 )
 
 // Tool errors (docs/contracts/mcp.md#erros).
@@ -51,6 +52,9 @@ type SessionSpec struct {
 	Check func(result json.RawMessage) []string
 	// Guard judges the tool calls the harness reports to the hook endpoint.
 	Guard guard.Policy
+	// Secrets are values to mask in what the server records, besides the
+	// session token and the token shapes redact knows.
+	Secrets []string
 }
 
 // Outcome is what the session delivered through kluzo_result.
@@ -72,6 +76,7 @@ type Session struct {
 	handler http.Handler
 
 	mu       sync.Mutex
+	redact   *redact.Redactor
 	token    string // empty once revoked
 	outcome  Outcome
 	finished bool
@@ -90,7 +95,8 @@ func newSession(s *Server, spec SessionSpec) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	sess := &Session{spec: spec, server: s, schema: schema, token: token, done: make(chan struct{})}
+	sess := &Session{spec: spec, server: s, schema: schema, token: token, done: make(chan struct{}),
+		redact: redact.New(append(slices.Clone(spec.Secrets), token)...)}
 
 	srv := sdk.NewServer(&sdk.Implementation{Name: "kluzo", Version: s.version}, nil)
 	var inputSchema json.RawMessage = spec.Schema

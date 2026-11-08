@@ -43,7 +43,7 @@ type DenyEvent struct {
 	Tool      string
 	Rule      string
 	Reason    string
-	Input     string // summary of the tool input, at most contracts.SummaryMax characters
+	Input     string // summary of the tool input, redacted, at most contracts.SummaryMax characters
 }
 
 // Recorder writes the events of the server to the journal: mcp.call for every
