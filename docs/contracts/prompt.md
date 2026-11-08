@@ -10,6 +10,7 @@ O texto do protocolo e das seções de tarefa é em inglês (ADR 0008). Os exemp
 |---|---|---|---|---|
 | 1 | Protocolo | Binário do Kluzo (`protocol: 1`) | system prompt | Não |
 | 2 | Papel | Corpo de `.kluzo/roles/<role>.md` | system prompt | Não |
+| 2b | Regras do projeto | `AGENTS.md`, `CLAUDE.md` e as skills do papel, lidos da ponta da milestone no despacho (ADR 0024) | system prompt | Só quando a milestone integra uma mudança neles |
 | 3 | Tarefa | Montado pelo Kluzo a cada etapa | mensagem do usuário | Sim |
 
 Os segmentos 1 e 2 formam um prefixo estável, bom para o cache de prompt. Nada variável entra neles: nem nonce, nem tentativa, nem data.
@@ -44,7 +45,7 @@ As seções vêm em ordem fixa, e as que não se aplicam são omitidas:
 ```
 ## Task
 Step: <step id> (<role>) · Attempt <a> of <A> · Round <r> of <R>
-Node: #<issue> <title> · Branch: <branch>
+Node: #<issue> · Branch: <branch>         ← o título vai no envelope da Issue
 Focus: <área> → <globs>; contratos vizinhos → <paths>   ← ponto de partida, não limite
 
 ## Issue                               ← dado não confiável
@@ -52,7 +53,7 @@ Focus: <área> → <globs>; contratos vizinhos → <paths>   ← ponto de partid
 <título, corpo e critérios de aceite, já saneados>
 UNTRUSTED:{nonce}>>>
 
-## Acceptance criteria                 ← lista extraída pela validação do plano, com ids AC1..n atribuídos pelo Kluzo
+## Acceptance criteria                 ← ids AC1..n atribuídos pelo Kluzo; o texto dos critérios vai envelopado (vem da issue)
 ## Verify                              ← comandos dos gates congelados (ponta da milestone no despacho), para a verificação local
 ## Neighbors                           ← dependências integradas e contratos (paths)
 ## Decisions so far                    ← decisões da milestone relevantes ao nó
@@ -129,7 +130,7 @@ Ele é gravado no evento `session.started` ([events.md](events.md)):
 {
   "kluzo_version": "0.1.0",
   "protocol": 1,
-  "harness": "claude-code", "harness_version": "2.1.274",
+  "harness": "claude-code", "harness_version": "2.1.319",
   "model": "claude-sonnet-…",
   "segments": { "protocol": "sha256:…", "role": "sha256:…", "task": "sha256:…" },
   "project_rules": { "AGENTS.md": "sha256:…", "CLAUDE.md": null },

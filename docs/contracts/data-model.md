@@ -8,7 +8,7 @@ Configuração do SQLite: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_key
 
 - **O journal (`events`) é a fonte da verdade.** As tabelas de estado (`nodes`, `sessions`…) são projeções mantidas na mesma transação que grava o evento. Reconstruir as projeções a partir do journal deve dar o mesmo resultado; existe um teste para isso.
 - Toda escrita de estado passa por `store.Tx`, que grava o evento, atualiza as projeções e enfileira os efeitos (`effects`) juntos.
-- Nada é apagado. Cancelar ou arquivar é mudança de estado.
+- Nada é apagado do journal. Cancelar ou arquivar é mudança de estado. Worktrees, caches de build, recursos Docker marcados e logs antigos seguem o ciclo de limpeza do ADR 0025.
 
 ## Banco global (`kluzo.db`)
 
@@ -192,10 +192,14 @@ CREATE TABLE proposals (
 ## Arquivos do workspace
 
 ```
-~/.local/share/kluzo/workspaces/<project>-<milestone>/
-├── state.db
-├── worktrees/<issue>/        # um worktree por nó ativo, removido após a integração
-└── logs/
-    ├── sessions/<session>.jsonl   # stream bruto do harness
-    └── gates/<gate-run>.log
+~/.local/share/kluzo/
+├── cache/<project>/              # caches de download verificados por hash, compartilhados (ADR 0025)
+└── workspaces/<project>-<milestone>/
+    ├── state.db
+    ├── home/                     # HOME sintético das sessões (ADR 0024)
+    ├── cache/                    # caches de build, só deste workspace
+    ├── worktrees/<issue>/        # um worktree por nó ativo; removido quando o nó é integrado ou cancelado
+    └── logs/
+        ├── sessions/<session>.jsonl   # stream bruto do harness
+        └── gates/<gate-run>.log
 ```

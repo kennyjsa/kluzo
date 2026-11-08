@@ -40,6 +40,7 @@ O Kluzo executa agentes de código com permissão para editar arquivos e rodar c
 - **Sem credencial de push:** a sessão do agente não recebe o token do bot. Commit e push são feitos pelo Kluzo, depois de a sessão terminar.
 - **Ambiente mínimo:** a sessão recebe só as variáveis do projeto declaradas em `kluzo.yaml` (`runtimes.<name>.env_allow`), nunca o ambiente completo do Kluzo.
 - O kill do grupo de processos acontece em timeout ou cancelamento.
+- **Sessão do Claude Code (ADR 0024):** modo `--restricted`, `HOME` sintético por workspace, sem agente SSH, configuração em arquivos `0600` fora do worktree, hook `PreToolUse` para o Kluzo com canário, e git do Kluzo sem hooks nem configuração global. Refs e `.git/config` são conferidos depois de cada sessão.
 - **Limite conhecido:** além do controle de credenciais acima, sem sandbox de sistema operacional, o agente roda com o usuário do Kluzo e consegue ler arquivos fora do worktree. A recomendação é rodar o Kluzo com um usuário dedicado, ou num container ou VM. Um sandbox nativo (container por sessão) é candidato a uma versão futura.
 
 ### Injeção de prompt

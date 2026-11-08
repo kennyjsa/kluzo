@@ -20,7 +20,7 @@ A documentação é organizada em camadas, da mais estável (por que o produto e
 - [concepts.md](product/concepts.md): glossário, hierarquia, grafo, papéis, labels e fontes da verdade.
 - [lifecycle.md](product/lifecycle.md): upstream, aprovação, downstream, integração e fechamento.
 - [interfaces.md](product/interfaces.md): web responsiva, CLI, tracker e notificações.
-- [features/](product/features/): uma feature por arquivo (F01–F30), com critérios de aceite e status.
+- [features/](product/features/): uma feature por arquivo (F01–F33), com critérios de aceite e status.
 
 ### Planejamento
 - [roadmap.md](planning/roadmap.md): sequência de entregas e features por versão (fonte única da ordem).

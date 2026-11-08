@@ -46,6 +46,9 @@ areas:                         # ADR 0011
 protected_paths:                # ADR 0020: mudança aqui vira proposta para o humano
   - ".kluzo/**"
   - "AGENTS.md"                 # memória do projeto (ADR 0022)
+  - "CLAUDE.md"                 # regras do projeto (ADR 0024)
+  - ".claude/**"
+  - ".mcp.json"
   - ".golangci.yml"
   - ".github/workflows/**"
   - "Makefile"
@@ -84,10 +87,24 @@ budgets:                       # padrão; papéis e milestones podem sobrescreve
   node: { attempts: 3, minutes: 60, usd: 6 }
   milestone: { usd: 60, alert_at: 1.1 }
 
+worktree:                      # preparo de cada worktree, executado pelo Kluzo antes da sessão
+  setup: "bash tools/agentes/preparar-worktree.sh"   # lido da ponta da milestone; env como nos gates (env_allow, caches)
+  include: [".env"]              # arquivos ignorados pelo git copiados do checkout principal (só segredos de desenvolvimento)
+  timeout: 15m                   # falha do setup: erro de runtime repetível; persistindo, blocked (triage)
+
+secret_paths: [".env", ".env.*"]   # o hook nega leitura por ferramenta de arquivo; leitura via shell é limite conhecido
+
+caches: [go, node]               # ecossistemas com cache de download compartilhado (ADR 0025)
+
+retention:
+  logs: 90d                      # logs de sessão e de gate
+  disk_warn: 20GB                # aviso do doctor
+  docker_build_cache: 10GB       # limite do cache de build no fechamento; off desliga
+
 runtimes:
   claude-code:
     bin: claude
-    min_version: 2.1.186
+    min_version: 2.1.295        # ADR 0024
     env_allow: [DATABASE_URL_TEST]   # variáveis do projeto repassadas à sessão
   opencode:
     bin: opencode
