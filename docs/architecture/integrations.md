@@ -58,6 +58,10 @@ O Kluzo nunca escreve na `main`.
 - O adaptador traduz `tools` do papel para os nomes do harness e injeta o endpoint MCP do Kluzo.
 - O stream bruto é guardado em `logs/sessions/`. O que vai para o journal e para a web são os eventos normalizados.
 
+## Mapa de código
+
+O port `CodeMapper` (ADR 0021) embrulha uma ferramenta externa de índice determinístico, chamada pelo `exec` do `platform`. O supervisor mantém um índice por workspace: constrói na ponta da milestone ao iniciar e atualiza depois de cada integração. O agente nunca fala com a ferramenta: as consultas chegam pelas ferramentas `kluzo_code_*` do MCP do Kluzo, e trocar de ferramenta é trocar `code_map.adapter`.
+
 ## Notificações
 
 O `Notifier` começa com `log` (só registra) e ganha o `ntfy` na v0.3: um tópico privado, com prioridade alta quando o item bloqueia trabalho, e link direto para a tela.

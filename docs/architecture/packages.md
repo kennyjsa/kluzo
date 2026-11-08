@@ -9,7 +9,7 @@ kluzo/
 │   ├── app/                    # casos de uso (usados pela CLI e pela web)
 │   ├── core/                   # domínio puro: máquina de estados, scheduler, flows, fila, triagem
 │   ├── supervisor/             # laço por workspace: entradas → core → efeitos
-│   ├── ports/                  # interfaces (Tracker, SCM, CI, Runtime, Notifier) e tipos
+│   ├── ports/                  # interfaces (Tracker, SCM, CI, Runtime, Notifier, CodeMapper) e tipos
 │   │   ├── fakes/              # implementações em memória para testes
 │   │   └── contracttest/       # suíte que todo adaptador deve passar
 │   ├── store/                  # SQLite, migrations, Tx, journal, projeções, outbox
@@ -22,6 +22,7 @@ kluzo/
 │   ├── runtime/claudecode/     # Runtime
 │   ├── runtime/opencode/
 │   ├── notify/{log,ntfy}/      # Notifier
+│   ├── codemap/{cartog,lsp}/   # CodeMapper (v0.3, ADR 0021)
 │   ├── web/                    # REST, SSE, tsnet, autorização, SPA embutida
 │   ├── platform/               # utilitários técnicos sem domínio: clock, ids (ULID), exec, redact
 │   └── archtest/               # testes das regras de dependência
@@ -44,7 +45,7 @@ kluzo/
 | `config` | Ler e validar `.kluzo/`, com erro por arquivo e linha | Aplicar a precedência em tempo de execução (isso é do `core`) |
 | `contracts` | Tipos e schemas compartilhados por todas as camadas | Lógica |
 | `mcp` | Servir as ferramentas `kluzo_*` e converter chamadas em entradas para o supervisor | Decidir o que acontece com elas |
-| `tracker/*`, `runtime/*`, `notify/*` | Implementar um port | Importar `core` |
+| `tracker/*`, `runtime/*`, `notify/*`, `codemap/*` | Implementar um port | Importar `core` |
 | `web` | HTTP, SSE, autenticação via tailnet; chama `app` | Regra de negócio |
 | `platform` | Clock, gerador de ids, `exec` com grupo de processos, remoção de segredos | Conhecer o domínio |
 
