@@ -62,6 +62,7 @@ Regras:
 - Dependência de uma issue fechada conta como satisfeita, e a aresta é ignorada. Dependência de uma issue aberta marcada `excluded` é erro: ela nunca seria integrada.
 - Toda área de um nó existe em `areas:` do `kluzo.yaml`, exceto `shared` (ADR 0011).
 - `overrides` aceita, por papel, as chaves `harness`, `model`, `advisor` e `effort`, com os mesmos valores e validações do frontmatter do papel. O papel precisa existir em `roles/`.
+- Issues pai com sub-issues na mesma milestone (por exemplo, funcionalidade e histórias) entram no plano com `excluded: true`; só as folhas viram nós. O agrupamento nativo por sub-issue chega com a visão Estrutura (F30, v0.3).
 - Arestas `contract` valem desde a v0.1. Com o scheduler sequencial, elas só mudam a ordem de despacho; o ganho de paralelismo vem na v0.2.
 - As arestas `blocks` vêm da união do plano com o tracker. Se houver divergência, a validação acusa, e a aprovação sincroniza o tracker com o plano.
 - Uma aresta `contract` só libera o nó dependente quando o nó de origem publicou o contrato. Ou seja: o caminho em `publishes_contract` existe na branch da milestone, ou o nó de origem está `integrated`.
