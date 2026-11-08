@@ -43,6 +43,11 @@ type SessionSpec struct {
 	Tools []string
 	// Schema is the JSON Schema of the role's output (kluzo_result input).
 	Schema []byte
+	// Check is the extra validation the core runs on a result that passed the
+	// schema (coverage of criteria, responses and previous findings, ADR 0023).
+	// It returns the problems to send back to the agent; nil accepts. Its
+	// rejections and the schema's share the single correction (mcp.md).
+	Check func(result json.RawMessage) []string
 }
 
 // Outcome is what the session delivered through kluzo_result.
@@ -51,6 +56,9 @@ type Outcome struct {
 	Result   json.RawMessage // the accepted JSON; empty when not accepted
 	Errors   []string        // the validation errors of the last invalid call
 	Calls    int             // kluzo_result calls made
+	// Invalid counts the rejected calls, for the schema and for Check alike:
+	// one correction is allowed, so the second ends the step as a failure.
+	Invalid int
 }
 
 // Session is one agent session's endpoint.
@@ -124,17 +132,23 @@ func (s *Session) Outcome() Outcome {
 	return s.outcome
 }
 
-// Close revokes the token. It is called when the session ends, whatever the
-// reason; later requests are refused.
+// Close revokes the token and forgets the session, so the same id can be
+// opened again when the session is resumed. It is called when the session
+// ends, whatever the reason; later requests are refused.
 func (s *Session) Close() {
 	s.mu.Lock()
 	s.token = ""
 	s.mu.Unlock()
+	s.server.mu.Lock()
+	defer s.server.mu.Unlock()
+	if s.server.sessions[s.spec.ID] == s {
+		delete(s.server.sessions, s.spec.ID)
+	}
 }
 
 // record writes the mcp.call event.
 func (s *Session) record(ctx context.Context, tool string, ok bool) {
-	s.server.rec.Call(ctx, CallEvent{Session: s.spec.ID, Tool: tool, OK: ok})
+	s.server.rec.Call(ctx, CallEvent{Session: s.spec.ID, Workspace: s.spec.Workspace, Node: s.spec.Node, Tool: tool, OK: ok})
 }
 
 // guard answers a call to any tool other than kluzo_result: forbidden when the
@@ -171,17 +185,21 @@ func (s *Session) result(ctx context.Context, req *sdk.CallToolRequest) (*sdk.Ca
 		return toolError(errSessionClosed, ToolResult), nil
 	}
 	errs := s.validate(req.Params.Arguments)
+	if len(errs) == 0 && s.spec.Check != nil {
+		errs = s.spec.Check(req.Params.Arguments)
+	}
 	s.outcome.Calls++
 	switch {
 	case len(errs) == 0:
 		s.outcome.Accepted, s.outcome.Errors = true, nil
 		s.outcome.Result = bytes.Clone(req.Params.Arguments)
 		s.finish()
-	case s.outcome.Calls > maxCorrections:
-		s.outcome.Errors = errs
-		s.finish()
 	default:
+		s.outcome.Invalid++
 		s.outcome.Errors = errs
+		if s.outcome.Invalid > maxCorrections {
+			s.finish()
+		}
 	}
 	s.mu.Unlock()
 

@@ -147,7 +147,7 @@ func TestResultIsValidatedAndAccepted(t *testing.T) {
 	if again, isErr := call(t, cs, ToolResult, validReport); !isErr || again["error"] != errSessionClosed {
 		t.Errorf("second call = %v (isError %v), want session_closed", again, isErr)
 	}
-	want := []CallEvent{{"s1", ToolResult, true}, {"s1", ToolResult, false}}
+	want := []CallEvent{{"s1", "v1", "42", ToolResult, true}, {"s1", "v1", "42", ToolResult, false}}
 	if got := e.rec.all(); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Errorf("mcp.call events = %v, want %v", got, want)
 	}
@@ -284,5 +284,58 @@ func TestOpenRejectsBadInput(t *testing.T) {
 	}
 	if _, err := New(&recorder{}, &counter{}, "t").Open(SessionSpec{ID: "s3", Schema: schema}); err == nil {
 		t.Error("Open before Start accepted")
+	}
+}
+
+func TestCloseFreesTheIDForAResumedSession(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(t, "s1", ToolResult)
+	oldToken := s.Token()
+	s.Close()
+	again := e.open(t, "s1", ToolResult)
+	if again.Token() == oldToken {
+		t.Error("a reopened session must get a new token")
+	}
+	if _, err := connect(t, again.URL(), oldToken); err == nil {
+		t.Error("the old token works on the reopened session")
+	}
+	if _, err := connect(t, again.URL(), again.Token()); err != nil {
+		t.Errorf("reopened session refuses its own token: %v", err)
+	}
+	s.Close() // closing the stale handle must not drop the new session
+	if _, err := connect(t, again.URL(), again.Token()); err != nil {
+		t.Errorf("stale Close removed the new session: %v", err)
+	}
+}
+
+// The core's coverage check shares the single correction with the schema.
+func TestCoverageAndSchemaShareTheSingleCorrection(t *testing.T) {
+	e := newEnv(t)
+	schema, _ := contracts.OutputSchema("report-result")
+	s, err := e.srv.Open(SessionSpec{ID: "s1", Workspace: "v1", Node: "42", Role: "reporter", Tools: []string{ToolResult}, Schema: schema,
+		Check: func(r json.RawMessage) []string {
+			if strings.Contains(string(r), "bad coverage") {
+				return []string{"$.criteria: AC2 is missing"}
+			}
+			return nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := connect(t, s.URL(), s.Token())
+
+	got, _ := call(t, cs, ToolResult, map[string]any{"v": 1, "summary": "bad coverage", "markdown": "m"})
+	if got["accepted"] != false || s.Outcome().Invalid != 1 {
+		t.Fatalf("coverage rejection = %v, outcome %+v", got, s.Outcome())
+	}
+	// The schema failure that follows is the second invalid call: the step ends.
+	call(t, cs, ToolResult, invalidReport)
+	select {
+	case <-s.Done():
+	default:
+		t.Fatal("schema + coverage failures must end the step")
+	}
+	if out := s.Outcome(); out.Accepted || out.Invalid != 2 {
+		t.Errorf("outcome = %+v", out)
 	}
 }
