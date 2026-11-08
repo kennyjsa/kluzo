@@ -70,6 +70,10 @@ milestone_gates:
 scheduler:
   max_parallel: 3              # v0.1 ignora e roda 1
 
+code_map:                      # v0.3, opcional (ADR 0021)
+  adapter: none                # none | cartog | lsp
+  exclude: ["vendor/**", "web/dist/**"]
+
 security:
   allow_host_credentials: false   # true só com isolamento próprio (ADR 0020)
 
@@ -112,7 +116,7 @@ subagents: haiku
 effort: high
 tools: [read, edit, bash, test]
 skills: [testing-conventions]
-mcp: [kluzo_context, kluzo_decision, kluzo_ask, kluzo_propose_node, kluzo_result]
+mcp: [kluzo_context, kluzo_changes, kluzo_code_map, kluzo_code_find, kluzo_code_refs, kluzo_decision, kluzo_ask, kluzo_propose_node, kluzo_result]
 output: node-result
 budget: { minutes: 45, usd: 4 }
 max_turns: 80

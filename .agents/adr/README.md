@@ -30,3 +30,4 @@ Regras:
 | 0018 | [Modelo de segurança dos agentes](0018-modelo-de-seguranca.md) | aceito |
 | 0019 | [Montagem do prompt em três segmentos, com fronteira de confiança única](0019-montagem-do-prompt.md) | aceito |
 | 0020 | [Garantias aplicadas em código, não pedidas no prompt](0020-garantias-fora-do-prompt.md) | aceito |
+| 0021 | [MCP do Kluzo como camada de contexto, com o mapa de código atrás de um port](0021-mcp-como-camada-de-contexto.md) | aceito |

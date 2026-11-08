@@ -47,6 +47,7 @@ Uma feature pode ser entregue em partes; a tabela mostra o que entra em cada ver
 | F28 Journal e retomada | ● | | | |
 | F29 CLI | ● | | | `doctor` na web |
 | F30 Visão Estrutura | | | ● | |
+| F31 Mapa de código | | `kluzo_changes` | `CodeMapper` + 1 adaptador | |
 
 ## Por que o GitHub vem antes do GitLab
 
