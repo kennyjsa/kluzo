@@ -1,7 +1,7 @@
 # F28 · Journal e retomada
 
 - **Grupo:** G. Plataforma
-- **Status:** planejada
+- **Status:** em andamento
 
 - **O quê:** a durabilidade.
 - **Comportamento:** SQLite com WAL; uma entrada por transição; `kluzo resume` e retomada automática quando o binário sobe.
