@@ -84,17 +84,9 @@ type Decision struct {
 	Title, Rationale string
 }
 
-// Finding is a review finding. ID is assigned by Kluzo.
-type Finding struct {
-	ID       string
-	Severity string // blocking | major | minor
-	Category string
-	File     string
-	Line     int
-	Message  string
-	Check    string
-	Auto     bool
-}
+// Finding is a review finding of the ledger of the node (core.Finding); ID is
+// assigned by Kluzo.
+type Finding = core.Finding
 
 // Why gathers the causes of a retry; each present cause gets a subsection.
 type Why struct {
@@ -300,12 +292,14 @@ func (r *renderer) why() string {
 }
 
 // severityRank orders findings, the most serious first.
-func severityRank(s string) int { return slices.Index([]string{"blocking", "major", "minor"}, s) }
+func severityRank(s core.Severity) int {
+	return slices.Index([]core.Severity{core.SeverityBlocking, core.SeverityMajor, core.SeverityMinor}, s)
+}
 
 // findings lists findings up to the limit. With blockingOnly, the minor ones
 // are only counted.
 func (r *renderer) findings(fs []Finding, source string, blockingOnly bool) string {
-	listed := slices.DeleteFunc(slices.Clone(fs), func(f Finding) bool { return blockingOnly && f.Severity == "minor" })
+	listed := slices.DeleteFunc(slices.Clone(fs), func(f Finding) bool { return blockingOnly && f.Severity == core.SeverityMinor })
 	minor := len(fs) - len(listed)
 	slices.SortStableFunc(listed, func(a, b Finding) int { return severityRank(a.Severity) - severityRank(b.Severity) })
 	omitted := max(len(listed)-r.limits.Findings, 0)

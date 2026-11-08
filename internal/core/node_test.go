@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var testLimits = Limits{MaxAttempts: 3, MaxReviewRounds: 2}
+var testLimits = Limits{MaxAttempts: 3, MaxReviewRounds: 2, MaxFastRetries: 3}
 
 func TestNextNode(t *testing.T) {
 	tests := []struct {
@@ -21,7 +21,7 @@ func TestNextNode(t *testing.T) {
 		{"review rejected is a new round", Node{State: NodeInReview, Attempt: 1}, NodeEvent{Trigger: TriggerReviewRejected}, Node{State: NodeRunning, Attempt: 1, Round: 1}, nil},
 		{"review rejected beyond max rounds", Node{State: NodeInReview, Attempt: 1, Round: 1}, NodeEvent{Trigger: TriggerReviewRejected}, Node{State: NodeInReview, Attempt: 1, Round: 1}, ErrLimitReached},
 		{"review approved", Node{State: NodeInReview, Attempt: 1, Round: 1}, NodeEvent{Trigger: TriggerReviewApproved}, Node{State: NodeGating, Attempt: 1, Round: 1}, nil},
-		{"gate failed is a new attempt", Node{State: NodeGating, Attempt: 1, Round: 1}, NodeEvent{Trigger: TriggerGateFailed}, Node{State: NodeRunning, Attempt: 2}, nil},
+		{"gate failed is a new attempt", Node{State: NodeGating, Attempt: 1, Round: 1, FastGateFailures: 2}, NodeEvent{Trigger: TriggerGateFailed}, Node{State: NodeRunning, Attempt: 2}, nil},
 		{"gate failed without attempts left", Node{State: NodeGating, Attempt: 3}, NodeEvent{Trigger: TriggerGateFailed}, Node{State: NodeGating, Attempt: 3}, ErrLimitReached},
 		{"gates passed", Node{State: NodeGating, Attempt: 1}, NodeEvent{Trigger: TriggerGatesPassed}, Node{State: NodeQueued, Attempt: 1}, nil},
 		{"queue turn", Node{State: NodeQueued, Attempt: 1}, NodeEvent{Trigger: TriggerQueueTurn}, Node{State: NodeIntegrating, Attempt: 1}, nil},
@@ -44,6 +44,33 @@ func TestNextNode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := NextNode(tt.from, tt.ev, testLimits)
+			if !errors.Is(err, tt.wantErr) || (tt.wantErr == nil && err != nil) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("node = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFastGateFailed(t *testing.T) {
+	tests := []struct {
+		name    string
+		from    Node
+		want    Node
+		wantErr error
+	}{
+		{"first failure goes back to the implementer", Node{State: NodeRunning, Attempt: 1}, Node{State: NodeRunning, Attempt: 1, FastGateFailures: 1}, nil},
+		{"the review rounds are not used", Node{State: NodeRunning, Attempt: 1, Round: 1, FastGateFailures: 1}, Node{State: NodeRunning, Attempt: 1, Round: 1, FastGateFailures: 2}, nil},
+		{"the last allowed failure", Node{State: NodeRunning, Attempt: 2, FastGateFailures: 2}, Node{State: NodeRunning, Attempt: 2, FastGateFailures: 3}, nil},
+		{"past max_retries blocks for triage", Node{State: NodeRunning, Attempt: 2, FastGateFailures: 3}, Node{State: NodeBlocked, PrevState: NodeRunning, BlockedReason: BlockedTriage, Attempt: 2, FastGateFailures: 4}, nil},
+		{"only while running", Node{State: NodeInReview, Attempt: 1}, Node{State: NodeInReview, Attempt: 1}, ErrInvalidTransition},
+		{"not when blocked", Node{State: NodeBlocked, PrevState: NodeRunning, BlockedReason: BlockedTriage}, Node{State: NodeBlocked, PrevState: NodeRunning, BlockedReason: BlockedTriage}, ErrInvalidTransition},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := FastGateFailed(tt.from, testLimits)
 			if !errors.Is(err, tt.wantErr) || (tt.wantErr == nil && err != nil) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
