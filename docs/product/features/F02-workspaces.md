@@ -1,7 +1,7 @@
 # F02 · Workspaces
 
 - **Grupo:** A. Navegação e organização
-- **Status:** planejada
+- **Status:** em andamento
 
 - **O quê:** uma sessão de trabalho sobre uma milestone.
 - **Comportamento:**
