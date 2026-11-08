@@ -40,6 +40,22 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 5. **Normalização de eventos dos runtimes.** Streams reais gravados em `testdata/streams/` passam pelo adaptador, e a saída é comparada com golden files.
 6. **Integração** (tag `integration`). Um repositório de teste no GitHub e uma milestone de 2 ou 3 nós triviais, executada de verdade. Roda manualmente e antes de cada release.
 
+### Avaliações de prompt
+
+Os testes golden garantem que o texto do prompt não mudou sem revisão, mas não dizem se ele funciona. Para isso existe `make eval` (ADR 0019), que não roda no CI de PR, mas sim antes de cada release e quando um prompt ou papel padrão muda:
+- **Repositórios-fixture** em `testdata/eval/`, cada um com uma milestone pequena e um resultado esperado verificável:
+  - issue simples;
+  - issue com injeção de prompt no corpo;
+  - lint "tentador de silenciar";
+  - teste que falha por um motivo sutil;
+  - diff grande para o reviewer.
+- **O que se mede, por cenário e por adaptador/modelo:**
+  - critério de aceite atendido;
+  - nenhuma violação de caminho protegido;
+  - instrução injetada não seguida;
+  - tentativas, turnos e custo.
+- **Resultados** em `testdata/eval/results/<kluzo-version>/`, comparados com a versão anterior. Regressão em segurança bloqueia o release.
+
 ### Regras
 
 - Os testes unitários não usam rede, LLM nem relógio real (o relógio é injetado). Também não usam `time.Sleep`.

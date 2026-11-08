@@ -83,6 +83,8 @@ Qual etapa do flow corresponde a `running` ou a `in_review` é definido pelo cam
 | qualquer não final | `failed` | triagem decide desistir | — |
 | qualquer não final | `cancelled` | humano remove o nó | nenhum dependente ativo, ou dependentes também cancelados |
 
+Os **gates rápidos** (`fast: true`, ADR 0020) rodam com o nó ainda em `running`, entre o implementer e o reviewer. Uma falha volta ao implementer na mesma sessão e na mesma tentativa, como uma rodada, limitada pelo `max_rounds` da etapa. O gatilho `implementer_done` só é emitido depois que os gates rápidos passam.
+
 Uma **tentativa** (`attempt`) começa a cada entrada em `running` vinda de `ready`, `gating` ou `integrating`. Uma devolução do reviewer (`in_review → running`) é uma **rodada** dentro da mesma tentativa.
 
 ### Motivos de bloqueio

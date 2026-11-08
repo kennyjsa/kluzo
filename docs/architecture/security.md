@@ -28,22 +28,31 @@ O Kluzo executa agentes de código com permissão para editar arquivos e rodar c
 - **Aprovações:**
   - `plan/approved` e os comandos `/kluzo` só valem quando vêm de usuários listados em `tracker.operators`.
   - Labels de dono errado são ignoradas e revertidas.
-- **Gates:** o resultado vem do comando ou do CI, nunca do agente.
+- **Gates:**
+  - O resultado vem do comando ou do CI, nunca do agente.
+  - A definição dos gates e os arquivos de configuração que eles usam são lidos da ponta da branch da milestone no despacho do nó, nunca do worktree (ADR 0020).
+- **Caminhos protegidos:** um diff que altera `protected_paths` (`.kluzo/**`, configuração de lint e de CI), apaga ou desativa testes vira proposta para o humano, e o nó não entra na fila. Uma supressão de lint nova vira finding `blocking` (ADR 0020).
 
 ### Isolamento do agente
 
 - Cada sessão roda **no worktree do nó**, com o diretório de trabalho fixado nele.
-- As ferramentas do harness são limitadas pelo campo `tools` do papel. Por exemplo, o reviewer não tem `edit`.
+- As ferramentas do harness são limitadas pelo campo `tools` do papel. O `reviewer` é **somente leitura**: sem `edit` e sem `bash`. Ele recebe o resultado dos gates como dado, e assim nunca executa código não confiável.
 - **Sem credencial de push:** a sessão do agente não recebe o token do bot. Commit e push são feitos pelo Kluzo, depois de a sessão terminar.
 - **Ambiente mínimo:** a sessão recebe só as variáveis do projeto declaradas em `kluzo.yaml` (`runtimes.<name>.env_allow`), nunca o ambiente completo do Kluzo.
 - O kill do grupo de processos acontece em timeout ou cancelamento.
-- **Limite conhecido:** sem sandbox de sistema operacional, o agente roda com o usuário do Kluzo e consegue ler arquivos fora do worktree. A recomendação é rodar o Kluzo com um usuário dedicado, ou num container ou VM. Um sandbox nativo (container por sessão) é candidato a uma versão futura.
+- **Limite conhecido:** além do controle de credenciais acima, sem sandbox de sistema operacional, o agente roda com o usuário do Kluzo e consegue ler arquivos fora do worktree. A recomendação é rodar o Kluzo com um usuário dedicado, ou num container ou VM. Um sandbox nativo (container por sessão) é candidato a uma versão futura.
 
 ### Injeção de prompt
 
-- O conteúdo vindo do tracker (issues, comentários) chega ao agente dentro de um bloco marcado como **dados não confiáveis**, com instrução explícita de que não é instrução.
+- **Envelope único:** tudo o que vem de fora do Kluzo chega ao agente num envelope de dado não confiável, delimitado por nonce e saneado, tanto no prompt quanto nas respostas MCP ([contracts/prompt.md](../contracts/prompt.md#envelope-de-dado-não-confiável)). Isso inclui issues, comentários, findings, logs, diff e arquivos citados. O saneamento remove caracteres de controle, bidi, zero-width e o bloco Unicode Tags.
+- **O próprio diff é não confiável para o reviewer:** ele pode carregar texto plantado via issue ("mudança pré-aprovada"). Por isso o reviewer só lê, e as garantias críticas são aplicadas em código, não pelo julgamento do reviewer.
 - **Nenhuma ação privilegiada depende do texto do agente:** aprovar, fazer merge, criar issue e mudar orçamento são operações do supervisor ou do humano.
 - `kluzo_propose_node` e `kluzo_ask` só **pedem**. A decisão é sempre humana.
+
+### Gates e credenciais do host
+
+- **Os gates rodam código escrito pelo agente**, por isso não recebem segredos por padrão. Só recebem as variáveis em `gates[].env_allow`. A recomendação é rodar os gates em container com egress restrito.
+- **Credenciais do host:** se `gh` autenticado, credential helper do git ou chaves em `~/.ssh` estiverem visíveis para o usuário que roda os agentes, o Kluzo recusa iniciar sessões, a menos que `security.allow_host_credentials: true` esteja explícito (ADR 0020).
 
 ### Segredos
 

@@ -44,7 +44,7 @@ O humano revisa o plano **item a item** (nós novos, alterações, dependências
 ## 3. Downstream: desenvolver
 
 ```
-implementer → reviewer → gates → fila de merge → integrado
+implementer → gates rápidos → reviewer → gates completos → fila de merge → integrado
      ▲___________|________|  (devolução com findings ou log)
 ```
 
@@ -53,9 +53,10 @@ implementer → reviewer → gates → fila de merge → integrado
   - Nós com área em comum nunca rodam juntos.
   - O caminho crítico tem prioridade: com vagas limitadas, roda primeiro o que destrava mais trabalho.
 - Cada nó roda num **worktree** que nasce da ponta da branch da milestone.
-- O `reviewer` pode devolver o nó ao `implementer`, com limite de rodadas.
+- Os **gates rápidos** (build, lint) rodam antes do review, para não gastar o reviewer com código que nem compila.
+- O `reviewer` só lê: não edita nem executa código (ADR 0020). Ele pode devolver o nó ao `implementer`, com limite de rodadas.
 - Os **gates** (testes, lint) rodam fora do agente. O resultado vem do comando ou do CI.
-- Antes da fila de merge, o diff é conferido contra as áreas declaradas (ADR 0011).
+- Antes da fila de merge, o diff é conferido contra as áreas declaradas (ADR 0011) e contra os caminhos protegidos. Mexer em configuração de gate, lint, CI ou `.kluzo/`, ou apagar testes, vira proposta para o humano (ADR 0020).
 - O downstream **nunca replaneja**. Lacunas viram **propostas**, que voltam para o humano:
   - Proposta que não bloqueia: o nó segue.
   - Proposta que bloqueia: só aquele nó espera.

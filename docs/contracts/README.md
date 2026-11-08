@@ -12,6 +12,7 @@ Formatos e interfaces que o código do Kluzo implementa. Quando outro documento 
 | [events.md](events.md) | Eventos normalizados (runtime, núcleo, SSE) |
 | [interfaces.md](interfaces.md) | Interfaces Go: `Tracker`, `SCM`, `CI`, `Runtime`, `Notifier` |
 | [mcp.md](mcp.md) | Ferramentas `kluzo_*` do servidor MCP |
+| [prompt.md](prompt.md) | Segmentos do prompt, envelope de dado não confiável, limites, sessões e manifesto |
 
 Regras gerais:
 - Nomes de chaves, estados, eventos e labels são em inglês (ADR 0008).
