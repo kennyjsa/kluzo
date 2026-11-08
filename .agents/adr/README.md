@@ -34,3 +34,4 @@ Regras:
 | 0022 | [Memória do projeto: só o Kluzo grava, e só o que o humano aprovou](0022-memoria-do-projeto.md) | aceito |
 | 0023 | [Papéis padrão do implementer e do reviewer, com veredito derivado pelo Kluzo](0023-papeis-padrao.md) | aceito |
 | 0024 | [Adaptador do Claude Code: modo restrito, ambiente sintético e regras do projeto injetadas pelo Kluzo](0024-adaptador-claude-code.md) | aceito |
+| 0025 | [Recursos do workspace: caches compartilhados por projeto e limpeza determinística](0025-recursos-e-limpeza.md) | aceito |

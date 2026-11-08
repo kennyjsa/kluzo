@@ -87,6 +87,12 @@ budgets:                       # padrão; papéis e milestones podem sobrescreve
   node: { attempts: 3, minutes: 60, usd: 6 }
   milestone: { usd: 60, alert_at: 1.1 }
 
+caches: [go, node]               # ecossistemas com cache de download compartilhado (ADR 0025)
+
+retention:
+  logs: 90d                      # logs de sessão e de gate
+  disk_warn: 20GB                # aviso do doctor
+
 runtimes:
   claude-code:
     bin: claude
