@@ -42,14 +42,42 @@ type RoleBudget struct {
 // PromptLimits overrides the limits of docs/contracts/prompt.md#limites.
 // Zero means "use the default".
 type PromptLimits struct {
-	Findings       int `yaml:"findings"`
-	TestFailures   int `yaml:"test_failures"`
-	FailureMessage int `yaml:"failure_message_chars"`
-	LogHead        int `yaml:"log_head"`
-	LogTail        int `yaml:"log_tail"`
-	LogChars       int `yaml:"log_chars"`
-	ChangedFiles   int `yaml:"changed_files"`
-	DiffLines      int `yaml:"diff_lines"`
+	Findings       int `yaml:"findings" json:"findings"`
+	TestFailures   int `yaml:"test_failures" json:"test_failures"`
+	FailureMessage int `yaml:"failure_message_chars" json:"failure_message_chars"`
+	LogHead        int `yaml:"log_head" json:"log_head"`
+	LogTail        int `yaml:"log_tail" json:"log_tail"`
+	LogChars       int `yaml:"log_chars" json:"log_chars"`
+	ChangedFiles   int `yaml:"changed_files" json:"changed_files"`
+	DiffLines      int `yaml:"diff_lines" json:"diff_lines"`
+}
+
+// Default prompt limits (docs/contracts/prompt.md#limites).
+const (
+	DefaultFindings       = 20
+	DefaultTestFailures   = 10
+	DefaultFailureMessage = 1500
+	DefaultLogHead        = 60
+	DefaultLogTail        = 120
+	DefaultLogChars       = 12000
+	DefaultChangedFiles   = 50
+	DefaultDiffLines      = 1500
+)
+
+// Resolved returns the limits with every zero replaced by its default.
+func (p PromptLimits) Resolved() PromptLimits {
+	or := func(v, def int) int {
+		if v == 0 {
+			return def
+		}
+		return v
+	}
+	return PromptLimits{
+		Findings: or(p.Findings, DefaultFindings), TestFailures: or(p.TestFailures, DefaultTestFailures),
+		FailureMessage: or(p.FailureMessage, DefaultFailureMessage), LogHead: or(p.LogHead, DefaultLogHead),
+		LogTail: or(p.LogTail, DefaultLogTail), LogChars: or(p.LogChars, DefaultLogChars),
+		ChangedFiles: or(p.ChangedFiles, DefaultChangedFiles), DiffLines: or(p.DiffLines, DefaultDiffLines),
+	}
 }
 
 // Override replaces the harness and/or the model of a role (a fallback step).

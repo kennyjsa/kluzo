@@ -251,3 +251,21 @@ func TestTokenEnvDefaultsByTracker(t *testing.T) {
 		})
 	}
 }
+
+// The default implementer and reviewer are the normative texts of
+// docs/contracts/roles/ (ADR 0023): the two must never drift apart.
+func TestDefaultRolesAreTheContractTexts(t *testing.T) {
+	for _, name := range []string{"implementer", "reviewer"} {
+		want, err := os.ReadFile(filepath.Join("..", "..", "docs", "contracts", "roles", name+".md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := defaultsFS.ReadFile(defaultsRoot + "/roles/" + name + ".md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("embedded roles/%s.md differs from docs/contracts/roles/%s.md", name, name)
+		}
+	}
+}

@@ -74,7 +74,7 @@ func TestInitAndRolesCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, _, errOut = runIn("roles", "check", "--dir", dir)
-	if code != 2 || !strings.Contains(errOut, reviewer+":7: tools[1]") || !strings.Contains(errOut, "1 problem(s) found") {
+	if code != 2 || !strings.Contains(errOut, reviewer+":5: tools[1]") || !strings.Contains(errOut, "1 problem(s) found") {
 		t.Errorf("roles check on a broken role: code %d, stderr %q", code, errOut)
 	}
 }

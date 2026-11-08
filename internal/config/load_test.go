@@ -164,11 +164,15 @@ func TestInit(t *testing.T) {
 		t.Errorf("flows = %v, want upstream, node and closing", sortedKeys(p.Flows))
 	}
 
-	// Placeholders are marked TODO, pointing to investigation 2.
+	// Placeholders are marked TODO, pointing to investigation 2. The implementer
+	// and the reviewer are real roles (ADR 0023).
 	for _, f := range files {
 		data, _ := os.ReadFile(filepath.Join(dir, f))
+		real := f == "roles/implementer.md" || f == "roles/reviewer.md"
 		switch {
-		case strings.HasPrefix(f, "roles/") && !strings.Contains(string(data), "TODO(investigation 2)"):
+		case real && strings.Contains(string(data), "TODO"):
+			t.Errorf("%s is still a placeholder", f)
+		case strings.HasPrefix(f, "roles/") && !real && !strings.Contains(string(data), "TODO(investigation 2)"):
 			t.Errorf("%s has no TODO(investigation 2) marker", f)
 		case f == "kluzo.yaml" && !strings.Contains(string(data), "TODO"):
 			t.Errorf("%s has no TODO marker", f)
