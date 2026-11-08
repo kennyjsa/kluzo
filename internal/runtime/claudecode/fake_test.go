@@ -1,0 +1,218 @@
+package claudecode
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// fakeClaude is a stand-in for the claude CLI. It replays a fixture of
+// testdata/ as the stream-json output, so the adapter is tested without a
+// network, a credential or a model. The fixture is named by KLUZO_FAKE_FIXTURE.
+//
+// A fixture line that starts with "!" is a directive; any other line is
+// printed as it is, after replacing the placeholders:
+//
+//	@@SESSION@@  the id given with --session-id or --resume
+//	@@TOOLS@@    the JSON list of the tools the CLI would announce: --tools plus
+//	             the MCP tools of the session
+//
+// Directives:
+//
+//	!read-prompt       read the first stdin line (the task)
+//	!wait-input        read one more stdin line and print it as assistant text
+//	!deliver <json>    call kluzo_result on the MCP server named in --mcp-config
+//	!stderr <text>     write to stderr
+//	!sleep <duration>  wait
+//	!exit <code>       end the process
+//	!hang              never end (until a signal)
+//	!ignore-term       ignore SIGTERM from now on
+//	!grandchild        start a child that outlives its parent, and print its pid to stderr
+//
+// With KLUZO_FAKE_RECORD set, the CLI first writes its argv, environment,
+// working directory and the files named by --mcp-config and --settings there.
+func fakeClaude(args []string) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "--version":
+			fmt.Println(envOr("KLUZO_FAKE_VERSION", "2.1.319") + " (Claude Code)")
+			return 0
+		case "--help":
+			help := "Usage: claude [options]\n"
+			for _, f := range strings.Fields(os.Getenv("KLUZO_FAKE_FLAGS")) {
+				help += "  " + f + "\n"
+			}
+			fmt.Print(help)
+			return 0
+		case "auth":
+			if os.Getenv("KLUZO_FAKE_LOGGED_OUT") == "1" {
+				fmt.Println(`{"loggedIn": false}`)
+				return 1
+			}
+			fmt.Println(`{"loggedIn": true}`)
+			return 0
+		}
+	}
+	if rec := os.Getenv("KLUZO_FAKE_RECORD"); rec != "" {
+		record(rec, args)
+	}
+	fixture, err := os.ReadFile(filepath.Join(os.Getenv("KLUZO_FAKE_TESTDATA"), os.Getenv("KLUZO_FAKE_FIXTURE")+".jsonl"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fake claude:", err)
+		return 2
+	}
+	stdin := bufio.NewReader(os.Stdin)
+	for _, ln := range strings.Split(strings.TrimRight(string(fixture), "\n"), "\n") {
+		if ln == "" {
+			continue
+		}
+		if !strings.HasPrefix(ln, "!") {
+			fmt.Println(substitute(ln, args))
+			continue
+		}
+		verb, rest, _ := strings.Cut(strings.TrimPrefix(ln, "!"), " ")
+		if code, done := directive(verb, rest, args, stdin); done {
+			return code
+		}
+	}
+	return 0
+}
+
+// directive runs one directive; done is true when the process must end.
+func directive(verb, rest string, args []string, stdin *bufio.Reader) (code int, done bool) {
+	switch verb {
+	case "read-prompt":
+		_, _ = stdin.ReadString('\n')
+	case "wait-input":
+		l, _ := stdin.ReadString('\n')
+		fmt.Println(assistantText("got: " + userText(l)))
+	case "deliver":
+		deliver(rest, args)
+	case "stderr":
+		fmt.Fprintln(os.Stderr, rest)
+	case "sleep":
+		d, _ := time.ParseDuration(rest)
+		time.Sleep(d)
+	case "exit":
+		var c int
+		_, _ = fmt.Sscan(rest, &c)
+		return c, true
+	case "hang":
+		time.Sleep(time.Hour)
+	case "ignore-term":
+		signal.Ignore(syscall.SIGTERM)
+	case "grandchild":
+		fmt.Fprintln(os.Stderr, "grandchild", startGrandchild())
+	}
+	return 0, false
+}
+
+func startGrandchild() int {
+	p, err := os.StartProcess("/bin/sleep", []string{"sleep", "60"}, &os.ProcAttr{Files: []*os.File{nil, nil, nil}})
+	if err != nil {
+		return -1
+	}
+	return p.Pid
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func flagValue(args []string, name string) string {
+	for i, a := range args {
+		if a == name && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func substitute(ln string, args []string) string {
+	id := flagValue(args, "--session-id")
+	if id == "" {
+		id = flagValue(args, "--resume")
+	}
+	tools := append(strings.Split(flagValue(args, "--tools"), ","), "mcp__kluzo__kluzo_result")
+	b, _ := json.Marshal(tools)
+	return strings.NewReplacer("@@SESSION@@", id, "@@TOOLS@@", string(b)).Replace(ln)
+}
+
+func assistantText(text string) string {
+	b, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{
+		"id": "msg_input", "content": []map[string]string{{"type": "text", "text": text}},
+	}})
+	return string(b)
+}
+
+func userText(line string) string {
+	var m struct {
+		Message struct {
+			Content []struct{ Text string } `json:"content"`
+		} `json:"message"`
+	}
+	_ = json.Unmarshal([]byte(line), &m)
+	if len(m.Message.Content) == 0 {
+		return ""
+	}
+	return m.Message.Content[0].Text
+}
+
+// deliver makes the MCP call an agent makes to hand in its result.
+func deliver(arguments string, args []string) {
+	cfg, err := os.ReadFile(flagValue(args, "--mcp-config"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fake claude: mcp config:", err)
+		return
+	}
+	var doc struct {
+		Servers map[string]struct {
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	_ = json.Unmarshal(cfg, &doc)
+	srv := doc.Servers["kluzo"]
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kluzo_result","arguments":` + arguments + `}}`
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range srv.Headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fake claude: deliver:", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	out, _ := io.ReadAll(resp.Body)
+	fmt.Fprintln(os.Stderr, "deliver", resp.StatusCode, strings.TrimSpace(string(out)))
+}
+
+// record writes what the CLI was given, for the tests to inspect.
+func record(path string, args []string) {
+	wd, _ := os.Getwd()
+	info := map[string]any{"argv": args, "env": os.Environ(), "cwd": wd}
+	for _, f := range []string{"--mcp-config", "--settings"} {
+		file := flagValue(args, f)
+		if st, err := os.Stat(file); err == nil {
+			data, _ := os.ReadFile(file)
+			info[f] = map[string]any{"path": file, "mode": st.Mode().Perm().String(), "content": string(data)}
+		}
+	}
+	b, _ := json.Marshal(info)
+	_ = os.WriteFile(path, b, 0o600)
+}

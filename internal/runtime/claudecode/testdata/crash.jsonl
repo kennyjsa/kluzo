@@ -1,0 +1,4 @@
+!read-prompt
+{"type":"system","subtype":"init","session_id":"@@SESSION@@","model":"claude-sonnet-4","cwd":"/work","permissionMode":"dontAsk","tools":@@TOOLS@@,"mcp_servers":[{"name":"kluzo","status":"connected"}],"claude_code_version":"2.1.319","apiKeySource":"ANTHROPIC_API_KEY"}
+!stderr crashed
+!exit 1
