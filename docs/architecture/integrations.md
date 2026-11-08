@@ -58,7 +58,7 @@ O Kluzo nunca escreve na `main`.
 
 | Harness | Execução | Retomada | Saída estruturada | Recursos específicos |
 |---|---|---|---|---|
-| Claude Code | `claude -p --output-format stream-json` | `--resume <id>` | `kluzo_result` (MCP) ou saída final em JSON | advisor, subagents, `--tools` por papel |
+| Claude Code | `claude -p --restricted` com stream-json de entrada e saída (ADR 0024) | `--resume <uuid>`, só com segmentos inalterados | `kluzo_result` (MCP) | `--tools`/`--allowedTools` por papel; advisor e subagents depois de verificados |
 | OpenCode | `opencode run` ou `opencode serve` (HTTP) | sessão do servidor | `kluzo_result` (MCP) | multi-provedor |
 
 - A versão mínima de cada CLI fica em `kluzo.yaml` e é verificada por `kluzo doctor` e no início de cada sessão.

@@ -66,6 +66,7 @@ Cada adaptador de runtime traduz o stream do seu harness para estes eventos. A w
 | `session.finished` | `{state, duration_ms, cost_usd_micros}` | mensagem `result` |
 
 Regras:
+- Tipos de evento do harness que o adaptador não conhece ficam só no log bruto e são contados no manifesto; não viram evento no journal.
 - Os campos `*_summary` têm no máximo 300 caracteres. O conteúdo completo fica só no log bruto.
 - Antes de gravar, o adaptador remove segredos (valores das variáveis de ambiente marcadas como secretas e padrões de token).
 - Um evento que o adaptador não reconhece vira `session.message` com `text` vazio e é registrado como aviso. Ele nunca derruba a sessão.

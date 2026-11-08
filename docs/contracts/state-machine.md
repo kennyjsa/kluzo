@@ -24,6 +24,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | `awaiting_approval` | `approved` | humano aprova o plano | nenhum item pendente; grafo válido | cria issues e links aprovados; commit de `plans/<milestone>.yaml` |
 | `approved` | `running` | imediato | — | scheduler começa a despachar nós |
 | `running` | `paused` | humano pausa | — | sessões ativas recebem `Cancel`; nós voltam para o último estado estável |
+| `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
 | `paused` | `running` | humano retoma | — | scheduler volta a despachar |
 | `running` | `closing` | último nó vira `integrated` | todos os nós `integrated` ou `cancelled` | inicia o flow `closing` |
 | `closing` | `ready_to_merge` | flow `closing` termina | gate E2E verde | abre o PR/MR `milestone → main` com o relatório |

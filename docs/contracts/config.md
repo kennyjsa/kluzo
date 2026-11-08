@@ -46,6 +46,9 @@ areas:                         # ADR 0011
 protected_paths:                # ADR 0020: mudança aqui vira proposta para o humano
   - ".kluzo/**"
   - "AGENTS.md"                 # memória do projeto (ADR 0022)
+  - "CLAUDE.md"                 # regras do projeto (ADR 0024)
+  - ".claude/**"
+  - ".mcp.json"
   - ".golangci.yml"
   - ".github/workflows/**"
   - "Makefile"
@@ -87,7 +90,7 @@ budgets:                       # padrão; papéis e milestones podem sobrescreve
 runtimes:
   claude-code:
     bin: claude
-    min_version: 2.1.186
+    min_version: 2.1.295        # ADR 0024
     env_allow: [DATABASE_URL_TEST]   # variáveis do projeto repassadas à sessão
   opencode:
     bin: opencode
