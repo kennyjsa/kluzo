@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,31 +10,36 @@ import (
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
 
-// sessionFiles writes the MCP configuration and the settings of one session
-// in a private directory outside the worktree, mode 0600, so the token is not
-// in the command line and the agent cannot rewrite them. The returned
-// function removes them; call it when the session ends.
+// sessionFiles writes the MCP configuration, the settings and the system
+// prompt of one session in a private directory outside the worktree, mode
+// 0600, so the token is not in the command line and the agent cannot rewrite
+// them. The returned function removes them; call it when the session ends.
 func (rt *Runtime) sessionFiles(spec ports.SessionSpec, harnessID string) (files, func(), error) {
 	dir := filepath.Join(rt.cfg.ConfigDir, harnessID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return files{}, nil, fmt.Errorf("create session config dir: %w", err)
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	f := files{mcp: filepath.Join(dir, "mcp.json"), settings: filepath.Join(dir, "settings.json")}
+	f := files{mcp: filepath.Join(dir, "mcp.json"), settings: filepath.Join(dir, "settings.json"), system: filepath.Join(dir, "system-prompt.md")}
 
 	mcp := map[string]any{"mcpServers": map[string]any{"kluzo": map[string]any{
 		"type": "http", "url": spec.MCPEndpoint,
 		"headers": map[string]string{"Authorization": "Bearer " + spec.MCPToken},
 	}}}
-	for path, doc := range map[string]any{f.mcp: mcp, f.settings: rt.settings(spec)} {
-		data, err := json.MarshalIndent(doc, "", "  ")
+	write := func(path string, data []byte, err error) error {
 		if err == nil {
 			err = os.WriteFile(path, data, 0o600)
 		}
 		if err != nil {
-			cleanup()
-			return files{}, nil, fmt.Errorf("write %s: %w", filepath.Base(path), err)
+			return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 		}
+		return nil
+	}
+	mcpDoc, mcpErr := json.MarshalIndent(mcp, "", "  ")
+	settings, settingsErr := json.MarshalIndent(rt.settings(spec), "", "  ")
+	if err := errors.Join(write(f.mcp, mcpDoc, mcpErr), write(f.settings, settings, settingsErr), write(f.system, []byte(spec.System), nil)); err != nil {
+		cleanup()
+		return files{}, nil, err
 	}
 	return f, cleanup, nil
 }

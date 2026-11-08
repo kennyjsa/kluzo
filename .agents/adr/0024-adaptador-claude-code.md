@@ -11,7 +11,7 @@ O item 6 da v0.1 roda o Claude Code como subprocesso headless. O CLI carrega por
 ## Decisão
 
 1. **Invocação** (argv congelado no manifesto da sessão):
-   `claude -p --input-format stream-json --output-format stream-json --verbose --restricted --strict-mcp-config --disable-slash-commands --session-id <uuid> --model … --effort … --max-turns … --max-budget-usd <restante do nó> --append-system-prompt <segmentos 1, 2 e regras do projeto> --exclude-dynamic-system-prompt-sections --tools … --allowedTools … --permission-mode dontAsk --permission-prompts none --mcp-config <arquivo 0600> --settings <arquivo 0600> --include-hook-events`.
+   `claude -p --input-format stream-json --output-format stream-json --verbose --restricted --strict-mcp-config --disable-slash-commands --session-id <uuid> --model … --effort … --max-turns … --max-budget-usd <restante do nó> --append-system-prompt-file <arquivo 0600 com os segmentos 1, 2 e regras do projeto> --exclude-dynamic-system-prompt-sections --tools … --allowedTools … --permission-mode dontAsk --permission-prompts none --mcp-config <arquivo 0600> --settings <arquivo 0600> --include-hook-events`.
    Os arquivos de configuração ficam fora do worktree, e o token vale só para a sessão.
 2. **Regras do projeto injetadas pelo Kluzo.** `AGENTS.md`, `CLAUDE.md` e as skills do papel são lidos da ponta da milestone no despacho, como os gates (ADR 0020), e entram no system prompt depois do papel. `.claude/**`, `CLAUDE.md` e `.mcp.json` entram no padrão de `protected_paths`.
 3. **Ambiente sintético.** `HOME` próprio por workspace, credencial do modelo por variável (`CLAUDE_CODE_OAUTH_TOKEN` ou `ANTHROPIC_API_KEY`), sem `SSH_AUTH_SOCK`, com `GIT_TERMINAL_PROMPT=0` e `DISABLE_AUTOUPDATER=1`, mais o `env_allow` do runtime.

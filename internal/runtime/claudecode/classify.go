@@ -32,7 +32,7 @@ var authHint = regexp.MustCompile(`(?i)invalid api key|authentication_error|not 
 func classify(o outcome) ports.Result {
 	res := ports.Result{Turns: o.t.turns, Unknown: o.t.unknown, Version: o.t.version}
 	if o.end != nil {
-		res.CostUSD = o.end.CostMicros
+		res.CostUSD, res.Cumulative = o.end.Session.CostUSD, o.end.Cumulative
 		res.Turns = max(res.Turns, o.end.Turns)
 	}
 	fail := func(cause ports.Cause, detail string) ports.Result {

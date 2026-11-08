@@ -119,7 +119,7 @@ type SessionSpec struct {
 	Counter   int    // numera as sessões do harness de um mesmo SessionID (0, 1…); entra no UUID
 	Attempt, Round int
 	Role      RoleConfig // já com a precedência de overrides aplicada
-	System    string     // system prompt: segmentos 1, 2 e 2b (protocolo, papel, regras do projeto)
+	System    string     // system prompt: segmentos 1, 2 e 2b (protocolo, papel, regras do projeto); vai por arquivo 0600, sem limite de tamanho
 	Prompt    string     // segmento 3, a primeira mensagem do usuário
 	Segments  SegmentHashes // hashes que a retomada compara (ADR 0024, item 9)
 	Workdir   string     // worktree do nó, ou o repositório no upstream
@@ -132,7 +132,15 @@ type SessionSpec struct {
 
 	Env                map[string]string // sem segredos do Kluzo; só os do projeto (env_allow, caches)
 	MaxBudgetUSDMicros int64             // o que resta ao nó
+	PriorUsage         Usage             // Result.Cumulative da sessão anterior da mesma conversa do harness (Resume); zero no Start
 	Timeout            time.Duration
+}
+
+// Usage é o que uma conversa do harness consumiu. O Claude Code soma custo e
+// tokens entre retomadas; o Result conta só a sessão.
+type Usage struct {
+	InputTokens, OutputTokens int64
+	CostUSD                   int64 // micro-dólares
 }
 
 type Session interface {
@@ -153,7 +161,8 @@ type Result struct {
 	Cause   Cause           // se failed: max_turns, budget, auth, rate_limit, runtime, refusal, no_result, guard (ADR 0024, item 7)
 	Detail  string
 	Raw     json.RawMessage // o kluzo_result aceito, antes da validação de cobertura do núcleo
-	CostUSD int64           // micro-dólares
+	CostUSD int64           // micro-dólares desta sessão: o total do harness menos SessionSpec.PriorUsage
+	Cumulative Usage        // o total que o harness informou, para o PriorUsage da próxima retomada
 	Turns   int
 	Unknown map[string]int  // tipos de evento do stream que o adaptador não conhece
 	Version string          // versão do harness vista no início

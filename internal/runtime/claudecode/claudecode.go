@@ -36,7 +36,7 @@ const DefaultKillGrace = 10 * time.Second
 var requiredFlags = []string{
 	"--input-format", "--output-format", "--verbose", "--restricted", "--strict-mcp-config",
 	"--disable-slash-commands", "--session-id", "--resume", "--model", "--effort", "--max-budget-usd",
-	"--append-system-prompt", "--exclude-dynamic-system-prompt-sections", "--tools", "--allowedTools",
+	"--append-system-prompt-file", "--exclude-dynamic-system-prompt-sections", "--tools", "--allowedTools",
 	"--permission-mode", "--permission-prompts", "--mcp-config", "--settings", "--include-hook-events",
 }
 
@@ -232,11 +232,7 @@ func (rt *Runtime) begin(ctx context.Context, spec ports.SessionSpec, ref string
 	if err != nil {
 		return nil, err
 	}
-	args, err := argv(spec, ts, id, resume, f)
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
+	args := argv(spec, ts, id, resume, f)
 	home, err := rt.home()
 	if err != nil {
 		cleanup()

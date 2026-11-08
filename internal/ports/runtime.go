@@ -42,9 +42,6 @@ var ErrResumeMismatch = errors.New("session cannot be resumed: its inputs change
 // ErrNoGuard means the spec has no hook endpoint, so the session would run unguarded.
 var ErrNoGuard = fmt.Errorf("the session has no guard hook endpoint: %w", ErrPermanent)
 
-// ErrPromptTooLarge means the system prompt does not fit the command line.
-var ErrPromptTooLarge = fmt.Errorf("system prompt too large for the harness command line: %w", ErrPermanent)
-
 // RoleConfig is the part of a role a runtime needs, with the precedence of
 // overrides already applied.
 type RoleConfig struct {
@@ -94,7 +91,12 @@ type SessionSpec struct {
 	Env map[string]string
 	// MaxBudgetUSDMicros is what the node has left to spend (0: no limit).
 	MaxBudgetUSDMicros int64
-	Timeout            time.Duration // 0: no timeout
+	// PriorUsage is the Result.Cumulative of the previous session of the same
+	// harness conversation, for Resume: the harness reports cost and tokens
+	// summed over every resume, and the Result counts only this session.
+	// Zero for Start.
+	PriorUsage Usage
+	Timeout    time.Duration // 0: no timeout
 }
 
 // Session is a running agent session.
@@ -143,15 +145,26 @@ const (
 // (at most 2, with backoff).
 func (c Cause) Retryable() bool { return c == CauseRateLimit || c == CauseRuntime }
 
+// Usage is what a harness conversation consumed.
+type Usage struct {
+	InputTokens, OutputTokens int64
+	CostUSD                   int64 // micro-dollars
+}
+
 // Result is how a session ended.
 type Result struct {
 	State  string
 	Cause  Cause  // set when State is StateFailed
 	Detail string // for humans: what the harness said, redacted
 	// Raw is the accepted kluzo_result, before the core validates its coverage.
-	Raw     json.RawMessage
-	CostUSD int64 // micro-dollars
-	Turns   int
+	Raw json.RawMessage
+	// CostUSD is what this session cost, in micro-dollars: the harness
+	// total minus SessionSpec.PriorUsage.
+	CostUSD int64
+	// Cumulative is what the harness reported for the whole conversation;
+	// pass it as PriorUsage to the next Resume.
+	Cumulative Usage
+	Turns      int
 	// Unknown counts the stream event types the adapter does not know; they
 	// go to the raw log only (events.md).
 	Unknown map[string]int
