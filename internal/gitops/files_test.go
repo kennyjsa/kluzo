@@ -1,0 +1,48 @@
+package gitops
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/kennyjsa/kluzo/internal/ports"
+	"github.com/kennyjsa/kluzo/internal/ports/contracttest"
+)
+
+func TestFilesContract(t *testing.T) {
+	contracttest.RunFiles(t, func(t *testing.T, files map[string]string) ports.Files {
+		dir := t.TempDir()
+		for name, content := range files {
+			write(t, filepath.Join(dir, filepath.FromSlash(name)), content, 0o644)
+		}
+		return NewFiles(dir)
+	})
+}
+
+func TestFilesSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "a.go"), "package a\n", 0o644)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	write(t, outside, "s\n", 0o644)
+	for link, target := range map[string]string{"in.go": "a.go", "out.txt": outside, "rel.txt": "../" + filepath.Base(outside)} {
+		if err := os.Symlink(target, filepath.Join(dir, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		path string
+		n    int
+		ok   bool
+	}{
+		{"in.go", 1, true},
+		{"out.txt", 0, false},
+		{"rel.txt", 0, false},
+	}
+	f := NewFiles(dir)
+	for _, tt := range tests {
+		n, ok, err := f.Lines(tt.path)
+		if err != nil || n != tt.n || ok != tt.ok {
+			t.Errorf("Lines(%q) = %d, %v, %v; want %d, %v, nil", tt.path, n, ok, err, tt.n, tt.ok)
+		}
+	}
+}
