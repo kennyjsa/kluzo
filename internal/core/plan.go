@@ -64,8 +64,8 @@ type edgeKey struct {
 // approval can sync the tracker with the plan.
 //
 // Rules (docs/contracts/plan.md): every open issue of the milestone is in the
-// plan or excluded (a closed one stays out without being listed, and a plan
-// node that points to it is an error); every plan node is an issue of the
+// plan or excluded (a closed one stays out without being listed; an excluded
+// entry for it is harmless, but a node that points to it is an error); every plan node is an issue of the
 // milestone; dependencies stay inside the milestone and on non-excluded open
 // issues, while a dependency on a closed issue is satisfied and its edge is
 // ignored; plan and tracker agree;
@@ -96,11 +96,11 @@ func GraphFromPlan(plan []PlanNode, issues []ports.Issue, deps []ports.Dependenc
 			problems = append(problems, Problem{ErrNotInMilestone, n.Issue, fmt.Sprintf("#%s is in the plan but not in the milestone: move the issue to the milestone or remove the node", n.Issue)})
 			continue
 		}
+		if n.Excluded {
+			continue // a marker for an issue left alone, closed or not
+		}
 		if closed[n.Issue] {
 			problems = append(problems, Problem{ErrClosedNode, n.Issue, fmt.Sprintf("#%s is closed: remove it from the plan, or reopen the issue", n.Issue)})
-			continue
-		}
-		if n.Excluded {
 			continue
 		}
 		if len(n.Acceptance) == 0 {

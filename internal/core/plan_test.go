@@ -104,6 +104,10 @@ func TestGraphFromPlanRules(t *testing.T) {
 			*is = append(*is, ports.Issue{Ref: "40", State: ports.IssueClosed})
 			*d = append(*d, blocks("40", "41"))
 		}, nil},
+		{"excluded entry pointing to a closed issue is harmless", func(p *[]PlanNode, is *[]ports.Issue, _ *[]ports.Dependency) {
+			*p = append(*p, PlanNode{Issue: "48", Excluded: true})
+			*is = append(*is, ports.Issue{Ref: "48", State: ports.IssueClosed})
+		}, nil},
 		{"plan node outside the milestone", func(p *[]PlanNode, _ *[]ports.Issue, _ *[]ports.Dependency) {
 			*p = append(*p, PlanNode{Issue: "99", Areas: []string{"a"}, Acceptance: []string{"x"}})
 		}, []error{ErrNotInMilestone}},
