@@ -1,0 +1,10 @@
+version: 1
+steps:
+  - { id: refine, role: implementer, interview: true }
+  - id: plan
+    loop:
+      max_rounds: 3
+      steps:
+        - { id: planner, role: implementer }
+        - { id: critic, role: reviewer }
+  - { id: approve, approval: plan }

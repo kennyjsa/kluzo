@@ -1,0 +1,6 @@
+# Default closing flow (docs/contracts/config.md#flows).
+version: 1
+steps:
+  - { id: e2e, gate: [e2e], scope: milestone }
+  - { id: report, role: reporter }
+  - { id: pr, open_pr: main }
