@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
+	"github.com/kennyjsa/kluzo/internal/guard"
 	"github.com/kennyjsa/kluzo/internal/mcp"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/ports"
@@ -41,6 +42,13 @@ func (c *counter) Read(p []byte) (int, error) {
 type recorder struct {
 	mu     sync.Mutex
 	events []mcp.CallEvent
+	denied []mcp.DenyEvent
+}
+
+func (r *recorder) Denied(_ context.Context, e mcp.DenyEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.denied = append(r.denied, e)
 }
 
 func (r *recorder) Call(_ context.Context, e mcp.CallEvent) {
@@ -54,6 +62,7 @@ type env struct {
 	t       *testing.T
 	rt      *Runtime
 	srv     *mcp.Server
+	rec     *recorder
 	dir     string
 	workdir string
 	n       int
@@ -98,7 +107,8 @@ func newEnv(t *testing.T, tweak ...func(*Config)) *env {
 	for _, f := range tweak {
 		f(&cfg)
 	}
-	srv := mcp.New(&recorder{}, &counter{}, "test")
+	rec := &recorder{}
+	srv := mcp.New(rec, &counter{}, "test")
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +117,7 @@ func newEnv(t *testing.T, tweak ...func(*Config)) *env {
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return &env{t: t, rt: New(cfg), srv: srv, dir: dir, workdir: workdir}
+	return &env{t: t, rt: New(cfg), srv: srv, rec: rec, dir: dir, workdir: workdir}
 }
 
 // spec opens an MCP session and returns the SessionSpec that plays the fixture.
@@ -116,7 +126,10 @@ func (e *env) spec(fixture string, vars map[string]string) ports.SessionSpec {
 	e.n++
 	id := fmt.Sprintf("ss_%d", e.n)
 	schema, _ := contracts.OutputSchema("report-result")
-	ms, err := e.srv.Open(mcp.SessionSpec{ID: id, Workspace: "ws1", Node: "nd1", Role: "reporter", Tools: []string{mcp.ToolResult}, Schema: schema})
+	ms, err := e.srv.Open(mcp.SessionSpec{
+		ID: id, Workspace: "ws1", Node: "nd1", Role: "reporter", Tools: []string{mcp.ToolResult}, Schema: schema,
+		Guard: guard.Policy{Workdir: e.workdir, ProtectedPaths: []string{".kluzo/**"}, SecretPaths: []string{".env"}},
+	})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -131,7 +144,7 @@ func (e *env) spec(fixture string, vars map[string]string) ports.SessionSpec {
 		System: "SYSTEM PROMPT", Prompt: "TASK PROMPT",
 		Segments: ports.SegmentHashes{Protocol: "p1", Role: "r1", Rules: "k1"},
 		Workdir:  e.workdir, MCPEndpoint: ms.URL(), MCPToken: ms.Token(), MCPTools: []string{mcp.ToolResult},
-		Accepted: ms.Accepted, Env: env, MaxBudgetUSDMicros: 1_900_000,
+		Accepted: ms.Accepted, HookEndpoint: ms.HookURL(), Env: env, MaxBudgetUSDMicros: 1_900_000,
 	}
 }
 

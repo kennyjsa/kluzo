@@ -1,0 +1,5 @@
+!read-prompt
+{"type":"system","subtype":"init","session_id":"@@SESSION@@","model":"claude-sonnet-4","cwd":"/work","permissionMode":"dontAsk","tools":@@TOOLS@@,"mcp_servers":[{"name":"kluzo","status":"connected"}],"claude_code_version":"2.1.319","apiKeySource":"ANTHROPIC_API_KEY"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"internal/a.go"}}]},"session_id":"@@SESSION@@"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"package a","is_error":false}]},"session_id":"@@SESSION@@"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"@@SESSION@@"}

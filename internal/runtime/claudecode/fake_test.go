@@ -38,6 +38,14 @@ import (
 //	!ignore-term       ignore SIGTERM from now on
 //	!grandchild        start a child that outlives its parent, and print its pid to stderr
 //
+// The fake also plays the harness for the guard hook: after an assistant line
+// with tool_use blocks, it reads the PreToolUse hook from --settings, posts each
+// tool call there as Claude Code would, and prints the hook event that
+// --include-hook-events adds (outcome "allow", "deny" or "blocked" when the hook
+// failed and onFailure is "block"). KLUZO_FAKE_NOHOOK=1 makes it ignore the
+// settings, as a CLI that dropped them would. KLUZO_FAKE_HOOKLOG names a file
+// that receives one "<tool_use_id> <outcome>" line per call.
+//
 // With KLUZO_FAKE_RECORD set, the CLI first writes its argv, environment,
 // working directory and the files named by --mcp-config and --settings there.
 func fakeClaude(args []string) int {
@@ -76,7 +84,9 @@ func fakeClaude(args []string) int {
 			continue
 		}
 		if !strings.HasPrefix(ln, "!") {
-			fmt.Println(substitute(ln, args))
+			ln = substitute(ln, args)
+			fmt.Println(ln)
+			runHooks(ln, args)
 			continue
 		}
 		verb, rest, _ := strings.Cut(strings.TrimPrefix(ln, "!"), " ")
@@ -215,4 +225,83 @@ func record(path string, args []string) {
 	}
 	b, _ := json.Marshal(info)
 	_ = os.WriteFile(path, b, 0o600)
+}
+
+// runHooks reports the tool_use blocks of an assistant line to the hook.
+func runHooks(line string, args []string) {
+	if os.Getenv("KLUZO_FAKE_NOHOOK") == "1" {
+		return
+	}
+	var l struct {
+		Type    string
+		Message struct{ Content []block } `json:"message"`
+	}
+	if json.Unmarshal([]byte(line), &l) != nil || l.Type != "assistant" {
+		return
+	}
+	settings, err := os.ReadFile(flagValue(args, "--settings"))
+	if err != nil {
+		return
+	}
+	var doc struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Hooks []struct {
+					URL       string            `json:"url"`
+					Headers   map[string]string `json:"headers"`
+					OnFailure string            `json:"onFailure"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(settings, &doc) != nil || len(doc.Hooks.PreToolUse) == 0 || len(doc.Hooks.PreToolUse[0].Hooks) == 0 {
+		return
+	}
+	hook := doc.Hooks.PreToolUse[0].Hooks[0]
+	for _, b := range l.Message.Content {
+		if b.Type != "tool_use" {
+			continue
+		}
+		outcome := callHook(hook.URL, hook.Headers, hook.OnFailure, b)
+		ev, _ := json.Marshal(map[string]any{"type": "system", "subtype": "hook_response", "hook_event": "PreToolUse",
+			"hook_name": "PreToolUse:*", "tool_use_id": b.ID, "outcome": outcome})
+		fmt.Println(string(ev))
+		if log := os.Getenv("KLUZO_FAKE_HOOKLOG"); log != "" {
+			f, _ := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			_, _ = fmt.Fprintf(f, "%s %s\n", b.ID, outcome)
+			_ = f.Close()
+		}
+	}
+}
+
+func callHook(url string, headers map[string]string, onFailure string, b block) string {
+	body, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": b.Name, "tool_input": b.Input, "tool_use_id": b.ID})
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	failed := func() string {
+		if onFailure == "block" {
+			return "blocked"
+		}
+		return "allow-on-failure"
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return failed()
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var out struct {
+		Hook struct {
+			Decision string `json:"permissionDecision"`
+		} `json:"hookSpecificOutput"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&out) != nil {
+		return failed()
+	}
+	if out.Hook.Decision == "deny" {
+		return "deny"
+	}
+	return "allow"
 }
