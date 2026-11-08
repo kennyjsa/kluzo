@@ -58,7 +58,11 @@ new_issues: []                  # issues criadas na aprovação, já com número
 
 Regras:
 - Todo nó tem ao menos um critério em `acceptance`. Os ids `AC1..n` seguem a ordem da lista e ficam estáveis enquanto o `plan_version` não mudar. Na v0.1, o plano escrito à mão copia os critérios da issue; a partir da v0.3, o planner os extrai.
-- Toda issue da milestone no tracker deve estar no plano, ou ser marcada como fora com `excluded: true`. Isso impede que uma issue seja esquecida.
+- Toda issue **aberta** da milestone no tracker deve estar no plano, ou ser marcada como fora com `excluded: true`. Isso impede que uma issue seja esquecida. Uma issue fechada fica fora do plano sem precisar ser listada; um nó do plano que aponta para uma issue fechada é erro.
+- Dependência de uma issue fechada conta como satisfeita, e a aresta é ignorada. Dependência de uma issue aberta marcada `excluded` é erro: ela nunca seria integrada.
+- Toda área de um nó existe em `areas:` do `kluzo.yaml`, exceto `shared` (ADR 0011).
+- `overrides` aceita, por papel, as chaves `harness`, `model`, `advisor` e `effort`, com os mesmos valores e validações do frontmatter do papel. O papel precisa existir em `roles/`.
+- Arestas `contract` valem desde a v0.1. Com o scheduler sequencial, elas só mudam a ordem de despacho; o ganho de paralelismo vem na v0.2.
 - As arestas `blocks` vêm da união do plano com o tracker. Se houver divergência, a validação acusa, e a aprovação sincroniza o tracker com o plano.
 - Uma aresta `contract` só libera o nó dependente quando o nó de origem publicou o contrato. Ou seja: o caminho em `publishes_contract` existe na branch da milestone, ou o nó de origem está `integrated`.
 - As arestas `conflict` não são escritas no plano. Elas são derivadas das áreas (ADR 0011).
