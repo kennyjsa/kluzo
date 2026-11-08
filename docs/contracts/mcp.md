@@ -148,7 +148,7 @@ Entrada: o JSON do schema declarado em `output` do papel ([results.md](results.m
 
 Saída:
 - Válido: `{ "accepted": true }`. A sessão deve terminar em seguida.
-- Inválido: `{ "accepted": false, "errors": ["$.verdict: valor fora do enum"] }`. O agente pode corrigir e chamar de novo uma única vez.
+- Inválido: `{ "accepted": false, "errors": ["$.findings[0].severity: valor fora do enum"] }`. O agente pode corrigir e chamar de novo uma única vez.
 
 ## Erros
 

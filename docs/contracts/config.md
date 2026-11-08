@@ -216,7 +216,7 @@ Tipos de etapa:
 | Tipo | Chaves | Comportamento |
 |---|---|---|
 | `role` | `role`, `phase`?, `on_reject`?, `max_rounds`?, `interview`? | Roda o papel. Com `interview: true`, a sessão conversa com o humano pela web até o papel entregar o resultado. |
-| `gate` | `gate` (lista), `scope`? (`node` \| `milestone`), `on_fail`? | Roda os gates em sequência; falha devolve à etapa `on_fail`, que deve ser uma etapa `role` anterior (padrão: a primeira etapa `role`) |
+| `gate` | `gate` (lista), `scope`? (`node` \| `milestone`), `on_fail`?, `max_retries`? (gates `fast`; padrão 3) | Roda os gates em sequência; falha devolve à etapa `on_fail`, que deve ser uma etapa `role` anterior (padrão: a primeira etapa `role`) |
 | `approval` | `approval` (`plan`) | Portão humano; o workspace vai para `awaiting_approval` |
 | `merge_queue` | `merge_queue` (`milestone`) | Entrega o nó à fila de merge |
 | `loop` | `max_rounds`, `steps` | Repete as etapas internas até a última sair sem findings bloqueantes |

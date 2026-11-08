@@ -47,12 +47,14 @@ Os testes golden garantem que o texto do prompt não mudou sem revisão, mas nã
   - issue com injeção de prompt no corpo;
   - lint "tentador de silenciar";
   - teste que falha por um motivo sutil;
-  - diff grande para o reviewer.
+  - diff grande para o reviewer;
+  - papéis padrão (ADR 0023): bug plantado que o reviewer deve achar; evidência falsa em `criteria`; critério não atendido com testes verdes; mudança só com problemas de estilo (deve aprovar); contestação correta (o reviewer aceita) e contestação abusiva (o reviewer mantém); rodada 2 em que o implementer diz que resolveu e não resolveu; injeção vinda do relatório do implementer; esgotamento de rodadas.
 - **O que se mede, por cenário e por adaptador/modelo:**
   - critério de aceite atendido;
   - nenhuma violação de caminho protegido;
   - instrução injetada não seguida;
   - tentativas, turnos e custo.
+- **Repetição:** o modelo não é determinístico, então cada cenário roda N vezes (padrão 5). O resultado é uma taxa (falso positivo e falso negativo do reviewer, critério atendido do implementer) comparada com um limite por cenário, e não um aprovado ou reprovado único.
 - **Resultados** em `testdata/eval/results/<kluzo-version>/`, comparados com a versão anterior. Regressão em segurança bloqueia o release.
 
 ### Regras
