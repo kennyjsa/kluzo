@@ -135,7 +135,8 @@ Ele é gravado no evento `session.started` ([events.md](events.md)):
   "segments": { "protocol": "sha256:…", "role": "sha256:…", "task": "sha256:…" },
   "project_rules": { "AGENTS.md": "sha256:…", "CLAUDE.md": null },
   "skills": { "testing-conventions": "sha256:…" },
-  "limits": { "findings": 20, "log_head": 60, "log_tail": 120 }
+  "limits": { "findings": 20, "log_head": 60, "log_tail": 120 },
+  "argv": ["-p", "--restricted", "…", "--append-system-prompt-file", "<arquivo>"]
 }
 ```
 
