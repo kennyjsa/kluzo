@@ -32,7 +32,7 @@ func (InitConfig) Execute(_ context.Context, in InitConfigInput) (InitConfigOutp
 	return InitConfigOutput{Files: files}, nil
 }
 
-// CheckRoles validates the roles against the binary's protocol
+// CheckRoles validates the whole configuration (roles and flows) against the binary's protocol
 // (`kluzo roles check`, docs/contracts/prompt.md).
 type CheckRoles struct{}
 
@@ -47,9 +47,9 @@ type CheckRolesOutput struct {
 	Problems []string // one line per problem, with file, line and key
 }
 
-// Execute loads and validates the roles.
+// Execute loads and validates the configuration.
 func (CheckRoles) Execute(_ context.Context, in CheckRolesInput) (CheckRolesOutput, error) {
-	p, err := config.LoadRoles(in.Dir)
+	p, err := config.Load(in.Dir)
 	var out CheckRolesOutput
 	var invalid config.Errors
 	if errors.As(err, &invalid) {

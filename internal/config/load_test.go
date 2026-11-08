@@ -104,24 +104,9 @@ func TestLoadErrorsMore(t *testing.T) {
 	})
 }
 
-// LoadRoles must not look at the flows (kluzo roles check validates roles only).
-func TestLoadRolesIgnoresFlows(t *testing.T) {
-	dir := fixture(t, "flow-unknown-role")
-	if _, err := Load(dir); err == nil {
-		t.Fatal("Load must reject the flow")
-	}
-	p, err := LoadRoles(dir)
-	if err != nil {
-		t.Fatalf("LoadRoles: %v", err)
-	}
-	if len(p.Roles) != 3 || len(p.Flows) != 0 {
-		t.Errorf("roles = %d, flows = %d, want 3 and 0", len(p.Roles), len(p.Flows))
-	}
-}
-
-func TestLoadRolesReportsRoleErrors(t *testing.T) {
+func TestLoadReportsRoleErrors(t *testing.T) {
 	dir := fixture(t, "role-body-tools")
-	_, err := LoadRoles(dir)
+	_, err := Load(dir)
 	assertErrors(t, dir, err, []want{
 		{"roles/reviewer.md", 9, "", "kluzo_ask, which is not listed in mcp"},
 		{"roles/reviewer.md", 10, "", "kluzo_propose_node, which is not listed in mcp"},

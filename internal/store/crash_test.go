@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,14 +76,7 @@ func appendLine(path, line string) error {
 		return err
 	}
 	_, werr := fmt.Fprintln(f, line)
-	return errJoin(werr, f.Close())
-}
-
-func errJoin(a, b error) error {
-	if a != nil {
-		return a
-	}
-	return b
+	return errors.Join(werr, f.Close())
 }
 
 // crashPlan says where the process should die; the zero value never crashes.

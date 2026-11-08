@@ -122,14 +122,8 @@ func TestNodeTransitions(t *testing.T) {
 				if last.Kind != contracts.EventNodeTransition || last.NodeID != "nd_1" {
 					t.Errorf("journal entry = %+v", last)
 				}
-				// prev_state only matters while blocked; the projection clears it
-				// afterwards (core leaves it set on fail/cancel from blocked).
-				wantPrev := core.NodeState("")
-				if want.State == core.NodeBlocked {
-					wantPrev = want.PrevState
-				}
 				row := snapshot(t, d).Nodes[0]
-				if row.State != want.State || row.PrevState != wantPrev || row.BlockedReason != want.BlockedReason ||
+				if row.State != want.State || row.PrevState != want.PrevState || row.BlockedReason != want.BlockedReason ||
 					row.Attempt != want.Attempt || row.Round != want.Round {
 					t.Errorf("projection = %+v, want %+v", row, want)
 				}

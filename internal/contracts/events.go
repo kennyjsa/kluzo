@@ -13,7 +13,7 @@ const (
 )
 
 // WorkspaceCreated is the payload of workspace.created: the facts the
-// workspace row needs that no transition carries (docs/planning/questions.md, Q11).
+// workspace row needs that no transition carries (docs/contracts/events.md).
 type WorkspaceCreated struct {
 	ID              string `json:"id"`
 	Branch          string `json:"branch"`
