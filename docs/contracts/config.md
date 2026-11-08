@@ -134,18 +134,18 @@ You implement the node described in the task. Work test-first…
 | `protocol` | int | sim | Versão do protocolo do Kluzo para a qual o papel foi escrito ([prompt.md](prompt.md)) |
 | `description` | string | sim | Uma linha; aparece na tela Times |
 | `harness` | enum | não | `claude-code` \| `opencode`; padrão em `defaults` |
-| `model` | string | não | Alias (`opus`, `sonnet`, `haiku`) ou id completo |
-| `advisor` | string | não | Só `claude-code`; não pode ser mais fraco que `model` |
+| `model` | string | não | `claude-code`: alias (`opus`, `sonnet`, `haiku`) ou id `claude-*`. `opencode`: `provedor/modelo`. Validado por formato, sem catálogo embutido |
+| `advisor` | string | não | Só `claude-code`; não pode ser mais fraco que `model` (família `haiku` < `sonnet` < `opus`; família não reconhecida não é comparada) |
 | `subagents` | string | não | Modelo dos subagents; só `claude-code` |
 | `effort` | enum | não | `low` \| `medium` \| `high` |
-| `tools` | lista | sim | Ferramentas do harness permitidas; o adaptador traduz os nomes |
+| `tools` | lista | sim | Vocabulário canônico do Kluzo: `read`, `edit`, `bash`, `test`. Cada adaptador traduz para as ferramentas do harness. A lista mora em `internal/contracts` e pode crescer com a investigação 3 |
 | `skills` | lista | não | Pastas em `.agents/skills/` carregadas na sessão |
 | `mcp` | lista | sim | Ferramentas `kluzo_*` permitidas ([mcp.md](mcp.md)) |
 | `output` | string | sim | Nome do schema de saída ([results.md](results.md)) |
 | `budget` | objeto | não | Limites desta etapa; somam ao orçamento do nó |
 | `fallback` | lista | não | Overrides aplicados em ordem quando a triagem decide `switch_model` ou `switch_harness` |
 | `max_turns` | int | não | Limite de turnos por sessão (padrão 80) |
-| `prompt_limits` | objeto | não | Sobrescreve os limites de [prompt.md](prompt.md#limites) |
+| `prompt_limits` | objeto | não | Sobrescreve os limites de [prompt.md](prompt.md#limites). Chaves (inteiros; 0 = padrão): `findings`, `test_failures`, `failure_message_chars`, `log_head`, `log_tail`, `log_chars`, `changed_files`, `diff_lines` |
 
 O corpo do papel é texto estático, sem variáveis, em qualquer idioma. Ele vira o segundo segmento do prompt ([prompt.md](prompt.md)).
 
@@ -153,9 +153,13 @@ Validações (também em `kluzo roles check`):
 - Todo papel tem `kluzo_result` em `mcp`.
 - O `protocol` é igual ao do binário.
 - O corpo não contém marcadores reservados nem cita ferramenta `kluzo_*` fora de `mcp`.
-- O papel `reviewer` não pode ter `edit` nem `bash` (ADR 0020).
+- Um papel usado em etapa com `phase: in_review` (o `reviewer` no padrão) não pode ter `edit` nem `bash` (ADR 0020). A checagem é feita ao carregar os flows.
 - O `advisor` é recusado se o harness não for `claude-code`, e também se for mais fraco que `model`.
-- Toda ferramenta em `tools` deve existir no mapeamento do adaptador do harness.
+- Toda ferramenta em `tools` pertence ao vocabulário canônico.
+
+Obrigatórias em `kluzo.yaml`: `version`, `project.name`, `tracker.kind` e `tracker.repo`. `tracker.auth` só é exigido pelos comandos que falam com o tracker (`doctor`, `run`). Um papel sem harness ou modelo efetivo (nem nele, nem em `defaults`) é erro no papel.
+
+Os vocabulários fechados do contrato (ferramentas, ferramentas `kluzo_*`, marcadores reservados, schemas embutidos, versão do protocolo) ficam em `internal/contracts`, para config, prompt, MCP e adaptadores usarem a mesma fonte.
 
 ## Flows
 
@@ -212,7 +216,7 @@ Tipos de etapa:
 | Tipo | Chaves | Comportamento |
 |---|---|---|
 | `role` | `role`, `phase`?, `on_reject`?, `max_rounds`?, `interview`? | Roda o papel. Com `interview: true`, a sessão conversa com o humano pela web até o papel entregar o resultado. |
-| `gate` | `gate` (lista), `scope`? (`node` \| `milestone`) | Roda os gates em sequência; falha devolve ao `on_fail` (padrão: a primeira etapa `role`) |
+| `gate` | `gate` (lista), `scope`? (`node` \| `milestone`), `on_fail`? | Roda os gates em sequência; falha devolve à etapa `on_fail`, que deve ser uma etapa `role` anterior (padrão: a primeira etapa `role`) |
 | `approval` | `approval` (`plan`) | Portão humano; o workspace vai para `awaiting_approval` |
 | `merge_queue` | `merge_queue` (`milestone`) | Entrega o nó à fila de merge |
 | `loop` | `max_rounds`, `steps` | Repete as etapas internas até a última sair sem findings bloqueantes |
@@ -222,6 +226,7 @@ Restrições:
 - `node.yaml` tem exatamente um `merge_queue`, como última etapa.
 - `on_reject` só aponta para uma etapa anterior do mesmo flow.
 - `loop` não pode ser aninhado.
+- Nenhum flow é obrigatório no carregamento. Quem executa um flow recusa a ausência dele: `kluzo run` exige `node.yaml` a partir da v0.1; `upstream.yaml` e `closing.yaml` passam a ser exigidos quando os seus executores existirem (v0.3 e v0.4). Arquivo de flow com outro nome é erro.
 
 ## Perfis: `profiles/<profile>.yaml` (v0.4)
 
