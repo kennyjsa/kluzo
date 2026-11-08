@@ -65,7 +65,15 @@ CREATE TABLE effects (
   done_at       TEXT
 );
 CREATE INDEX effects_pending ON effects(state, next_at);
+```
 
+Política do outbox, aplicada pelo supervisor (o store só oferece as operações):
+- Um efeito tem até 8 tentativas. Entre elas, o atraso é exponencial a partir de 1 s, dobrando a cada falha, com teto de 5 min. Sem jitter, para manter a execução reproduzível.
+- Um erro que o adaptador classifica como permanente (credencial inválida, recurso inexistente) vai direto para `failed`.
+- Ao virar `failed`, o supervisor grava `effect.failed` no journal e notifica. O nó ou workspace que dependia do efeito não avança sozinho.
+- Um efeito iniciado e não concluído (o processo morreu) continua `pending` e roda de novo; o adaptador deduplica pela `idem_key`.
+
+```sql
 CREATE TABLE workspace (                   -- uma única linha
   id            TEXT PRIMARY KEY,
   state         TEXT NOT NULL,
@@ -85,7 +93,7 @@ CREATE TABLE nodes (
   issue_ref     TEXT NOT NULL UNIQUE,      -- '42' (GitHub) ou iid (GitLab)
   title         TEXT NOT NULL,
   state         TEXT NOT NULL,             -- ver state-machine.md
-  prev_state    TEXT,                      -- para voltar de 'blocked'
+  prev_state    TEXT,                      -- só enquanto o nó está 'blocked'; limpo ao sair
   blocked_reason TEXT,
   areas         TEXT NOT NULL,             -- JSON array de nomes de área
   branch        TEXT,                      -- issue/42-api-agenda

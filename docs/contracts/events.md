@@ -27,7 +27,9 @@ Um único formato de evento serve para três coisas:
 
 | `kind` | Payload |
 |---|---|
+| `workspace.created` | `{id, branch, base_sha, profile?, budget_usd_micros?}` (dados iniciais; o estado nasce vazio e a transição `create` o leva a `refining`) |
 | `workspace.transition` | `{from, to, reason}` |
+| `node.added` | `{issue_ref, title, areas, budget}` (o nó nasce `planned`; o id vai no `node` do envelope) |
 | `node.transition` | `{from, to, reason, attempt, round, blocked_reason?}` |
 | `plan.approved` | `{plan_version, created_issues: [n], by}` |
 | `edge.added` | `{from, to, kind, source}` |
@@ -41,6 +43,7 @@ Um único formato de evento serve para três coisas:
 | `question.asked` / `question.answered` | `{question_id, blocking?, by?}` |
 | `proposal.created` / `proposal.decided` | `{proposal_id, kind, state?}` (`kind` inclui `lesson`, ADR 0022) |
 | `pattern.detected` | `{pattern_id, kind: finding\|gate_failure\|question, occurrences: [node], sample}` |
+| `effect.failed` | `{effect_id, kind, attempts, last_error}` |
 | `budget.alert` | `{scope: node\|milestone, spent_usd_micros, limit_usd_micros}` |
 | `tracker.sync_failed` | `{op, error, retry_in}` |
 

@@ -149,7 +149,7 @@ You implement the node described in the task. Work test-first…
 
 O corpo do papel é texto estático, sem variáveis, em qualquer idioma. Ele vira o segundo segmento do prompt ([prompt.md](prompt.md)).
 
-Validações (também em `kluzo roles check`):
+Validações (também em `kluzo roles check`, que carrega a configuração inteira, papéis e flows, para aplicar as regras que cruzam os dois):
 - Todo papel tem `kluzo_result` em `mcp`.
 - O `protocol` é igual ao do binário.
 - O corpo não contém marcadores reservados nem cita ferramenta `kluzo_*` fora de `mcp`.
