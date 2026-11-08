@@ -4,8 +4,8 @@ protocol: 1
 description: Implements the node and its tests
 harness: claude-code
 model: sonnet
-advisor: opus
-subagents: haiku
+# advisor is refused by claude-code (ADR 0024)
+# subagents is refused by claude-code (ADR 0024)
 effort: extreme
 tools: [read, write]
 skills: [testing-conventions]

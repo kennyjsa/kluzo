@@ -198,8 +198,9 @@ func (ro *Role) validateModels(r report, d Defaults) (Harness, string) {
 		}
 		if harness != ClaudeCode {
 			r.add(f.key, fmt.Sprintf("%s is only supported by claude-code (this role uses %q)", f.key, harness))
-		} else if msg := checkPair(ClaudeCode, f.value); msg != "" {
-			r.add(f.key, msg)
+		} else {
+			// The claude-code adapter has no verified mapping for them yet (ADR 0024).
+			r.add(f.key, fmt.Sprintf("%s is not supported by the claude-code adapter yet (ADR 0024); remove it", f.key))
 		}
 	}
 	if ra, rm := modelRank(ro.Advisor), modelRank(model); ra > 0 && rm > 0 && ra < rm {

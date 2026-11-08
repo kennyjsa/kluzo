@@ -57,7 +57,7 @@ budgets:
 runtimes:
   claude-code:
     bin: claude
-    min_version: 2.1.186
+    min_version: 2.1.295
     env_allow: [DATABASE_URL_TEST]
   opencode:
     bin: opencode
@@ -75,3 +75,17 @@ notify:
 code_map:
   adapter: cartog
   exclude: ["vendor/**", "web/dist/**"]
+
+secret_paths: [".env", ".env.*"]
+
+worktree:
+  setup: "bash tools/prepare-worktree.sh"
+  include: [".env"]
+  timeout: 15m
+
+caches: [go, node]
+
+retention:
+  logs: 90d
+  disk_warn: 20GB
+  docker_build_cache: 10GB

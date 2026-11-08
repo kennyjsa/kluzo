@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/kennyjsa/kluzo/internal/contracts"
 )
 
 // Config is kluzo.yaml (docs/contracts/config.md).
@@ -17,6 +19,11 @@ type Config struct {
 	Branches       Branches            `yaml:"branches"`
 	Areas          map[string][]string `yaml:"areas"`
 	ProtectedPaths []string            `yaml:"protected_paths"`
+	// SecretPaths are files the harness hook refuses to let a file tool read.
+	SecretPaths    []string            `yaml:"secret_paths"`
+	Worktree       Worktree            `yaml:"worktree"`
+	Caches         []string            `yaml:"caches"` // ecosystems with a shared download cache (ADR 0025)
+	Retention      Retention           `yaml:"retention"`
 	Gates          []Gate              `yaml:"gates"`
 	MilestoneGates []Gate              `yaml:"milestone_gates"`
 	Scheduler      Scheduler           `yaml:"scheduler"`
@@ -126,6 +133,20 @@ type MilestoneBudget struct {
 	AlertAt float64 `yaml:"alert_at"`
 }
 
+// Worktree prepares each worktree before the first session of a node.
+type Worktree struct {
+	Setup   string        `yaml:"setup"`   // command read from the milestone tip
+	Include []string      `yaml:"include"` // ignored files copied from the main checkout
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+// Retention limits what the workspace keeps (ADR 0025).
+type Retention struct {
+	Logs             string `yaml:"logs"`               // e.g. 90d
+	DiskWarn         string `yaml:"disk_warn"`          // e.g. 20GB
+	DockerBuildCache string `yaml:"docker_build_cache"` // e.g. 10GB, or off
+}
+
 // Runtime configures one harness CLI.
 type Runtime struct {
 	Bin        string   `yaml:"bin"`
@@ -171,6 +192,7 @@ func (c *Config) validate(r report) {
 	validateGates(r, "gates", c.Gates)
 	validateGates(r, "milestone_gates", c.MilestoneGates)
 	c.validateBudgets(r)
+	c.validateWorkspaceResources(r)
 	for h, rt := range c.Runtimes {
 		p := join("runtimes", string(h))
 		if !h.known() {
@@ -252,6 +274,43 @@ func validRepo(kind, repo string) bool {
 		}
 	}
 	return true
+}
+
+var (
+	retentionDays = regexp.MustCompile(`^[0-9]+d$`)
+	retentionSize = regexp.MustCompile(`^[0-9]+(MB|GB|TB)$`)
+)
+
+// validateWorkspaceResources checks secret_paths, worktree, caches and retention.
+func (c *Config) validateWorkspaceResources(r report) {
+	for i, g := range c.SecretPaths {
+		if _, err := path.Match(g, ""); err != nil {
+			r.add(idx("secret_paths", i), fmt.Sprintf("%q is not a valid glob", g))
+		}
+	}
+	if c.Worktree.Timeout < 0 {
+		r.add("worktree.timeout", "must not be negative")
+	}
+	for i, f := range c.Worktree.Include {
+		if f == "" || path.IsAbs(f) || path.Clean(f) != f || strings.HasPrefix(f, "../") {
+			r.add(idx("worktree.include", i), fmt.Sprintf("%q must be a clean path relative to the repository", f))
+		}
+	}
+	for i, e := range c.Caches {
+		if !slices.Contains(contracts.CacheEcosystems(), e) {
+			r.add(idx("caches", i), fmt.Sprintf("unknown ecosystem %q (known: %s)", e, strings.Join(contracts.CacheEcosystems(), ", ")))
+		}
+	}
+	ret := c.Retention
+	if ret.Logs != "" && !retentionDays.MatchString(ret.Logs) {
+		r.add("retention.logs", fmt.Sprintf("%q is not a duration in days like 90d", ret.Logs))
+	}
+	if ret.DiskWarn != "" && !retentionSize.MatchString(ret.DiskWarn) {
+		r.add("retention.disk_warn", fmt.Sprintf("%q is not a size like 20GB", ret.DiskWarn))
+	}
+	if b := ret.DockerBuildCache; b != "" && b != "off" && !retentionSize.MatchString(b) {
+		r.add("retention.docker_build_cache", fmt.Sprintf("%q is not a size like 10GB, or off", b))
+	}
 }
 
 func (c *Config) validateBudgets(r report) {

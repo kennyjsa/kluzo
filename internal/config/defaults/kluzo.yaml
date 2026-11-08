@@ -25,6 +25,9 @@ branches:
 protected_paths:                    # changes here become proposals for a human (ADR 0020)
   - ".kluzo/**"
   - "AGENTS.md"                       # project memory (ADR 0022)
+  - "CLAUDE.md"                       # project rules read by Kluzo (ADR 0024)
+  - ".claude/**"
+  - ".mcp.json"
   - ".github/workflows/**"
 
 # TODO: replace the placeholder commands. They fail on purpose, so a gate that
@@ -42,6 +45,8 @@ milestone_gates:
     run: "echo 'TODO: set the end-to-end command in .kluzo/kluzo.yaml' >&2; exit 1"
     timeout: 40m
 
+secret_paths: [".env", ".env.*"]    # file tools may not read these (the shell can: a known limit)
+
 scheduler:
   max_parallel: 1
 
@@ -55,7 +60,7 @@ budgets:
 runtimes:
   claude-code:
     bin: claude
-    min_version: 2.1.186
+    min_version: 2.1.295
     env_allow: []
   opencode:
     bin: opencode
