@@ -73,6 +73,8 @@ func TestEventsMatchContract(t *testing.T) {
 		EventNodeTransition:      NodeTransition{},
 		EventEdgeAdded:           EdgeAdded{},
 		EventMergeDone:           MergeDone{},
+		EventNodeFlow:            NodeFlow{},
+		EventEffectFailed:        EffectFailed{},
 	}
 	for kind, payload := range payloads {
 		want, ok := documented[kind]

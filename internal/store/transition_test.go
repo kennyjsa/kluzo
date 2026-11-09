@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -278,17 +279,21 @@ func TestRebuildEqualsIncremental(t *testing.T) {
 		if _, err := x.Append(Event{Header: hdr(n), Kind: contracts.EventMergeDone, NodeID: "nd_1", Payload: payload(contracts.MergeDone{MergeSHA: "m1"})}); err != nil {
 			return err
 		}
+		if _, err := x.Append(Event{Header: hdr(n + 2), Kind: contracts.EventNodeFlow, NodeID: "nd_2", Payload: payload(contracts.NodeFlow{Step: 2, Run: json.RawMessage(`{"Step":2}`)})}); err != nil {
+			return err
+		}
 		// Journal-only kinds do not affect the projections.
 		_, err := x.Append(Event{Header: hdr(n + 1), Kind: "tool.call", NodeID: "nd_1", SessionID: "ss_1", Payload: payload(map[string]string{"tool": "bash"})})
 		return err
 	})
 	for _, tr := range []core.WorkspaceTrigger{core.TriggerPlanProposed, core.TriggerPlanApproved, core.TriggerStart} {
-		n += 2
+		n += 3
 		tx(t, d, func(x *Tx) error { _, err := x.TransitionWorkspace(tr, hdr(n)); return err })
 	}
 
 	incremental := snapshot(t, d)
-	if incremental.Nodes[0].State != core.NodeIntegrated || incremental.Nodes[1].PrevState != core.NodeReady || incremental.Workspace.HeadSHA != "m1" {
+	if incremental.Nodes[0].State != core.NodeIntegrated || incremental.Nodes[1].PrevState != core.NodeReady || incremental.Workspace.HeadSHA != "m1" ||
+		incremental.Nodes[1].StepIndex != 2 || string(incremental.Nodes[1].Flow) != `{"Step":2}` {
 		t.Fatalf("scenario did not produce the expected state: %+v", incremental)
 	}
 

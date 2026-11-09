@@ -1,5 +1,7 @@
 package contracts
 
+import "encoding/json"
+
 // Journal event kinds the store projects (docs/contracts/events.md). The other
 // kinds (session, tool, gate…) go to the journal untouched until a projection
 // needs them.
@@ -10,6 +12,17 @@ const (
 	EventNodeTransition      = "node.transition"
 	EventEdgeAdded           = "edge.added"
 	EventMergeDone           = "merge.done"
+	// EventNodeFlow records the progress of a node through its flow (step,
+	// findings, the session to resume), so a restart continues from the last
+	// role that finished. Provisional: Q47.
+	EventNodeFlow = "node.flow"
+)
+
+// Journal-only kinds the supervisor writes.
+const (
+	EventGateStarted  = "gate.started"
+	EventGateFinished = "gate.finished"
+	EventEffectFailed = "effect.failed"
 )
 
 // WorkspaceCreated is the payload of workspace.created: the facts the
@@ -42,6 +55,31 @@ type NodeAdded struct {
 	Title    string     `json:"title"`
 	Areas    []string   `json:"areas"`
 	Budget   NodeBudget `json:"budget"`
+}
+
+// NodeFlow is the payload of node.flow: the step index, and the whole run of
+// the core (core.Run) as the supervisor stores it.
+type NodeFlow struct {
+	Step int             `json:"step"`
+	Run  json.RawMessage `json:"run"`
+}
+
+// GateRun is the payload of gate.started and gate.finished; the finished one
+// carries the state and the log.
+type GateRun struct {
+	Gate   string `json:"gate"`
+	SHA    string `json:"sha"`
+	State  string `json:"state,omitempty"`
+	LogRef string `json:"log_ref,omitempty"`
+}
+
+// EffectFailed is the payload of effect.failed: an effect of the outbox that
+// gave up (docs/contracts/data-model.md).
+type EffectFailed struct {
+	EffectID  string `json:"effect_id"`
+	Kind      string `json:"kind"`
+	Attempts  int    `json:"attempts"`
+	LastError string `json:"last_error"`
 }
 
 // NodeTransition is the payload of node.transition.

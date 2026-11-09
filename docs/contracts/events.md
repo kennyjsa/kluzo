@@ -31,6 +31,7 @@ Um único formato de evento serve para três coisas:
 | `workspace.transition` | `{from, to, reason}` |
 | `node.added` | `{issue_ref, title, areas, budget}` (o nó nasce `planned`; o id vai no `node` do envelope) |
 | `node.transition` | `{from, to, reason, attempt, round, blocked_reason?}` |
+| `node.flow` | `{step, run}` (provisório, Q47: progresso do nó no flow de nó — etapa, findings, sessão a retomar, custo — gravado a cada decisão; projetado em `nodes.step_index` e `nodes.flow`) |
 | `plan.approved` | `{plan_version, created_issues: [n], by}` |
 | `edge.added` | `{from, to, kind, source}` |
 | `area.deviation` | `{declared: [..], touched: [..], files: [..]}` (ADR 0011) |
