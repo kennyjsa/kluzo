@@ -38,6 +38,7 @@ Um único formato de evento serve para três coisas:
 | `merge.rebased` | `{base_sha, head_sha}` |
 | `merge.freshness` | `{reviewed_sha, tip_sha, rerun: bool}` |
 | `merge.done` | `{merge_sha}` |
+| `pr.opened` | `{ref, url}` (PR/MR `milestone → main`; projetado em `workspace.flow_cursor`, de onde o supervisor observa o merge humano) |
 | `main.synced` | `{main_sha, merge_sha}` |
 | `decision.recorded` | `{decision_id, author, title}` |
 | `question.asked` / `question.answered` | `{question_id, blocking?, by?}` |
