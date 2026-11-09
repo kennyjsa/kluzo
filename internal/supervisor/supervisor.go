@@ -224,10 +224,10 @@ func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 	case running:
 		busy, err = s.schedule(ctx, snap)
 		if errors.Is(err, core.ErrInvalidTransition) {
-			// A person moved the node meanwhile (kluzo node): the next
-			// step reads it again.
+			// A person moved the node meanwhile (kluzo node): a later step
+			// reads it again, after the idle wait.
 			s.d.Log.Warn("scheduling refused: the node moved", "workspace", s.cfg.Workspace, "err", err)
-			return true, nil
+			return false, nil
 		}
 	case w.State == core.WorkspaceReadyToMerge:
 		busy, err = s.watchMerge(ctx, w)
@@ -387,8 +387,15 @@ func retried(f store.Effect, n int, why string) settleFn {
 // the loop of kluzo run), the transaction is refused and the decision is
 // taken again on the node as it is now.
 func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, extra ...store.Event) error {
+	return s.decideRetrying(ctx, n, in, settle, false, extra...)
+}
+
+// decideRetrying is decide; with slot, the transaction also refuses to leave
+// the node in work while another node holds the work slot or the merge queue
+// (the decisions of a person, which the scheduler did not plan).
+func (s *Supervisor) decideRetrying(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, slot bool, extra ...store.Event) error {
 	for tries := 1; ; tries++ {
-		err := s.decideOnce(ctx, n, in, settle, extra...)
+		err := s.decideOnce(ctx, n, in, settle, slot, extra...)
 		if !errors.Is(err, errNodeMoved) || tries == decideTries {
 			return err
 		}
@@ -407,7 +414,7 @@ const decideTries = 3
 var errNodeMoved = errors.New("the node moved meanwhile")
 
 // decideOnce is one try of decide.
-func (s *Supervisor) decideOnce(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, extra ...store.Event) error {
+func (s *Supervisor) decideOnce(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, slot bool, extra ...store.Event) error {
 	r, err := run(n)
 	if err != nil {
 		return err
@@ -434,6 +441,15 @@ func (s *Supervisor) decideOnce(ctx context.Context, n store.NodeRow, in core.In
 	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
 		if now, err := t.Node(n.ID); err != nil || now != node {
 			return cmp.Or(err, fmt.Errorf("node %s: %w", n.ID, errNodeMoved))
+		}
+		if slot {
+			nodes, err := t.NodeSlots()
+			if err != nil {
+				return err
+			}
+			if err := slotFree(nodes, n.ID, d.Next.Node.State); err != nil {
+				return err
+			}
 		}
 		for _, e := range extra {
 			h, err := s.header()

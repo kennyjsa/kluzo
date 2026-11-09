@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,5 +103,33 @@ func TestProposalAndNodeCommands(t *testing.T) {
 	}
 	if states["1"] != "running" || states["2"] != "cancelled" || states["3"] != "cancelled" {
 		t.Errorf("states %v", states)
+	}
+}
+
+// A workspace whose journal an older binary wrote is still found by kluzo
+// node: its journal is migrated, as kluzo run would.
+func TestNodeCommandOnAnOlderJournal(t *testing.T) {
+	ctx := context.Background()
+	e := newWorkspaceEnv(t)
+	out, err := PlanWorkspace{Host: e.host}.Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, Milestone: "v0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", filepath.Join(out.Dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`DROP TABLE proposals`, `DELETE FROM schema_migrations WHERE version = 5`} {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = raw.Close()
+	if err := (DecideNode{Host: e.host}).Execute(ctx, DecideNodeInput{ConfigDir: e.dir, Issue: "3", Action: NodeCancel}); err != nil {
+		t.Fatalf("cancel on an older journal: %v", err)
+	}
+	items, err := ListProposals{Host: e.host}.Execute(ctx, e.dir)
+	if err != nil || len(items) != 0 {
+		t.Errorf("proposals after the migration: %+v %v", items, err)
 	}
 }

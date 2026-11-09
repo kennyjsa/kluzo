@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -21,7 +22,8 @@ import (
 // person is $USER.
 
 // journalsOf are the workspaces of the project on this machine whose
-// journal was read.
+// journal was read. A journal of an older binary is migrated here, as kluzo
+// run would: the decisions write to it anyway.
 func journalsOf(ctx context.Context, h Host, p *config.Project, configDir string) ([]machineWorkspace, error) {
 	root, err := dataRoot(h.Env)
 	if err != nil {
@@ -31,8 +33,19 @@ func journalsOf(ctx context.Context, h Host, p *config.Project, configDir string
 	if err != nil {
 		return nil, err
 	}
-	own, _, err := projectWorkspaces(h, p, configDir, all)
-	return own, err
+	own, unsure, err := projectWorkspaces(h, p, configDir, all)
+	if err != nil {
+		return nil, err
+	}
+	var older []machineWorkspace // of the project by name, at an older schema
+	for _, w := range unsure {
+		if errors.Is(w.Err, store.ErrSchema) && !errors.Is(w.Err, store.ErrFutureSchema) {
+			w.Err = w.read(ctx, store.Open)
+			older = append(older, w)
+		}
+	}
+	migrated, _, err := projectWorkspaces(h, p, configDir, older)
+	return append(own, migrated...), err
 }
 
 // readJournal runs fn on the journal of the workspace, opened read-only.

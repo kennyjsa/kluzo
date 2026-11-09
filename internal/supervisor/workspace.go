@@ -183,25 +183,16 @@ func DecideNode(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock
 		return err
 	}
 	var extra []store.Event
-	switch in := in.(type) {
-	case core.Cancel:
+	if c, ok := in.(core.Cancel); ok {
 		if active := activeDependents(snap, n.ID); len(active) > 0 {
 			return fmt.Errorf("%w: cancel first the nodes that depend on #%s: #%s", core.ErrInvalidTransition, issue, strings.Join(active, ", #"))
 		}
 		// The proposal the node was blocked for goes with it.
-		if extra, err = rejectPending(ctx, db, n.ID, in.By); err != nil {
-			return err
-		}
-	case core.Retry:
-		if err := slotFree(snap, n, core.NodeRunning); err != nil {
-			return err
-		}
-	case core.Unblock:
-		if err := slotFree(snap, n, n.PrevState); err != nil {
+		if extra, err = rejectPending(ctx, db, n.ID, c.By); err != nil {
 			return err
 		}
 	}
-	return s.decide(ctx, n, in, nil, extra...)
+	return s.decideRetrying(ctx, n, in, nil, true, extra...)
 }
 
 // rejectPending are the proposal.decided that reject the pending proposals of
@@ -226,11 +217,12 @@ func decided(p store.ProposalRow, state, by string) store.Event {
 	return store.Event{Kind: contracts.EventProposalDecided, Payload: body}
 }
 
-// slotFree refuses to put the node back into work while another node holds
+// slotFree refuses to leave the node in state to while another node holds
 // what it needs: the work slot (max_parallel is 1 in v0.1) to run, review or
 // gate, or the merge queue to integrate. The scheduler would never have given
-// it; the person tries again when the other node leaves.
-func slotFree(snap store.Snapshot, n store.NodeRow, to core.NodeState) error {
+// it; the person tries again when the other node leaves. It runs in the
+// transaction of the decision, so a dispatch of the loop cannot slip in.
+func slotFree(nodes []store.NodeSlot, node string, to core.NodeState) error {
 	work := []core.NodeState{core.NodeRunning, core.NodeInReview, core.NodeGating}
 	var holds []core.NodeState
 	switch {
@@ -241,9 +233,9 @@ func slotFree(snap store.Snapshot, n store.NodeRow, to core.NodeState) error {
 	default:
 		return nil
 	}
-	for _, o := range snap.Nodes {
-		if o.ID != n.ID && slices.Contains(holds, o.State) {
-			return fmt.Errorf("%w: #%s is %s; try again when it leaves", core.ErrInvalidTransition, o.IssueRef, o.State)
+	for _, o := range nodes {
+		if o.ID != node && slices.Contains(holds, o.State) {
+			return fmt.Errorf("%w: #%s is %s; try again when it leaves", core.ErrInvalidTransition, o.Issue, o.State)
 		}
 	}
 	return nil
@@ -303,16 +295,11 @@ func DecideProposal(ctx context.Context, db *store.DB, gen *ids.Generator, clk c
 	if err != nil {
 		return err
 	}
-	if n.State == core.NodeBlocked {
-		if err := slotFree(snap, n, n.PrevState); err != nil {
-			return err
-		}
-	}
 	state := contracts.ProposalRejected
 	if approved {
 		state = contracts.ProposalApproved
 	}
-	return s.decide(ctx, n, core.ProposalDecided{Approved: approved, By: by, Changes: body.Changes}, nil, decided(p, state, by))
+	return s.decideRetrying(ctx, n, core.ProposalDecided{Approved: approved, By: by, Changes: body.Changes}, nil, true, decided(p, state, by))
 }
 
 // nodeRow reads a node of the snapshot by id.

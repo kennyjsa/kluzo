@@ -60,20 +60,21 @@ func scanWorkspaces(ctx context.Context, root string) ([]machineWorkspace, error
 	for _, d := range dirs {
 		if d.IsDir() {
 			w := machineWorkspace{Dir: filepath.Join(root, "workspaces", d.Name()), Nodes: map[string]core.NodeState{}}
-			w.Err = w.read(ctx)
+			w.Err = w.read(ctx, store.OpenReadOnly)
 			out = append(out, w)
 		}
 	}
 	return out, nil
 }
 
-// read loads the state of the workspace from its journal, if it has one.
-func (w *machineWorkspace) read(ctx context.Context) error {
+// read loads the state of the workspace from its journal, if it has one,
+// opened with open.
+func (w *machineWorkspace) read(ctx context.Context, open func(context.Context, string) (*store.DB, error)) error {
 	path := filepath.Join(w.Dir, "state.db")
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	db, err := store.OpenReadOnly(ctx, path)
+	db, err := open(ctx, path)
 	if err != nil {
 		return err
 	}

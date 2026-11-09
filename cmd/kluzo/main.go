@@ -237,7 +237,7 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	}
 	yes := cleanCmd.Flags().Bool("yes", false, "remove; without it, kluzo clean only lists (--dry-run)")
 	dryRun := cleanCmd.Flags().Bool("dry-run", true, "only list what would be removed (the default)")
-	images := cleanCmd.Flags().Bool("images", false, "also every image marked by Kluzo and the dangling images")
+	images := cleanCmd.Flags().Bool("images", false, "also every image marked by Kluzo, of active workspaces too, and the dangling images of the machine")
 	cleanCmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		switch {
 		case *yes && cmd.Flags().Changed("dry-run") && *dryRun:
