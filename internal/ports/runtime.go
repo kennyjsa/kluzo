@@ -39,7 +39,8 @@ var (
 // ErrResumeMismatch is returned by Resume when the session cannot be resumed.
 var ErrResumeMismatch = errors.New("session cannot be resumed: its inputs changed")
 
-// ErrNoGuard means the spec has no hook endpoint, so the session would run unguarded.
+// ErrNoGuard means the spec has no hook endpoint, or no way to ask it what it
+// received, so the session would run unguarded.
 var ErrNoGuard = fmt.Errorf("the session has no guard hook endpoint: %w", ErrPermanent)
 
 // RoleConfig is the part of a role a runtime needs, with the precedence of
@@ -86,6 +87,11 @@ type SessionSpec struct {
 	// runs (the guard hook of the MCP server, same token as MCPToken). It is
 	// required: a session without the guard does not start.
 	HookEndpoint string
+	// Hooked reports whether the hook endpoint received the tool call with
+	// this tool_use id. The adapter asks it for every tool result: a call the
+	// hook did not see ran unguarded (the canary, ADR 0024, item 6). Required
+	// with HookEndpoint.
+	Hooked func(toolUseID string) bool
 	// Env holds the project variables of the session (env_allow, caches,
 	// COMPOSE_PROJECT_NAME). Nothing of the environment of Kluzo is passed.
 	Env map[string]string

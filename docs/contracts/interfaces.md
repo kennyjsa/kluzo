@@ -142,6 +142,9 @@ type SessionSpec struct {
 	MCPTools    []string
 	Accepted    func() (json.RawMessage, bool) // o kluzo_result aceito pelo servidor MCP
 
+	HookEndpoint string                   // hook PreToolUse do servidor MCP (guarda); obrigatório
+	Hooked       func(toolUseID string) bool // o hook recebeu essa chamada? O canário pergunta a cada tool_result; obrigatório
+
 	Env                map[string]string // sem segredos do Kluzo; só os do projeto (env_allow, caches)
 	MaxBudgetUSDMicros int64             // o que resta ao nó
 	PriorUsage         Usage             // Result.Cumulative da sessão anterior da mesma conversa do harness (Resume); zero no Start

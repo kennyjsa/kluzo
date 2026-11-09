@@ -22,6 +22,7 @@ func TestRecordedStreams(t *testing.T) {
 		expected []string // the tools of the session, as the init must list them
 		drop     string   // a subtype of system lines to remove before the replay
 		rename   string   // a tool whose hook events are renamed to another tool before the replay
+		unhooked string   // a tool_use id the hook endpoint did not receive
 		accepted bool     // the MCP server accepted a kluzo_result
 		state    string
 		cause    ports.Cause
@@ -32,17 +33,21 @@ func TestRecordedStreams(t *testing.T) {
 		{fixture: "error_max_turns", expected: []string{"Read"}, state: ports.StateFailed, cause: ports.CauseMaxTurns, results: 2},
 		{fixture: "hook_deny", expected: []string{"Edit", "Read"}, state: ports.StateFailed, cause: ports.CauseNoResult, results: 1, failed: 1},
 		{fixture: "subagent_task_alias", expected: []string{"Agent", "Read"}, state: ports.StateFailed, cause: ports.CauseNoResult, results: 2},
-		{fixture: "success_kluzo_result", drop: "hook_started", expected: []string{"Read", "mcp__kluzo__kluzo_result"}, accepted: true, state: ports.StateFailed, cause: ports.CauseGuard, results: 2},
-		// A hook for another tool does not cover a call: the Read ran unguarded.
-		{fixture: "error_max_turns", rename: "Read", expected: []string{"Read"}, state: ports.StateFailed, cause: ports.CauseGuard, results: 2},
+		// The endpoint never saw the Read: the guard is gone, whatever the stream says.
+		{fixture: "success_kluzo_result", unhooked: "toolu_01", expected: []string{"Read", "mcp__kluzo__kluzo_result"}, accepted: true, state: ports.StateFailed, cause: ports.CauseGuard, results: 2},
+		// The stream hook events are only a diagnosis: without them, or naming
+		// another tool, the calls the endpoint saw are guarded.
+		{fixture: "success_kluzo_result", drop: "hook_started", expected: []string{"Read", "mcp__kluzo__kluzo_result"}, accepted: true, state: ports.StateFinished, results: 2},
+		{fixture: "error_max_turns", rename: "Read", expected: []string{"Read"}, state: ports.StateFailed, cause: ports.CauseMaxTurns, results: 2},
 	}
 	for _, tt := range tests {
-		t.Run(tt.fixture+"/"+tt.drop+tt.rename, func(t *testing.T) {
+		t.Run(tt.fixture+"/"+tt.drop+tt.rename+tt.unhooked, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join("testdata", "recorded", tt.fixture+".jsonl"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			tr := newTracker(ports.SessionSpec{Role: ports.RoleConfig{Name: "reporter"}}, Name, tt.expected, nil, func(s string) string { return s })
+			hooked := func(id string) bool { return id != tt.unhooked }
+			tr := newTracker(ports.SessionSpec{Role: ports.RoleConfig{Name: "reporter"}, Hooked: hooked}, Name, tt.expected, nil, func(s string) string { return s })
 			var evs []ports.Event
 			var ab *abort
 			if tt.rename != "" {
@@ -88,6 +93,9 @@ func TestRecordedStreams(t *testing.T) {
 			}
 			if n := tr.unknown["system/hook_started"] + tr.unknown["system/hook_response"]; n != 0 || (tt.rename == "" && tr.unknown["system/hook_started-unmatched"] != 0) {
 				t.Errorf("hook events counted as unknown: %v", tr.unknown)
+			}
+			if missing := tr.unknown["system/hook_started-missing"]; (tt.drop != "" || tt.rename != "") != (missing > 0) {
+				t.Errorf("calls without a stream hook event = %d (%v)", missing, tr.unknown)
 			}
 		})
 	}

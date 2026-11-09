@@ -146,7 +146,7 @@ func (e *env) spec(fixture string, vars map[string]string) ports.SessionSpec {
 		System: "SYSTEM PROMPT", Prompt: "TASK PROMPT",
 		Segments: ports.SegmentHashes{Protocol: "p1", Role: "r1", Rules: "k1"},
 		Workdir:  e.workdir, MCPEndpoint: ms.URL(), MCPToken: ms.Token(), MCPTools: []string{mcp.ToolResult},
-		Accepted: ms.Accepted, HookEndpoint: ms.HookURL(), Env: env, MaxBudgetUSDMicros: 1_900_000,
+		Accepted: ms.Accepted, HookEndpoint: ms.HookURL(), Hooked: ms.Hooked, Env: env, MaxBudgetUSDMicros: 1_900_000,
 	}
 }
 

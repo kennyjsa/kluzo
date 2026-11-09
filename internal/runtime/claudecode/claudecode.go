@@ -237,7 +237,7 @@ func (rt *Runtime) Resume(ctx context.Context, harnessRef string, spec ports.Ses
 
 // begin starts a new session or resumes one. For a resume, ref is "<uuid>/<fingerprint>".
 func (rt *Runtime) begin(ctx context.Context, spec ports.SessionSpec, ref string, resume bool) (ports.Session, error) {
-	if spec.HookEndpoint == "" {
+	if spec.HookEndpoint == "" || spec.Hooked == nil {
 		return nil, ports.ErrNoGuard
 	}
 	ts, err := mapTools(spec.Role.Tools, spec.Verify, spec.MCPTools)

@@ -97,7 +97,7 @@ func TestGuardHookDownBlocks(t *testing.T) {
 func TestCanaryAbortsWhenTheHookDoesNotRun(t *testing.T) {
 	e := newEnv(t)
 	res, evs := e.play(e.spec("one_tool", map[string]string{"KLUZO_FAKE_NOHOOK": "1"}))
-	if res.State != ports.StateFailed || res.Cause != ports.CauseGuard || !strings.Contains(res.Detail, "without a PreToolUse hook event") || !strings.Contains(res.Detail, "toolu_1") {
+	if res.State != ports.StateFailed || res.Cause != ports.CauseGuard || !strings.Contains(res.Detail, "without reaching the guard hook") || !strings.Contains(res.Detail, "toolu_1") {
 		t.Errorf("result = %+v", res)
 	}
 	if k := kinds(evs); k[len(k)-1] != "session.finished" {
@@ -112,14 +112,32 @@ func TestCanaryAbortsWhenTheHookDoesNotRun(t *testing.T) {
 }
 
 func TestSessionWithoutAGuardEndpointDoesNotStart(t *testing.T) {
-	e := newEnv(t)
-	spec := e.spec("success", nil)
-	spec.HookEndpoint = ""
-	if _, err := e.rt.Start(context.Background(), spec); !errors.Is(err, ports.ErrNoGuard) {
-		t.Errorf("err = %v, want ErrNoGuard", err)
+	for name, unset := range map[string]func(*ports.SessionSpec){
+		"no hook endpoint": func(s *ports.SessionSpec) { s.HookEndpoint = "" },
+		"no Hooked":        func(s *ports.SessionSpec) { s.Hooked = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			spec := e.spec("success", nil)
+			unset(&spec)
+			if _, err := e.rt.Start(context.Background(), spec); !errors.Is(err, ports.ErrNoGuard) {
+				t.Errorf("err = %v, want ErrNoGuard", err)
+			}
+			entries, _ := os.ReadDir(filepath.Join(e.dir, "config"))
+			if len(entries) != 0 {
+				t.Errorf("a refused start left %d config dirs", len(entries))
+			}
+		})
 	}
-	entries, _ := os.ReadDir(filepath.Join(e.dir, "config"))
-	if len(entries) != 0 {
-		t.Errorf("a refused start left %d config dirs", len(entries))
+}
+
+// The canary asks the hook endpoint by tool_use id: hook events in the stream
+// do not replace it, and their absence alone does not abort.
+func TestCanaryChecksTheHookByID(t *testing.T) {
+	e := newEnv(t)
+	spec := e.spec("one_tool", nil)
+	spec.Hooked = func(string) bool { return false } // the stream reports the hook, the endpoint never saw the call
+	if res, _ := e.play(spec); res.Cause != ports.CauseGuard || !strings.Contains(res.Detail, "a stream hook event for it: true") {
+		t.Errorf("result = %+v, want a guard failure", res)
 	}
 }

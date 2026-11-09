@@ -42,6 +42,11 @@ func (s *Session) hook(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("{}"))
 		return
 	}
+	if in.ToolUseID != "" {
+		s.mu.Lock()
+		s.hooked[in.ToolUseID] = true
+		s.mu.Unlock()
+	}
 	d := s.spec.Guard.Check(guard.Call{Tool: in.Tool, Input: in.Input})
 	if d.Allowed {
 		_, _ = w.Write([]byte("{}"))
