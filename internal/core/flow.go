@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
@@ -171,7 +170,7 @@ type SessionDone struct {
 	// attempt (ADR 0020): Proposal are the changes that need a human (a
 	// protected path, a test deleted or disabled), Auto the findings Kluzo
 	// raises itself (a new lint suppression), without ids.
-	Proposal []string
+	Proposal []ProposalChange
 	Auto     []Finding
 }
 
@@ -315,6 +314,14 @@ func Apply(s NodeFlow, in Input, f Flow, lim Limits) (Decision, error) {
 		err = d.merged(in)
 	case TipMoved:
 		err = d.tipMoved()
+	case ProposalDecided:
+		err = d.proposalDecided(in)
+	case Unblock:
+		err = d.unblock(in)
+	case Retry:
+		err = d.retryAttempt(in)
+	case Cancel:
+		err = d.cancel(in)
 	default:
 		err = fmt.Errorf("unknown input %T", in)
 	}
@@ -484,11 +491,11 @@ func (d *decider) implemented(in SessionDone) error {
 		r.Base = in.Base
 	}
 	r.Fresh, r.GateFailures, r.Integration = false, nil, nil
-	if len(in.Proposal) > 0 {
-		return d.block(BlockedProposal, "the work needs a human decision: "+strings.Join(in.Proposal, "; "))
-	}
 	n := d.node()
 	r.Findings = r.Findings.SyncAuto(n.Attempt, n.Round+1, in.Auto)
+	if len(in.Proposal) > 0 {
+		return d.block(BlockedProposal, "the work needs a human decision: "+reasons(in.Proposal))
+	}
 	return d.advance(r.Step + 1)
 }
 

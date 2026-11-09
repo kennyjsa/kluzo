@@ -40,8 +40,8 @@ func TestMigrations(t *testing.T) {
 	}
 	var n int
 	must(t, d.sql.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n))
-	if n != 4 {
-		t.Errorf("migrations applied = %d, want 4", n)
+	if n != 5 {
+		t.Errorf("migrations applied = %d, want 5", n)
 	}
 
 	// A database from a newer binary is refused rather than misread.
@@ -278,6 +278,9 @@ func TestMigrationRebuildsNewProjections(t *testing.T) {
 			{Kind: contracts.EventSessionFinished, Payload: payload(contracts.SessionFinished{State: "failed", CostUSDMicros: 7})},
 			{Kind: contracts.EventGateStarted, Payload: payload(contracts.GateRun{Gate: "test", SHA: "a1"})},
 			{Kind: contracts.EventGateFinished, Payload: payload(contracts.GateRun{Gate: "test", SHA: "a1", State: "passed", LogRef: "logs/gates/1.log"})},
+			{Kind: contracts.EventProposalCreated, Payload: payload(contracts.ProposalCreated{ProposalID: "pp_1", Kind: contracts.ProposalChange, Blocking: true, Payload: json.RawMessage(`{"changes":[]}`)})},
+			{Kind: contracts.EventProposalCreated, Payload: payload(contracts.ProposalCreated{ProposalID: "pp_2", Kind: contracts.ProposalChange, Blocking: true})},
+			{Kind: contracts.EventProposalDecided, Payload: payload(contracts.ProposalDecided{ProposalID: "pp_1", Kind: contracts.ProposalChange, State: contracts.ProposalApproved, By: "kenny"})},
 		} {
 			e.Header, e.NodeID, e.SessionID = hdr(10+i), "nd_1", "ss_1"
 			if _, err := x.Append(e); err != nil {
@@ -287,7 +290,7 @@ func TestMigrationRebuildsNewProjections(t *testing.T) {
 		return nil
 	})
 	// Back to version 2: no sessions nor gate_runs table, no cost.
-	for _, q := range []string{`DROP TABLE sessions`, `DROP TABLE gate_runs`, `UPDATE nodes SET cost_usd_micros = 0`, `UPDATE workspace SET cost_usd_micros = 0`, `DELETE FROM schema_migrations WHERE version >= 3`} {
+	for _, q := range []string{`DROP TABLE proposals`, `DROP TABLE sessions`, `DROP TABLE gate_runs`, `UPDATE nodes SET cost_usd_micros = 0`, `UPDATE workspace SET cost_usd_micros = 0`, `DELETE FROM schema_migrations WHERE version >= 3`} {
 		_, err := d.sql.Exec(q)
 		must(t, err)
 	}
@@ -300,6 +303,20 @@ func TestMigrationRebuildsNewProjections(t *testing.T) {
 	}
 	if len(s.GateRuns) != 1 || s.GateRuns[0].State != "passed" || s.GateRuns[0].LogRef != "logs/gates/1.log" || s.GateRuns[0].FinishedAt == "" {
 		t.Errorf("after the migration: gate runs %+v", s.GateRuns)
+	}
+	ps, err := d.Proposals(context.Background())
+	must(t, err)
+	if len(ps) != 2 || ps[0].ID != "pp_1" || ps[0].State != contracts.ProposalApproved || ps[0].DecidedBy != "kenny" || ps[0].Node != "nd_1" || !ps[0].Blocking ||
+		string(ps[0].Payload) != `{"changes":[]}` || ps[1].State != contracts.ProposalPending || string(ps[1].Payload) != `{}` {
+		t.Errorf("after the migration: proposals %+v", ps)
+	}
+	// A decision on a proposal that is not pending is refused.
+	err = d.Tx(context.Background(), func(x *Tx) error {
+		_, err := x.Append(Event{Header: hdr(40), Kind: contracts.EventProposalDecided, Payload: payload(contracts.ProposalDecided{ProposalID: "pp_1", State: contracts.ProposalRejected})})
+		return err
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("deciding twice: %v", err)
 	}
 }
 

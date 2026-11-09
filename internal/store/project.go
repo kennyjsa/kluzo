@@ -43,6 +43,10 @@ func (t *Tx) project(e Event) error {
 		return t.projectAreaDeviation(e)
 	case contracts.EventPROpened:
 		return t.projectPROpened(e)
+	case contracts.EventProposalCreated:
+		return t.projectProposalCreated(e)
+	case contracts.EventProposalDecided:
+		return t.projectProposalDecided(e)
 	}
 	return nil
 }
@@ -267,6 +271,40 @@ func (t *Tx) projectPROpened(e Event) error {
 	return err
 }
 
+// projectProposalCreated adds the proposal, pending, from the node of the
+// event.
+func (t *Tx) projectProposalCreated(e Event) error {
+	var p contracts.ProposalCreated
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	payload := p.Payload
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	_, err := t.tx.ExecContext(t.ctx,
+		`INSERT INTO proposals (id, origin_node, session_id, kind, payload, blocking, state, created_at) VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?)`,
+		p.ProposalID, e.NodeID, e.SessionID, p.Kind, string(payload), p.Blocking, contracts.ProposalPending, formatTS(e.TS))
+	return err
+}
+
+// projectProposalDecided records the decision on a pending proposal.
+func (t *Tx) projectProposalDecided(e Event) error {
+	var p contracts.ProposalDecided
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	res, err := t.tx.ExecContext(t.ctx, `UPDATE proposals SET state = ?, decided_by = ?, decided_at = ? WHERE id = ? AND state = ?`,
+		p.State, p.By, formatTS(e.TS), p.ProposalID, contracts.ProposalPending)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("%w: pending proposal %s", ErrNotFound, p.ProposalID)
+	}
+	return nil
+}
+
 // closingCursor is workspace.flow_cursor during the closing.
 type closingCursor struct {
 	PR contracts.PROpened `json:"pr"`
@@ -314,7 +352,7 @@ const replayPage = 500
 // must equal the incrementally maintained state.
 func (d *DB) Rebuild(ctx context.Context) error {
 	return d.Tx(ctx, func(t *Tx) error {
-		for _, table := range []string{"gate_runs", "sessions", "edges", "nodes", "workspace"} {
+		for _, table := range []string{"proposals", "gate_runs", "sessions", "edges", "nodes", "workspace"} {
 			if _, err := t.tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 				return fmt.Errorf("clear %s: %w", table, err)
 			}

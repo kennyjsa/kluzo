@@ -25,6 +25,12 @@ func TestRun(t *testing.T) {
 		{name: "every command of F29", args: []string{"help"}, wantCode: 0, wantStdout: "approve"},
 		{name: "plan without its milestone", args: []string{"plan"}, wantCode: 1, wantStderr: "plan takes 1 argument"},
 		{name: "bad flag", args: []string{"status", "--nope", "v1"}, wantCode: 1, wantStderr: "unknown flag"},
+		{name: "clean asked to remove and not to", args: []string{"clean", "--yes", "--dry-run"}, wantCode: 1, wantStderr: "contradict"},
+		{name: "proposal without a subcommand", args: []string{"proposal"}, wantCode: 1, wantStderr: "Usage:"},
+		{name: "proposal approve without its id", args: []string{"proposal", "approve"}, wantCode: 1, wantStderr: "approve takes 1 argument"},
+		{name: "node without a subcommand", args: []string{"node", "nope"}, wantCode: 1, wantStderr: `unknown command "nope"`},
+		{name: "node retry without configuration", args: []string{"node", "retry", "7", "--dir", "/does/not/exist"}, wantCode: 2},
+		{name: "every command of 10b", args: []string{"help"}, wantCode: 0, wantStdout: "proposal"},
 		{name: "status without workspace", args: []string{"status", "v1", "--dir", "testdata/none"}, wantCode: 2},
 	}
 	for _, tt := range tests {

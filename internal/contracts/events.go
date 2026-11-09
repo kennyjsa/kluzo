@@ -31,6 +31,7 @@ const (
 	EventEffectFailed    = "effect.failed"
 	EventBudgetAlert     = "budget.alert"
 	EventProposalCreated = "proposal.created"
+	EventProposalDecided = "proposal.decided"
 	EventPlanApproved    = "plan.approved"
 )
 
@@ -45,13 +46,27 @@ type PlanApproved struct {
 const (
 	ProposalChange  = "change"
 	ProposalPending = "pending"
+	// ProposalApproved and ProposalRejected are the decisions of a person.
+	ProposalApproved = "approved"
+	ProposalRejected = "rejected"
 )
 
-// ProposalCreated is the payload of proposal.created.
+// ProposalCreated is the payload of proposal.created. Payload depends on
+// the kind: for a change, {changes: [{path, reason, sha256}]}.
 type ProposalCreated struct {
+	ProposalID string          `json:"proposal_id"`
+	Kind       string          `json:"kind"`
+	State      string          `json:"state,omitempty"`
+	Blocking   bool            `json:"blocking,omitempty"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+}
+
+// ProposalDecided is the payload of proposal.decided.
+type ProposalDecided struct {
 	ProposalID string `json:"proposal_id"`
 	Kind       string `json:"kind"`
-	State      string `json:"state,omitempty"`
+	State      string `json:"state"` // ProposalApproved | ProposalRejected
+	By         string `json:"by"`
 }
 
 // BudgetScopeMilestone is the scope of the budget alert of the milestone.

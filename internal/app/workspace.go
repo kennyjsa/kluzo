@@ -16,6 +16,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
+	"github.com/kennyjsa/kluzo/internal/platform/docker"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/store"
@@ -43,6 +44,8 @@ type Host struct {
 	Clock clock.Clock // the system clock when nil
 	IDs   *ids.Generator
 	Log   *slog.Logger
+	// Docker runs the docker CLI (docker in the PATH of Env when nil).
+	Docker *docker.Docker
 	// Connect opens the tracker of the project (Connect when nil).
 	Connect func(ctx context.Context, p *config.Project, env []string) (Integrations, error)
 }
@@ -74,6 +77,9 @@ func (h Host) fill() Host {
 	}
 	if h.Connect == nil {
 		h.Connect = Connect
+	}
+	if h.Docker == nil {
+		h.Docker = docker.New("", h.Env)
 	}
 	return h
 }
@@ -154,25 +160,40 @@ func place(env []string, p *config.Project, configDir, milestone string) (Place,
 	if err != nil {
 		return Place{}, err
 	}
-	data := getenv(env, "XDG_DATA_HOME")
-	if data == "" {
-		home := getenv(env, "HOME")
-		if home == "" {
-			return Place{}, errors.New("HOME is not set: the workspaces live under it")
-		}
-		data = filepath.Join(home, ".local", "share")
+	root, err := dataRoot(env)
+	if err != nil {
+		return Place{}, err
 	}
-	root := filepath.Join(data, "kluzo")
-	name := p.Config.Project.Name
-	if name == "" {
-		name = filepath.Base(filepath.Dir(abs))
-	}
-	name = unsafeName.ReplaceAllString(name, "-")
+	name := projectName(p, abs)
 	return Place{
 		ConfigDir: abs, Repo: filepath.Dir(abs), Milestone: milestone,
 		Dir:       filepath.Join(root, "workspaces", name+"-"+unsafeName.ReplaceAllString(milestone, "-")),
 		Downloads: filepath.Join(root, "cache", name),
 	}, nil
+}
+
+// dataRoot is where Kluzo keeps the workspaces and caches of this machine:
+// $XDG_DATA_HOME/kluzo, or ~/.local/share/kluzo.
+func dataRoot(env []string) (string, error) {
+	data := getenv(env, "XDG_DATA_HOME")
+	if data == "" {
+		home := getenv(env, "HOME")
+		if home == "" {
+			return "", errors.New("HOME is not set: the workspaces live under it")
+		}
+		data = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(data, "kluzo"), nil
+}
+
+// projectName is the name of the project in the directories of the machine:
+// project.name, or the directory of the repository.
+func projectName(p *config.Project, configDir string) string {
+	name := p.Config.Project.Name
+	if name == "" {
+		name = filepath.Base(filepath.Dir(configDir))
+	}
+	return unsafeName.ReplaceAllString(name, "-")
 }
 
 // opened is a workspace opened by a use case: its project, its place and its
@@ -234,8 +255,11 @@ type MoveWorkspace struct {
 	Doctor func(ctx context.Context, configDir string) (DoctorOutput, error)
 }
 
-// ErrRefused means the workspace refuses the move in its state.
+// ErrRefused means the workspace or the node refuses the move in its state.
 var ErrRefused = core.ErrInvalidTransition
+
+// ErrNoAttempts means a node has no attempt left for kluzo node retry.
+var ErrNoAttempts = core.ErrLimitReached
 
 // Move is what a person may do to a running workspace.
 type Move string

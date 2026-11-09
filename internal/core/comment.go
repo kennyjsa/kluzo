@@ -20,6 +20,7 @@ var commentReasons = map[NodeTrigger]string{
 	TriggerUnblock:           "unblocked",
 	TriggerFail:              "failed",
 	TriggerCancel:            "cancelled",
+	TriggerRetry:             "new attempt",
 }
 
 // TransitionComment is the comment posted on the issue for a transition

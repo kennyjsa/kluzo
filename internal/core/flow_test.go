@@ -339,7 +339,7 @@ func TestFlowGuaranteesAfterTheRound(t *testing.T) {
 	}{
 		{"a protected path blocks as a proposal", []Input{Dispatch{}, func() SessionDone {
 			d := implDone(0)
-			d.Proposal = []string{".kluzo/kluzo.yaml is a protected path", "a_test.go is a test file and was deleted"}
+			d.Proposal = []ProposalChange{{Path: ".kluzo/kluzo.yaml", Reason: ".kluzo/kluzo.yaml is a protected path", Hash: "h1"}, {Path: "a_test.go", Reason: "a_test.go is a test file and was deleted"}}
 			return d
 		}()}, func(t *testing.T, s NodeFlow, ds []Decision) {
 			if s.Node.State != NodeBlocked || s.Node.BlockedReason != BlockedProposal || s.Run.Step != 0 || s.Run.Head != "c1" {
@@ -521,5 +521,130 @@ func TestFlowMergeQueueStaleAndEndings(t *testing.T) {
 func TestFullGates(t *testing.T) {
 	if got := testFlow.FullGates(); !slices.Equal(got, []string{"test"}) {
 		t.Errorf("FullGates = %v", got)
+	}
+}
+
+// proposalChanges are the changes of the proposal the node is blocked for.
+var proposalChanges = []ProposalChange{{Path: ".kluzo/kluzo.yaml", Reason: ".kluzo/kluzo.yaml is a protected path", Hash: "h1"}}
+
+// blockedForProposal plays a dispatch and an implementer round whose work needs a
+// proposal.
+func blockedForProposal(t *testing.T) (NodeFlow, []Decision) {
+	t.Helper()
+	d := implDone(0)
+	d.Proposal = proposalChanges
+	return play(t, Dispatch{}, d)
+}
+
+// applyTo applies one input to s.
+func applyTo(t *testing.T, s NodeFlow, in Input) (Decision, error) {
+	t.Helper()
+	return Apply(s, in, testFlow, flowLimits)
+}
+
+// The decision of a person on the proposal (ADR 0020, v0.1 item 10b): the
+// approval lets the work go on to the next step; the rejection sends the node
+// back to the implementer with an automatic finding asking to revert it.
+func TestFlowProposalDecided(t *testing.T) {
+	s, _ := blockedForProposal(t)
+	d, err := applyTo(t, s, ProposalDecided{Approved: true, By: "kenny", Changes: proposalChanges})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := d.Next.Node; n.State != NodeRunning || n.Attempt != 1 || n.Round != 0 || d.Next.Run.Step != 1 || !slices.Contains(kindsOf(d), EffectGates) {
+		t.Errorf("approved: node %+v, step %d, effects %v", n, d.Next.Run.Step, kindsOf(d))
+	}
+	if !strings.Contains(d.Effects[1].Body, "unblocked") {
+		t.Errorf("comment = %q", d.Effects[1].Body)
+	}
+
+	d, err = applyTo(t, s, ProposalDecided{Approved: false, By: "kenny", Changes: proposalChanges})
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := d.Next.Run.Findings.Open()
+	if n := d.Next.Node; n.State != NodeRunning || n.Attempt != 1 || n.Round != 0 || d.Next.Run.Step != 0 || !d.Next.Run.Rejected {
+		t.Errorf("rejected: node %+v, run %+v", n, d.Next.Run)
+	}
+	if len(open) != 1 || !open[0].Auto || open[0].File != ".kluzo/kluzo.yaml" || !strings.Contains(open[0].Message, "revert") || open[0].Severity != SeverityBlocking {
+		t.Errorf("findings %+v", open)
+	}
+	if e := lastSession(t, d); e.Role != RoleImplementer || !e.Resume {
+		t.Errorf("session %+v", e)
+	}
+	// The reviewer cannot resolve the finding: it is automatic.
+	if _, err := applyTo(t, NodeFlow{Node: Node{State: NodeRunning, Attempt: 1}}, ProposalDecided{Approved: true}); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("a decision on a node not blocked for a proposal: %v", err)
+	}
+}
+
+// The exit of a blocked node by a person (v0.1 item 10b): unblock runs the
+// current step again in the state it was blocked in; retry starts a new
+// attempt while attempts are left; cancel removes it, not in the middle of
+// work. A proposal or a question has its own way out.
+func TestFlowHumanExits(t *testing.T) {
+	s, _ := play(t, Dispatch{}, implDone(0), gates(1, ports.GatePassed), review(2, true, blockingFinding), implDone(0), gates(1, ports.GatePassed), review(2, true, blockingFinding))
+	if s.Node.State != NodeBlocked || s.Node.PrevState != NodeInReview || s.Node.BlockedReason != BlockedTriage {
+		t.Fatalf("setup: %+v", s.Node)
+	}
+	d, err := applyTo(t, s, Unblock{By: "kenny"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := lastSession(t, d); d.Next.Node.State != NodeInReview || d.Next.Node.Attempt != 1 || e.Role != RoleReviewer || !strings.Contains(d.Effects[1].Body, "unblocked") {
+		t.Errorf("unblock: node %+v, effects %+v", d.Next.Node, d.Effects)
+	}
+
+	d, err = applyTo(t, s, Retry{By: "kenny"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := lastSession(t, d); d.Next.Node.State != NodeRunning || d.Next.Node.Attempt != 2 || d.Next.Node.Round != 0 || !d.Next.Run.Fresh || d.Next.Run.Step != 0 || e.Role != RoleImplementer || e.Resume {
+		t.Errorf("retry: node %+v, run %+v", d.Next.Node, d.Next.Run)
+	}
+	if _, err := applyTo(t, d.Next, Retry{}); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("retry of a running node: %v", err)
+	}
+	last := s
+	last.Node.Attempt = flowLimits.MaxAttempts
+	if _, err := applyTo(t, last, Retry{}); !errors.Is(err, ErrLimitReached) {
+		t.Errorf("retry without attempts left: %v", err)
+	}
+
+	d, err = applyTo(t, s, Cancel{By: "kenny"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Next.Node.State != NodeCancelled || !slices.Contains(kindsOf(d), EffectCleanupNode) {
+		t.Errorf("cancel: node %+v, effects %v", d.Next.Node, kindsOf(d))
+	}
+	running, _ := play(t, Dispatch{})
+	if _, err := applyTo(t, running, Cancel{}); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("cancel in the middle of work: %v", err)
+	}
+	if d, err := applyTo(t, NodeFlow{Node: Node{State: NodePlanned}}, Cancel{}); err != nil || d.Next.Node.State != NodeCancelled {
+		t.Errorf("cancel a planned node: %+v %v", d.Next.Node, err)
+	}
+
+	proposal, _ := blockedForProposal(t)
+	question := s
+	question.Node.BlockedReason = BlockedQuestion
+	for _, b := range []NodeFlow{proposal, question} {
+		for _, in := range []Input{Unblock{}, Retry{}} {
+			if _, err := applyTo(t, b, in); !errors.Is(err, ErrInvalidTransition) {
+				t.Errorf("%T of a node blocked for %s: %v", in, b.Node.BlockedReason, err)
+			}
+		}
+	}
+
+	// Blocked while integrating: unblock rebases again.
+	integrating := NodeFlow{Node: Node{State: NodeBlocked, PrevState: NodeIntegrating, BlockedReason: BlockedTriage, Attempt: 2}, Run: Run{Step: 4, Ready: true}}
+	if d, err := applyTo(t, integrating, Unblock{}); err != nil || d.Next.Node.State != NodeIntegrating || !slices.Contains(kindsOf(d), EffectRebase) {
+		t.Errorf("unblock while integrating: %+v %v %v", d.Next.Node, kindsOf(d), err)
+	}
+	// Blocked before the dispatch: unblock leaves it to the scheduler.
+	planned := NodeFlow{Node: Node{State: NodeBlocked, PrevState: NodePlanned, BlockedReason: BlockedDependencyFailed}}
+	if d, err := applyTo(t, planned, Unblock{}); err != nil || d.Next.Node.State != NodePlanned || slices.Contains(kindsOf(d), EffectSession) {
+		t.Errorf("unblock before the dispatch: %+v %v %v", d.Next.Node, kindsOf(d), err)
 	}
 }

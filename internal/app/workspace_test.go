@@ -37,9 +37,11 @@ func newWorkspaceEnv(t *testing.T) workspaceEnv {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
 	}
+	d, _ := fakeDocker(t, "", "")
 	e.host = Host{
-		Env:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "XDG_DATA_HOME=" + e.data, "USER=kenny"},
-		Clock: clock.NewManual(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)),
+		Docker: d,
+		Env:    []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "XDG_DATA_HOME=" + e.data, "USER=kenny"},
+		Clock:  clock.NewManual(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)),
 		Connect: func(context.Context, *config.Project, []string) (Integrations, error) {
 			return Integrations{Tracker: e.tracker, SCM: fakes.NewSCM("main"), CI: fakes.NewCI(), Remote: filepath.Join(e.data, "origin.git")}, nil
 		},

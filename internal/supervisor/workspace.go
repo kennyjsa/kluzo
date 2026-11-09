@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
@@ -139,4 +141,121 @@ func (s *Supervisor) commitPlan(ctx context.Context, p effectPayload) error {
 		return err
 	}
 	return s.push(ctx, branchRef(s.cfg.Branch)+":"+branchRef(s.cfg.Branch))
+}
+
+// person is a supervisor reduced to what decides on a node from outside the
+// loop: the journal, the project and its node flow.
+func person(db *store.DB, gen *ids.Generator, clk clock.Clock, project *config.Project) (*Supervisor, error) {
+	flow, err := nodeFlow(project)
+	if err != nil {
+		return nil, err
+	}
+	s := journal(db, gen, clk)
+	s.cfg.Project, s.flow = project, flow
+	return s, nil
+}
+
+// nodeByIssue reads the node of an issue.
+func nodeByIssue(snap store.Snapshot, issue string) (store.NodeRow, error) {
+	for _, n := range snap.Nodes {
+		if n.IssueRef == issue {
+			return n, nil
+		}
+	}
+	return store.NodeRow{}, fmt.Errorf("%w: no node for issue #%s", store.ErrNotFound, issue)
+}
+
+// DecideNode applies the decision of a person on the node of an issue
+// (kluzo node retry, unblock, cancel), in one transaction with the moves,
+// their labels and comments, and the work it queues. A node is cancelled only
+// when every node that depends on it is cancelled already.
+func DecideNode(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock.Clock, project *config.Project, issue string, in core.Input) error {
+	s, err := person(db, gen, clk, project)
+	if err != nil {
+		return err
+	}
+	snap, err := db.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	n, err := nodeByIssue(snap, issue)
+	if err != nil {
+		return err
+	}
+	if _, ok := in.(core.Cancel); ok {
+		if active := activeDependents(snap, n.ID); len(active) > 0 {
+			return fmt.Errorf("%w: cancel first the nodes that depend on #%s: #%s", core.ErrInvalidTransition, issue, strings.Join(active, ", #"))
+		}
+	}
+	return s.decide(ctx, n, in, nil)
+}
+
+// activeDependents are the issues of the nodes that depend on the node and
+// are not cancelled.
+func activeDependents(snap store.Snapshot, node string) []string {
+	byID := map[string]store.NodeRow{}
+	for _, n := range snap.Nodes {
+		byID[n.ID] = n
+	}
+	var out []string
+	for _, e := range snap.Edges {
+		if d := byID[e.To]; e.From == node && d.State != core.NodeCancelled && !slices.Contains(out, d.IssueRef) {
+			out = append(out, d.IssueRef)
+		}
+	}
+	return out
+}
+
+// DecideProposal records the decision of a person on a pending proposal
+// (kluzo proposal approve|reject): proposal.decided, and the decision of the
+// node blocked for it, in one transaction. An approved change becomes an
+// exception of the check for its node, by path and content.
+func DecideProposal(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock.Clock, project *config.Project, id string, approved bool, by string) error {
+	s, err := person(db, gen, clk, project)
+	if err != nil {
+		return err
+	}
+	ps, err := db.Proposals(ctx)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(ps, func(p store.ProposalRow) bool { return p.ID == id })
+	switch {
+	case i < 0:
+		return fmt.Errorf("%w: proposal %s", store.ErrNotFound, id)
+	case ps[i].State != contracts.ProposalPending:
+		return fmt.Errorf("%w: proposal %s is %s already", core.ErrInvalidTransition, id, ps[i].State)
+	case ps[i].Kind != contracts.ProposalChange:
+		return fmt.Errorf("proposals of kind %s are not decided in v0.1", ps[i].Kind)
+	}
+	p := ps[i]
+	var body changeProposal
+	if err := json.Unmarshal(p.Payload, &body); err != nil {
+		return fmt.Errorf("proposal %s: %w", id, err)
+	}
+	snap, err := db.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	n, err := nodeRow(snap, p.Node)
+	if err != nil {
+		return err
+	}
+	state := contracts.ProposalRejected
+	if approved {
+		state = contracts.ProposalApproved
+	}
+	decided, _ := json.Marshal(contracts.ProposalDecided{ProposalID: id, Kind: p.Kind, State: state, By: by}) // plain data
+	return s.decide(ctx, n, core.ProposalDecided{Approved: approved, By: by, Changes: body.Changes}, nil,
+		store.Event{Kind: contracts.EventProposalDecided, Payload: decided})
+}
+
+// nodeRow reads a node of the snapshot by id.
+func nodeRow(snap store.Snapshot, id string) (store.NodeRow, error) {
+	for _, n := range snap.Nodes {
+		if n.ID == id {
+			return n, nil
+		}
+	}
+	return store.NodeRow{}, fmt.Errorf("%w: node %s", store.ErrNotFound, id)
 }

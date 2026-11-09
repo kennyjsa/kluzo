@@ -19,8 +19,9 @@ var ErrDoctor = errors.New("kluzo doctor is not green")
 // Doctor checks that this machine may run the agents of the project
 // (`kluzo doctor`, F29): the configuration (roles included), the CLIs at
 // their minimum versions, the token of the tracker and the credentials of the
-// host (ADR 0020). Orphan worktrees, Docker resources and disk come with
-// v0.1 item 10b.
+// host (ADR 0020), and, as warnings, what Kluzo left on the machine: orphan
+// checkouts, Docker resources marked by Kluzo without an active workspace and
+// a disk use above retention.disk_warn (ADR 0025).
 type Doctor struct {
 	Host Host
 	// Helpers reads the git credential helpers of a HOME
@@ -119,6 +120,12 @@ func (d Doctor) Execute(ctx context.Context, in DoctorInput) (DoctorOutput, erro
 	if len(found) == 0 {
 		out.Passed = append(out.Passed, "host credentials: none visible")
 	}
+	s, err := surveyProject(ctx, h, p, in.Dir)
+	if err != nil {
+		return out, err
+	}
+	out.Warnings = append(out.Warnings, s.warnings()...)
+	out.Passed = append(out.Passed, "disk: "+HumanSize(s.Disk)+" in the workspaces and caches of the project")
 	return out, nil
 }
 

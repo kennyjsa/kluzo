@@ -14,7 +14,6 @@ import (
 	"github.com/kennyjsa/kluzo/internal/gitops"
 	"github.com/kennyjsa/kluzo/internal/mcp"
 	notifylog "github.com/kennyjsa/kluzo/internal/notify/log"
-	"github.com/kennyjsa/kluzo/internal/platform/docker"
 	"github.com/kennyjsa/kluzo/internal/platform/hostcred"
 	"github.com/kennyjsa/kluzo/internal/runtime/claudecode"
 	"github.com/kennyjsa/kluzo/internal/store"
@@ -63,7 +62,7 @@ func assemble(ctx context.Context, h Host, o *opened, version string) (*assemble
 		Git:      git,
 		Gates:    gates.New(gates.Config{LogDir: filepath.Join(logs, "gates"), CI: integ.CI, Secrets: []string{cred.Value}}),
 		Notifier: notifylog.New(h.Log),
-		Docker:   docker.New("", h.Env),
+		Docker:   h.Docker,
 		Nonce:    nonce,
 		HostCredentials: func(ctx context.Context) ([]string, error) {
 			return hostcred.Check(ctx, h.Env, git.HostCredentialHelpers)
@@ -171,16 +170,66 @@ type StatusOutput struct {
 	CostUSD   float64      `json:"cost_usd"`
 	BudgetUSD float64      `json:"budget_usd,omitempty"`
 	Nodes     []StatusNode `json:"nodes"`
+	Disk      StatusDisk   `json:"disk"`
+}
+
+// StatusDisk is the disk the workspace uses (ADR 0025), in bytes: its
+// directory, the download caches of the project, the images its gates built
+// and the Docker build cache. Docker says why the last two are missing.
+type StatusDisk struct {
+	Workspace  int64  `json:"workspace"`
+	Caches     int64  `json:"caches"`
+	Images     int64  `json:"images"`
+	BuildCache int64  `json:"build_cache"`
+	Docker     string `json:"docker,omitempty"`
 }
 
 // Execute reads the projections of the workspace.
 func (u Status) Execute(ctx context.Context, in StatusInput) (StatusOutput, error) {
-	o, err := open(ctx, u.Host.fill(), in.ConfigDir, in.Milestone)
+	h := u.Host.fill()
+	o, err := open(ctx, h, in.ConfigDir, in.Milestone)
 	if err != nil {
 		return StatusOutput{}, err
 	}
 	defer func() { _ = o.db.Close() }()
-	return status(in.Milestone, o.snap), nil
+	out := status(in.Milestone, o.snap)
+	out.Disk, err = disk(ctx, h, o)
+	return out, err
+}
+
+// disk measures what the workspace takes on this machine.
+func disk(ctx context.Context, h Host, o *opened) (StatusDisk, error) {
+	var d StatusDisk
+	var err error
+	if d.Workspace, err = dirSize(o.place.Dir); err != nil {
+		return d, err
+	}
+	if d.Caches, err = dirSize(o.place.Downloads); err != nil {
+		return d, err
+	}
+	err = h.Docker.Probe(ctx)
+	if err == nil {
+		err = dockerDisk(ctx, h, o.snap.Workspace.ID, &d)
+	}
+	if err != nil {
+		d.Docker = err.Error()
+	}
+	return d, nil
+}
+
+// dockerDisk adds the images of the workspace and the build cache.
+func dockerDisk(ctx context.Context, h Host, workspace string, d *StatusDisk) error {
+	images, err := h.Docker.Images(ctx)
+	if err != nil {
+		return err
+	}
+	for _, im := range images {
+		if im.Workspace == workspace {
+			d.Images += im.Size
+		}
+	}
+	d.BuildCache, err = h.Docker.BuildCache(ctx)
+	return err
 }
 
 func status(milestone string, s store.Snapshot) StatusOutput {

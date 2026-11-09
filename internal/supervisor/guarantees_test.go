@@ -2,7 +2,9 @@ package supervisor_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,10 +12,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/gates"
+	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/ports"
+	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
 
 // onMilestone commits files on the milestone branch, as a merge of another
@@ -259,4 +264,57 @@ func TestHostCredentialsRefuseSessions(t *testing.T) {
 	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
 		t.Errorf("with allow_host_credentials: node %s", n.State)
 	}
+}
+
+// The decision of a person on a proposal (ADR 0020, v0.1 item 10b). An
+// approval lets the work go on, and the approved change, by path and
+// content, does not block the next round again; a rejection sends the node
+// back to the implementer with an automatic finding asking to revert it.
+func TestProposalDecisions(t *testing.T) {
+	test := "package agenda\n\nimport \"testing\"\n\nfunc TestList(t *testing.T) {}\n"
+	prepare := func(repo string) { onMilestone(t, repo, map[string]string{"agenda_test.go": test}) }
+	deletes := step{role: core.RoleImplementer, files: work, remove: []string{"agenda_test.go"}, results: []any{implemented()}}
+	decide := func(t *testing.T, e *env, approved bool) {
+		t.Helper()
+		e.drain()
+		proposal("agenda_test.go is a test file and was deleted")(t, e)
+		ps, err := e.db.Proposals(context.Background())
+		if err != nil || len(ps) != 1 || ps[0].State != contracts.ProposalPending || ps[0].Node != e.node || !strings.Contains(string(ps[0].Payload), `"path":"agenda_test.go"`) {
+			t.Fatalf("proposals %+v, %v", ps, err)
+		}
+		project, err := config.Load(filepath.Join(e.repo, ".kluzo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := supervisor.DecideProposal(context.Background(), e.db, ids.NewGenerator(rand.Reader), e.clock, project, ps[0].ID, approved, "kenny"); err != nil {
+			t.Fatal(err)
+		}
+		if err := supervisor.DecideProposal(context.Background(), e.db, ids.NewGenerator(rand.Reader), e.clock, project, ps[0].ID, approved, "kenny"); !errors.Is(err, core.ErrInvalidTransition) {
+			t.Errorf("decided twice: %v", err)
+		}
+		e.drain()
+	}
+
+	t.Run("approved", func(t *testing.T) {
+		e := newEnvWith(t, envOpts{prepare: prepare}, deletes, rev(reviewed(true, nil, bug)),
+			step{role: core.RoleImplementer, files: map[string]string{"agenda.go": "package agenda\n\n// fixed\n"}, results: []any{implemented(response("F1", "fixed"))}},
+			rev(reviewed(true, []map[string]any{previous("F1", "resolved")})))
+		decide(t, e, true)
+		if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || len(e.events(contracts.EventProposalCreated)) != 1 || len(e.events(contracts.EventProposalDecided)) != 1 {
+			t.Errorf("node %s, proposals %d; moves %v", n.State, len(e.events(contracts.EventProposalCreated)), e.moves())
+		}
+	})
+	t.Run("rejected", func(t *testing.T) {
+		e := newEnvWith(t, envOpts{prepare: prepare}, deletes,
+			step{role: core.RoleImplementer, files: map[string]string{"agenda_test.go": test}, results: []any{implemented(response("F1", "fixed"))}},
+			rev(reviewed(true, nil)))
+		decide(t, e, false)
+		n, r := e.nodeRow()
+		if n.State != core.NodeIntegrated || n.Attempt != 1 || len(r.Findings.List) != 1 || !r.Findings.List[0].Auto || r.Findings.List[0].Status != core.FindingResolved {
+			t.Errorf("node %s attempt %d, findings %+v; moves %v", n.State, n.Attempt, r.Findings.List, e.moves())
+		}
+		if calls := e.runtime.Calls(); len(calls) != 3 || !strings.Contains(calls[1].prompt, "revert this change") {
+			t.Errorf("the implementer was not sent back to revert: %d calls", len(calls))
+		}
+	})
 }

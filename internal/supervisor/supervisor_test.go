@@ -13,11 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/ports/fakes"
+	"github.com/kennyjsa/kluzo/internal/store"
 	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
 
@@ -347,4 +349,100 @@ func TestLabelsGoOutInOrder(t *testing.T) {
 	if c := e.comments(); len(c) != 7 || !strings.Contains(c[0], "dependencies integrated") || !strings.Contains(c[4], "gates passed") || !strings.Contains(c[6], "merged") {
 		t.Errorf("comments out of order: %q", c)
 	}
+}
+
+// The exit of a blocked node by a person, from the CLI (v0.1 item 10b): each
+// decision is an input of the core, journaled with its comment on the issue.
+func TestPersonDecidesOnABlockedNode(t *testing.T) {
+	// The implementer session breaks a guard rule: the node is blocked for triage.
+	blocked := []step{{role: core.RoleImplementer, cause: ports.CauseGuard}}
+	done := []step{impl(implemented()), rev(reviewed(true, nil))}
+	decide := func(t *testing.T, e *env, in core.Input) error {
+		t.Helper()
+		project, err := config.Load(filepath.Join(e.repo, ".kluzo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return supervisor.DecideNode(context.Background(), e.db, ids.NewGenerator(rand.Reader), e.clock, project, e.issue, in)
+	}
+	t.Run("retry", func(t *testing.T) {
+		e := newEnv(t, append(blocked, done...)...)
+		e.drain()
+		if err := decide(t, e, core.Retry{By: "kenny"}); err != nil {
+			t.Fatal(err)
+		}
+		e.drain()
+		if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || n.Attempt != 2 {
+			t.Errorf("node %s attempt %d; moves %v", n.State, n.Attempt, e.moves())
+		}
+		if !slices.ContainsFunc(e.comments(), func(c string) bool {
+			return strings.Contains(c, "`blocked` → `running` · new attempt (attempt 2, round 0)")
+		}) {
+			t.Errorf("comments %q", e.comments())
+		}
+	})
+	t.Run("unblock", func(t *testing.T) {
+		e := newEnv(t, append(blocked, done...)...)
+		e.drain()
+		if err := decide(t, e, core.Unblock{By: "kenny"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := decide(t, e, core.Unblock{By: "kenny"}); !errors.Is(err, core.ErrInvalidTransition) {
+			t.Errorf("unblock of a node not blocked: %v", err)
+		}
+		e.drain()
+		if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || n.Attempt != 1 {
+			t.Errorf("node %s attempt %d; moves %v", n.State, n.Attempt, e.moves())
+		}
+	})
+	t.Run("cancel", func(t *testing.T) {
+		e := newEnv(t, blocked...)
+		e.drain()
+		// A planned node that depends on this one.
+		gen := ids.NewGenerator(rand.Reader)
+		other, _ := gen.New(ids.Node, epoch)
+		if err := e.db.Tx(context.Background(), func(x *store.Tx) error {
+			for _, ev := range []store.Event{
+				{Kind: contracts.EventNodeAdded, NodeID: other, Payload: mustJSON(contracts.NodeAdded{IssueRef: "99", Title: "Agenda UI", Areas: []string{"ui"}})},
+				{Kind: contracts.EventEdgeAdded, Payload: mustJSON(contracts.EdgeAdded{From: e.node, To: other, Kind: "blocks", Source: "plan"})},
+			} {
+				id, _ := gen.New(ids.Event, epoch)
+				ev.Header = store.Header{ID: id, TS: epoch}
+				if _, err := x.Append(ev); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := decide(t, e, core.Cancel{By: "kenny"}); !errors.Is(err, core.ErrInvalidTransition) || !strings.Contains(err.Error(), "#99") {
+			t.Fatalf("cancel with a dependent: %v", err)
+		}
+		project, _ := config.Load(filepath.Join(e.repo, ".kluzo"))
+		if err := supervisor.DecideNode(context.Background(), e.db, gen, e.clock, project, "99", core.Cancel{By: "kenny"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := decide(t, e, core.Cancel{By: "kenny"}); err != nil {
+			t.Fatal(err)
+		}
+		e.drain()
+		if n, _ := e.nodeRow(); n.State != core.NodeCancelled {
+			t.Errorf("node %s; moves %v", n.State, e.moves())
+		}
+		if c := e.comments(); !strings.Contains(c[len(c)-1], "cancelled") {
+			t.Errorf("last comment %q", c[len(c)-1])
+		}
+		if err := decide(t, e, core.Retry{}); err == nil {
+			t.Error("retry of a cancelled node")
+		}
+	})
+}
+
+func mustJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
