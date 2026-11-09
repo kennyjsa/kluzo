@@ -13,7 +13,7 @@ kluzo/
 │   │   ├── fakes/              # implementações em memória para testes
 │   │   └── contracttest/       # suíte que todo adaptador deve passar
 │   ├── store/                  # SQLite, migrations, Tx, journal, projeções, outbox
-│   ├── gitops/                 # git local endurecido: worktree e preparo, conferência pós-sessão, rebase, merge, diff por área; port Files
+│   ├── gitops/                 # git local endurecido: worktree e preparo, conferência pós-sessão, commit do nó, diff da rodada, rebase, merge; port Files
 │   ├── config/                 # carga e validação de .kluzo/
 │   ├── contracts/              # tipos de eventos e resultados, JSON Schemas embutidos
 │   ├── guard/                  # política de ferramentas do agente (git, gh, caminhos protegidos e secretos), usada pelo hook e pela conferência do diff
@@ -40,10 +40,10 @@ kluzo/
 | `cmd/kluzo` | Parse de flags; chama `app`; formata a saída | Regra de negócio |
 | `app` | Um caso de uso por operação (`CreateWorkspace`, `ApprovePlan`, `Run`, `Pause`, `AnswerQuestion`…); monta as dependências | Lógica de transição (isso é do `core`) |
 | `core` | `Apply(state, input) → (state, effects)`; validação do grafo; caminho crítico; avaliação de flows; regras de triagem e orçamento | I/O de qualquer tipo; relógio real; geração de ids aleatórios |
-| `supervisor` | Laço do workspace; executa os efeitos pelos ports; timeouts; retomada | Decidir transições |
+| `supervisor` | Laço do workspace: `planned → ready`, despacho, `core.Apply` e uma transação por decisão (transições, `node.flow`, efeitos); executor do outbox com a política de `data-model.md`; sessão de papel (worktree, prompt, MCP, início ou retomada, conferência pós-sessão, commit); etapas de gate pelo port `Gates`; registro de `mcp.call` e `guard.denied`; retomada depois de um crash | Decidir transições |
 | `ports` | Interfaces e tipos de fronteira | Implementação |
 | `store` | Persistência, `Tx`, reconstrução das projeções a partir do journal | Regras de domínio |
-| `gitops` | Executar `git` (endurecido: sem hooks, fsmonitor nem configuração global ou de sistema); criar, preparar (`worktree.include` e `worktree.setup` da ponta da milestone) e remover o worktree do nó; conferir e restaurar refs, `.git/config` e `.git/hooks` depois de cada sessão; implementar o port `Files` | Falar com o tracker; decidir o nome da branch do nó |
+| `gitops` | Executar `git` (endurecido: sem hooks, fsmonitor nem configuração global ou de sistema); criar, preparar (`worktree.include` e `worktree.setup` da ponta da milestone) e remover o worktree do nó; conferir e restaurar refs, `.git/config` e `.git/hooks` depois de cada sessão; commitar o trabalho do nó (o Kluzo commita, nunca o agente) e calcular o diff de uma rodada; implementar o port `Files` | Falar com o tracker; decidir o nome da branch do nó |
 | `config` | Ler e validar `.kluzo/` (inclusive `plans/<milestone>.yaml`), com erro por arquivo e linha | Aplicar a precedência em tempo de execução (isso é do `core`) |
 | `contracts` | Tipos e schemas compartilhados por todas as camadas | Lógica |
 | `guard` | Decidir se uma chamada de ferramenta, ou uma mudança de arquivo da rodada, quebra as regras do ADR 0020 e 0024 | Falar com o harness, com o Kluzo ou com o disco |

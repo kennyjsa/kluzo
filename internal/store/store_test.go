@@ -229,7 +229,7 @@ func TestOutbox(t *testing.T) {
 	if n, err := d.BeginEffect(ctx, "ef_b"); err != nil || n != 1 {
 		t.Fatalf("BeginEffect = %d, %v", n, err)
 	}
-	must(t, d.RetryEffect(ctx, "ef_b", "tracker down", now.Add(time.Minute)))
+	must(t, d.Tx(ctx, func(x *Tx) error { return x.RetryEffect("ef_b", "tracker down", now.Add(time.Minute)) }))
 	pending, err := d.PendingEffects(ctx, now, 10)
 	must(t, err)
 	if len(pending) != 1 || pending[0].ID != "ef_c" {

@@ -81,9 +81,10 @@ func (d *DB) BeginEffect(ctx context.Context, id string) (int, error) {
 	return n, nil
 }
 
-// RetryEffect records why the run failed and schedules the next one.
-func (d *DB) RetryEffect(ctx context.Context, id, lastError string, nextAt time.Time) error {
-	return updateEffect(ctx, d.sql, id, `UPDATE effects SET last_error = ?, next_at = ? WHERE id = ? AND state = 'pending'`, lastError, formatTS(nextAt))
+// RetryEffect records why the run failed and schedules the next one, in the
+// transaction that stores what the failed run cost.
+func (t *Tx) RetryEffect(id, lastError string, nextAt time.Time) error {
+	return updateEffect(t.ctx, t.tx, id, `UPDATE effects SET last_error = ?, next_at = ? WHERE id = ? AND state = 'pending'`, lastError, formatTS(nextAt))
 }
 
 // CompleteEffect marks an effect as done, in the transaction that stores what

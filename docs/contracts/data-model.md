@@ -58,7 +58,7 @@ CREATE TABLE effects (
   kind          TEXT NOT NULL,             -- 'tracker.set_label' | 'tracker.comment' | 'session.start' | 'git.merge' | …
   payload       TEXT NOT NULL,             -- JSON
   state         TEXT NOT NULL,             -- 'pending' | 'done' | 'failed'
-  attempts      INTEGER NOT NULL DEFAULT 0,
+  attempts      INTEGER NOT NULL DEFAULT 0, -- execuções iniciadas (contadas antes de rodar)
   next_at       TEXT,                      -- backoff
   last_error    TEXT,
   created_at    TEXT NOT NULL,
@@ -72,6 +72,8 @@ Política do outbox, aplicada pelo supervisor (o store só oferece as operaçõe
 - Um erro que o adaptador classifica como permanente (credencial inválida, recurso inexistente) vai direto para `failed`.
 - Ao virar `failed`, o supervisor grava `effect.failed` no journal e notifica. O nó ou workspace que dependia do efeito não avança sozinho.
 - Um efeito iniciado e não concluído (o processo morreu) continua `pending` e roda de novo; o adaptador deduplica pela `idem_key`.
+- A conclusão de um efeito cujo resultado vira entrada do núcleo (sessão, gates) é gravada na mesma transação da decisão: depois dela, a retomada não roda o efeito de novo.
+- Sessões têm política própria (ADR 0024, item 7): `CauseRateLimit` e `CauseRuntime` repetem com o mesmo backoff, em até 2 sessões novas na mesma tentativa; esgotadas, a etapa falha.
 
 ```sql
 CREATE TABLE workspace (                   -- uma única linha
@@ -106,6 +108,7 @@ CREATE TABLE nodes (
   cost_usd_micros INTEGER NOT NULL DEFAULT 0,
   critical      INTEGER NOT NULL DEFAULT 0, -- no caminho crítico (recalculado)
   merged_sha    TEXT,
+  flow          TEXT,                      -- JSON: progresso no flow de nó (evento node.flow; provisório, Q47)
   updated_at    TEXT NOT NULL
 );
 
