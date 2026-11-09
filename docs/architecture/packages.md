@@ -27,7 +27,7 @@ kluzo/
 │   ├── notify/{log,ntfy}/      # Notifier
 │   ├── codemap/{cartog,lsp}/   # CodeMapper (v0.3, ADR 0021)
 │   ├── web/                    # REST, SSE, tsnet, autorização, SPA embutida
-│   ├── platform/               # utilitários técnicos sem domínio: clock, ids (ULID), exec, redact, sessionenv, hostcred, text
+│   ├── platform/               # utilitários técnicos sem domínio: clock, ids (ULID), exec, redact, sessionenv, hostcred, text, docker
 │   └── archtest/               # testes das regras de dependência
 ├── web/                        # frontend Vue (fonte) → web/dist (embutido)
 ├── testdata/
@@ -41,10 +41,10 @@ kluzo/
 | `cmd/kluzo` | Parse de flags; chama `app`; formata a saída | Regra de negócio |
 | `app` | Um caso de uso por operação (`CreateWorkspace`, `ApprovePlan`, `Run`, `Pause`, `AnswerQuestion`…); monta as dependências | Lógica de transição (isso é do `core`) |
 | `core` | `Apply(state, input) → (state, effects)`; validação do grafo; caminho crítico; avaliação de flows; regras de triagem e orçamento | I/O de qualquer tipo; relógio real; geração de ids aleatórios |
-| `supervisor` | Laço do workspace: `planned → ready`, despacho, `core.Apply` e uma transação por decisão (transições, `node.flow`, efeitos); executor do outbox com a política de `data-model.md`; sessão de papel (worktree, prompt, MCP, início ou retomada, conferência pós-sessão, commit); etapas de gate pelo port `Gates`; registro de `mcp.call` e `guard.denied`; manifesto no `session.started`, custo das sessões e `budget.alert` da milestone; fatos da tentativa anterior a partir do journal; gates congelados no commit base da tentativa; conferência pós-rodada com as regras de `guard` (proposta ou finding automático); recusa de sessão com credenciais do host; retomada depois de um crash | Decidir transições |
+| `supervisor` | Laço do workspace: `planned → ready`, despacho, `core.Apply` e uma transação por decisão (transições, `node.flow`, efeitos); executor do outbox com a política de `data-model.md`; sessão de papel (worktree, prompt, MCP, início ou retomada, conferência pós-sessão, commit); etapas de gate pelo port `Gates`; registro de `mcp.call` e `guard.denied`; manifesto no `session.started`, custo das sessões e `budget.alert` da milestone; fatos da tentativa anterior a partir do journal; gates congelados no commit base da tentativa; conferência pós-rodada com as regras de `guard` (proposta ou finding automático); recusa de sessão com credenciais do host; retomada depois de um crash; fila de merge (vez na fila, rebase, freshness gate, merge e push da milestone), conferência de áreas antes da fila (ADR 0011), push da branch do nó antes de um gate `source: tracker`; criação ou adoção da branch da milestone, PR `milestone → main` e observação do merge humano; limpeza por ciclo de vida (ADR 0025) | Decidir transições |
 | `ports` | Interfaces e tipos de fronteira | Implementação |
 | `store` | Persistência, `Tx`, reconstrução das projeções a partir do journal | Regras de domínio |
-| `gitops` | Executar `git` (endurecido: sem hooks, fsmonitor nem configuração global ou de sistema); criar, preparar (`worktree.include` e `worktree.setup` da ponta da milestone) e remover o worktree do nó; conferir e restaurar refs, `.git/config` e `.git/hooks` depois de cada sessão; commitar o trabalho do nó (o Kluzo commita, nunca o agente) e calcular o diff de uma rodada; implementar o port `Files` | Falar com o tracker; decidir o nome da branch do nó |
+| `gitops` | Executar `git` (endurecido: sem hooks, fsmonitor nem configuração global ou de sistema); criar, preparar (`worktree.include` e `worktree.setup` da ponta da milestone) e remover o worktree do nó; conferir e restaurar refs, `.git/config` e `.git/hooks` depois de cada sessão; commitar o trabalho do nó (o Kluzo commita, nunca o agente) e calcular o diff de uma rodada; rebase do nó, merge `--no-ff` na milestone sem checkout (`merge-tree` e `commit-tree`), fetch e push com o token do bot no ambiente; implementar o port `Files` | Falar com o tracker; decidir o nome da branch do nó |
 | `config` | Ler e validar `.kluzo/` (inclusive `plans/<milestone>.yaml`), com erro por arquivo e linha | Aplicar a precedência em tempo de execução (isso é do `core`) |
 | `contracts` | Tipos e schemas compartilhados por todas as camadas | Lógica |
 | `gates` | Implementar o port `Gates`: rodar o comando do gate no worktree, com o ambiente e o timeout recebidos, guardar o log redigido em `logs/gates/` e extrair falhas estruturadas (`go test -json`, JUnit); ou ler os checks do CI | Ler a definição do gate (o supervisor a passa congelada) |
@@ -53,7 +53,7 @@ kluzo/
 | `mcp` | Servir as ferramentas `kluzo_*` e converter chamadas em entradas para o supervisor | Decidir o que acontece com elas |
 | `tracker/*`, `runtime/*`, `notify/*`, `codemap/*` | Implementar um port | Importar `core` |
 | `web` | HTTP, SSE, autenticação via tailnet; chama `app` | Regra de negócio |
-| `platform` | Clock, gerador de ids, `exec` com grupo de processos, remoção de segredos, ambiente das sessões, credenciais visíveis do host (`hostcred`), corte de texto (`text.Clip`, o único) | Conhecer o domínio |
+| `platform` | Clock, gerador de ids, `exec` com grupo de processos, remoção de segredos, ambiente das sessões, credenciais visíveis do host (`hostcred`), corte de texto (`text.Clip`, o único), remoção dos recursos Docker marcados pelo Kluzo (`docker`, pela CLI) | Conhecer o domínio |
 
 ### Sessões e gates no laço do supervisor
 

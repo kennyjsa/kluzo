@@ -120,6 +120,19 @@ type Run struct {
 	// set until the reviewer judges them, through fast gate retries.
 	Rejected bool
 	Ready    bool // the node reached the merge queue
+	// Tip is the milestone tip the node branch was rebased on, while the
+	// node integrates.
+	Tip string `json:",omitempty"`
+	// Integration is why the implementer is back after a failed integration:
+	// a rebase conflict or red freshness gates.
+	Integration *IntegrationFailure `json:",omitempty"`
+}
+
+// IntegrationFailure is a rebase conflict or a freshness gate that failed.
+type IntegrationFailure struct {
+	ConflictFiles []string `json:",omitempty"`
+	Markers       string   `json:",omitempty"` // the conflict markers, as text
+	Freshness     string   `json:",omitempty"` // what changed in the milestone since the review
 }
 
 // NodeFlow is a node and its progress through the flow.
@@ -169,17 +182,44 @@ type SessionRetry struct {
 	Step int
 }
 
-// GatesDone is a gate step that ran every gate.
+// GatesDone is a gate step that ran every gate, or, with Freshness, the full
+// gates run again on the rebased branch of an integrating node.
 type GatesDone struct {
-	Step    int
-	Results []ports.GateResult
+	Step      int
+	Results   []ports.GateResult
+	Freshness bool
+	// Changed is what changed in the milestone since the review, for the
+	// implementer when the freshness gates fail.
+	Changed string
 }
+
+// QueueTurn is the merge queue giving a queued node its turn.
+type QueueTurn struct{}
+
+// Rebased is the node branch rebased on the milestone tip Tip, now at Head;
+// Conflict is set, and Head empty, when the rebase stopped on a conflict.
+type Rebased struct {
+	Tip, Head string
+	Conflict  *IntegrationFailure
+}
+
+// TipMoved is the milestone tip moved on the remote after the rebase: the
+// node is rebased again, and the freshness gate judges the new tip.
+type TipMoved struct{}
+
+// Merged is the node merged into the milestone branch, at the merge commit SHA,
+// and the branch pushed.
+type Merged struct{ SHA string }
 
 func (Ready) isInput()        {}
 func (Dispatch) isInput()     {}
 func (SessionDone) isInput()  {}
 func (SessionRetry) isInput() {}
 func (GatesDone) isInput()    {}
+func (QueueTurn) isInput()    {}
+func (Rebased) isInput()      {}
+func (Merged) isInput()       {}
+func (TipMoved) isInput()     {}
 
 // Move is a transition of the node, in the order it happened. The store
 // replays each one through NextNode with its limits, and must reach To.
@@ -199,6 +239,11 @@ const (
 	EffectLabel   EffectKind = "tracker.set_label"
 	EffectComment EffectKind = "tracker.comment"
 	EffectNotify  EffectKind = "notify"
+	// The merge queue (ADR 0009) and the cleanup of a node that ended
+	// (ADR 0025).
+	EffectRebase      EffectKind = "git.rebase"
+	EffectMerge       EffectKind = "git.merge"
+	EffectCleanupNode EffectKind = "cleanup.node"
 )
 
 // Effect is something the supervisor must do after the decision is stored.
@@ -213,6 +258,9 @@ type Effect struct {
 	Body     string `json:"body,omitempty"`
 	Title    string `json:"title,omitempty"`
 	Priority string `json:"priority,omitempty"`
+	// Freshness asks the gates effect for the full gates again, on the
+	// rebased branch of an integrating node.
+	Freshness bool `json:"freshness,omitempty"`
 }
 
 // Decision is what Apply decided.
@@ -223,6 +271,15 @@ type Decision struct {
 	// Workspace is a trigger for the workspace ("" for none): a refused
 	// credential pauses it (state-machine.md).
 	Workspace WorkspaceTrigger
+	// Freshness is set when a rebase was clean: whether the milestone moved
+	// since the commit the review judged, and so the gates run again.
+	Freshness *Freshness
+}
+
+// Freshness compares the commit the review judged with the milestone tip.
+type Freshness struct {
+	Reviewed, Tip string
+	Rerun         bool
 }
 
 // ErrStaleInput means an input does not belong to the current step: a result
@@ -248,6 +305,14 @@ func Apply(s NodeFlow, in Input, f Flow, lim Limits) (Decision, error) {
 		err = d.retry(in)
 	case GatesDone:
 		err = d.gates(in)
+	case QueueTurn:
+		err = d.queueTurn()
+	case Rebased:
+		err = d.rebased(in)
+	case Merged:
+		err = d.merged(in)
+	case TipMoved:
+		err = d.tipMoved()
 	default:
 		err = fmt.Errorf("unknown input %T", in)
 	}
@@ -279,6 +344,9 @@ func (d *decider) move(ev NodeEvent, lim Limits, detail string) error {
 	n := len(d.d.Moves)
 	d.effect(Effect{Kind: EffectLabel, Key: fmt.Sprintf("label-%d", n), Label: next.State.Label()})
 	d.effect(Effect{Kind: EffectComment, Key: fmt.Sprintf("comment-%d", n), Body: TransitionComment(from, next, ev, detail)})
+	if next.State == NodeIntegrated || next.State == NodeCancelled {
+		d.effect(Effect{Kind: EffectCleanupNode, Key: "cleanup"}) // a failed node keeps its worktree (ADR 0025)
+	}
 	return nil
 }
 
@@ -299,6 +367,7 @@ func (d *decider) dispatch() error {
 	}
 	r := d.run()
 	r.Step, r.Implementer, r.Fresh, r.GateFailures, r.Rejected = 0, nil, true, nil, false
+	r.Ready, r.Tip, r.Integration = false, "", nil
 	return d.start()
 }
 
@@ -412,7 +481,7 @@ func (d *decider) implemented(in SessionDone) error {
 	if in.Base != "" {
 		r.Base = in.Base
 	}
-	r.Fresh, r.GateFailures = false, nil
+	r.Fresh, r.GateFailures, r.Integration = false, nil, nil
 	if len(in.Proposal) > 0 {
 		return d.block(BlockedProposal, "the work needs a human decision: "+strings.Join(in.Proposal, "; "))
 	}
@@ -454,6 +523,9 @@ func (d *decider) reviewed(st FlowStep, in SessionDone) error {
 
 func (d *decider) gates(in GatesDone) error {
 	r := d.run()
+	if in.Freshness {
+		return d.freshGates(in)
+	}
 	if in.Step != r.Step || d.flow.Steps[r.Step].Kind != StepGate {
 		return fmt.Errorf("%w: gates of step %d, node at step %d", ErrStaleInput, in.Step, r.Step)
 	}
@@ -490,4 +562,105 @@ func (d *decider) gates(in GatesDone) error {
 	}
 	r.Step, r.GateFailures = st.OnFail, failed
 	return d.start()
+}
+
+// integrating checks that an input of the merge queue belongs to the node.
+func (d *decider) integrating(what string) error {
+	if d.node().State != NodeIntegrating || !d.run().Ready {
+		return fmt.Errorf("%w: %s, node %s", ErrStaleInput, what, d.node().State)
+	}
+	return nil
+}
+
+// queueTurn starts the integration of a queued node: the rebase first.
+func (d *decider) queueTurn() error {
+	if err := d.move(NodeEvent{Trigger: TriggerQueueTurn}, d.lim, ""); err != nil {
+		return err
+	}
+	d.effect(Effect{Kind: EffectRebase, Key: "rebase"})
+	return nil
+}
+
+// rebased goes on after the rebase (ADR 0009): a conflict sends the node back
+// to the implementer; otherwise it merges, after the full gates run again if
+// the milestone moved since the commit the review judged (freshness gate).
+func (d *decider) rebased(in Rebased) error {
+	if err := d.integrating("rebase"); err != nil {
+		return err
+	}
+	if in.Conflict != nil {
+		return d.integrationFailed(in.Conflict, nil, "rebase conflict")
+	}
+	r := d.run()
+	r.Head, r.Tip = in.Head, in.Tip
+	f := &Freshness{Reviewed: r.Base, Tip: in.Tip, Rerun: in.Tip != r.Base}
+	d.d.Freshness = f
+	if f.Rerun {
+		d.effect(Effect{Kind: EffectGates, Key: "freshness", Step: r.Step, Freshness: true})
+		return nil
+	}
+	d.effect(Effect{Kind: EffectMerge, Key: "merge"})
+	return nil
+}
+
+// freshGates merges after green freshness gates, or sends the node back.
+func (d *decider) freshGates(in GatesDone) error {
+	if err := d.integrating("freshness gates"); err != nil {
+		return err
+	}
+	failed := slices.DeleteFunc(slices.Clone(in.Results), func(g ports.GateResult) bool { return g.State == ports.GatePassed })
+	if len(failed) > 0 {
+		return d.integrationFailed(&IntegrationFailure{Freshness: in.Changed}, failed, "freshness gates failed")
+	}
+	d.effect(Effect{Kind: EffectMerge, Key: "merge"})
+	return nil
+}
+
+// tipMoved rebases the node again on the new tip.
+func (d *decider) tipMoved() error {
+	if err := d.integrating("moved tip"); err != nil {
+		return err
+	}
+	d.effect(Effect{Kind: EffectRebase, Key: "rebase"})
+	return nil
+}
+
+// merged ends the node: integrated.
+func (d *decider) merged(in Merged) error {
+	if err := d.integrating("merge"); err != nil {
+		return err
+	}
+	return d.move(NodeEvent{Trigger: TriggerMerged}, d.lim, "merged at "+in.SHA)
+}
+
+// integrationFailed starts a new attempt with the cause, or blocks the node
+// when the attempts are over.
+func (d *decider) integrationFailed(cause *IntegrationFailure, gates []ports.GateResult, detail string) error {
+	err := d.move(NodeEvent{Trigger: TriggerIntegrationFailed}, d.lim, detail)
+	if errors.Is(err, ErrLimitReached) {
+		return d.block(BlockedTriage, detail+"; the attempts are over")
+	}
+	if err != nil {
+		return err
+	}
+	r := d.run()
+	r.Step, r.Implementer, r.Fresh, r.Rejected, r.Ready, r.Tip = 0, nil, true, false, false, ""
+	r.GateFailures, r.Integration = gates, cause
+	return d.start()
+}
+
+// FullGates are the gates of the gate steps after the review: those the
+// freshness gate runs again.
+func (f Flow) FullGates() []string {
+	var out []string
+	for _, s := range f.Steps {
+		if s.Kind == StepGate && !s.Fast {
+			for _, g := range s.Gates {
+				if !slices.Contains(out, g) {
+					out = append(out, g)
+				}
+			}
+		}
+	}
+	return out
 }

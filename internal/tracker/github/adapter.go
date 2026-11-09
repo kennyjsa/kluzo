@@ -69,6 +69,10 @@ type Adapter struct {
 
 	mu    sync.Mutex
 	login string // who the adapter acts as; set at once for an App, on demand for a token
+
+	// token returns the credential git uses to fetch and push as the bot:
+	// the token, or a fresh installation token of the App.
+	token func(context.Context) (string, error)
 }
 
 var (
@@ -145,6 +149,7 @@ func (a *Adapter) authTransport(ctx context.Context, opts Options, base *http.Cl
 		inner = http.DefaultTransport
 	}
 	if opts.Auth.Kind == AuthToken {
+		a.token = func(context.Context) (string, error) { return opts.Auth.Token, nil }
 		return bearer{token: opts.Auth.Token, base: inner}, nil
 	}
 
@@ -169,8 +174,21 @@ func (a *Adapter) authTransport(ctx context.Context, opts Options, base *http.Cl
 	if err != nil {
 		return nil, a.fail("find the app installation of "+a.owner+"/"+a.repo, err)
 	}
-	return ghinstallation.NewFromAppsTransport(apps, inst.GetID()), nil
+	installation := ghinstallation.NewFromAppsTransport(apps, inst.GetID())
+	a.token = func(ctx context.Context) (string, error) {
+		tok, err := installation.Token(ctx)
+		if err != nil {
+			return "", a.fail("get an installation token", err)
+		}
+		return tok, nil
+	}
+	return installation, nil
 }
+
+// GitToken is the credential of the bot for git fetch and push over https
+// (gitops.Remote): the token itself, or an installation token of the App,
+// renewed before it expires. It is never given to an agent (security.md).
+func (a *Adapter) GitToken(ctx context.Context) (string, error) { return a.token(ctx) }
 
 // newClient builds a go-github client for httpClient, pointing at apiRoot when
 // it is not empty.

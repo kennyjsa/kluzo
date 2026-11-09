@@ -37,6 +37,7 @@ func TestIntegrationNode(t *testing.T) {
 	defer cancel()
 	dir := t.TempDir()
 	makeRepo(t, filepath.Join(dir, "repo"))
+	newRemote(t, dir)
 	db := openDB(t, filepath.Join(dir, "state.db"))
 	gen := ids.NewGenerator(rand.Reader)
 	tracker := fakes.NewTracker(clock.System{})
@@ -65,7 +66,7 @@ func TestIntegrationNode(t *testing.T) {
 	e := &env{t: t, db: db, node: node}
 	n, _ := e.nodeRow()
 	t.Logf("node %s (%s), attempt %d round %d, cost US$ %.4f, moves %v", n.State, n.BlockedReason, n.Attempt, n.Round, float64(n.CostUSDMicros)/1e6, e.moves())
-	if n.State != core.NodeQueued {
-		t.Errorf("node = %s, want queued", n.State)
+	if n.State != core.NodeIntegrated {
+		t.Errorf("node = %s, want integrated", n.State)
 	}
 }

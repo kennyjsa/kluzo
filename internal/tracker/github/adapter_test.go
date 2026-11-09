@@ -506,6 +506,14 @@ func TestBadCredentialsAreNotLeaked(t *testing.T) {
 	}
 }
 
+func TestGitTokenOfAToken(t *testing.T) {
+	tok := "ghp_" + strings.Repeat("g", 36)
+	a := newHarness(t).adapter(t, Auth{Kind: AuthToken, Token: tok})
+	if got, err := a.GitToken(context.Background()); err != nil || got != tok {
+		t.Errorf("GitToken = %q, %v", got, err)
+	}
+}
+
 func TestWhoamiOfATokenIsTheUserLogin(t *testing.T) {
 	h := newHarness(t)
 	for range 2 { // the second call is served from memory
@@ -583,9 +591,35 @@ func TestGitHubAppAuthentication(t *testing.T) {
 	if login, err := a.Whoami(context.Background()); err != nil || login != "kluzo-test[bot]" {
 		t.Errorf("Whoami of an App = %q, %v; want kluzo-test[bot]", login, err)
 	}
+	if tok, err := a.GitToken(context.Background()); err != nil || tok != h.f.token {
+		t.Errorf("GitToken of an App = %q, %v; want the installation token", tok, err)
+	}
 
 	_, err = New(context.Background(), Options{Repo: "acme/sandbox", Auth: Auth{Kind: AuthGitHubApp, AppID: 1, PrivateKey: []byte("not a key")}, BaseURL: h.f.srv.URL, HTTPClient: h.f.srv.Client()})
 	if err == nil || strings.Contains(err.Error(), "not a key") {
 		t.Errorf("bad private key: err = %v, want an error that does not echo the key", err)
+	}
+}
+
+// A closed PR of the same branches that this key did not open (an earlier use
+// of the branch name, or someone else's) is not reused; the PR this key
+// opened is, even after its merge.
+func TestOpenPRIgnoresAForeignClosedPR(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	if _, err := h.a.EnsureBranch(ctx, "milestone/v0.1", "main"); err != nil {
+		t.Fatal(err)
+	}
+	h.f.commit("milestone/v0.1")
+	h.f.mu.Lock()
+	h.f.prs = append(h.f.prs, &ghPR{Number: 99, Title: "old", Body: "an earlier milestone", Head: "milestone/v0.1", Base: "main", State: "closed", Merged: true})
+	h.f.mu.Unlock()
+	pr, err := h.a.OpenPR(ctx, ports.NewPR{Title: "v0.1", Head: "milestone/v0.1", Base: "main"}, "idem/pr")
+	if err != nil || pr.Ref == "99" || pr.Merged {
+		t.Fatalf("OpenPR = %+v, %v; want a new PR", pr, err)
+	}
+	h.f.merge(2) // the second PR of the fake, by position
+	if again, err := h.a.OpenPR(ctx, ports.NewPR{Title: "v0.1", Head: "milestone/v0.1", Base: "main"}, "idem/pr"); err != nil || again.Ref != pr.Ref || !again.Merged {
+		t.Errorf("OpenPR again = %+v, %v; want the merged PR of the key", again, err)
 	}
 }

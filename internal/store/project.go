@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
@@ -34,6 +35,14 @@ func (t *Tx) project(e Event) error {
 		return t.projectSessionStarted(e)
 	case contracts.EventSessionFinished:
 		return t.projectSessionFinished(e)
+	case contracts.EventGateStarted:
+		return t.projectGateStarted(e)
+	case contracts.EventGateFinished:
+		return t.projectGateFinished(e)
+	case contracts.EventAreaDeviation:
+		return t.projectAreaDeviation(e)
+	case contracts.EventPROpened:
+		return t.projectPROpened(e)
 	}
 	return nil
 }
@@ -173,6 +182,87 @@ func (t *Tx) projectSessionFinished(e Event) error {
 	return err
 }
 
+// projectGateStarted records a gate run, running, under the id of its event.
+func (t *Tx) projectGateStarted(e Event) error {
+	var p contracts.GateRun
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	_, err := t.tx.ExecContext(t.ctx,
+		`INSERT INTO gate_runs (id, node_id, gate, sha, state, started_at) VALUES (?, NULLIF(?, ''), ?, ?, 'running', ?)`,
+		e.ID, e.NodeID, p.Gate, p.SHA, formatTS(e.TS))
+	return err
+}
+
+// projectGateFinished closes the last running run of the gate on the same
+// commit. A gate.finished without its gate.started (an older journal) is
+// recorded as a finished run of its own.
+func (t *Tx) projectGateFinished(e Event) error {
+	var p contracts.GateRun
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	ts := formatTS(e.TS)
+	res, err := t.tx.ExecContext(t.ctx,
+		`UPDATE gate_runs SET state = ?, log_ref = NULLIF(?, ''), finished_at = ?
+		  WHERE id = (SELECT id FROM gate_runs WHERE COALESCE(node_id, '') = ? AND gate = ? AND sha = ? AND state = 'running' ORDER BY started_at DESC, id DESC LIMIT 1)`,
+		p.State, p.LogRef, ts, e.NodeID, p.Gate, p.SHA)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 1 {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx,
+		`INSERT INTO gate_runs (id, node_id, gate, sha, state, log_ref, started_at, finished_at) VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?)`,
+		e.ID, e.NodeID, p.Gate, p.SHA, p.State, p.LogRef, ts, ts)
+	return err
+}
+
+// projectAreaDeviation adds to the node the areas its diff touched, but the
+// shared area (ADR 0011).
+func (t *Tx) projectAreaDeviation(e Event) error {
+	var p contracts.AreaDeviation
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	var raw string
+	err := t.tx.QueryRowContext(t.ctx, `SELECT areas FROM nodes WHERE id = ?`, e.NodeID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: node %s", ErrNotFound, e.NodeID)
+	}
+	if err != nil {
+		return err
+	}
+	var areas []string
+	if err := json.Unmarshal([]byte(raw), &areas); err != nil {
+		return fmt.Errorf("node %s: bad areas: %w", e.NodeID, err)
+	}
+	for _, a := range p.Touched {
+		if a != contracts.SharedArea && !slices.Contains(areas, a) {
+			areas = append(areas, a)
+		}
+	}
+	_, err = t.tx.ExecContext(t.ctx, `UPDATE nodes SET areas = ?, updated_at = ? WHERE id = ?`, string(jsonOf(areas)), formatTS(e.TS), e.NodeID)
+	return err
+}
+
+// projectPROpened keeps the PR milestone → main in the cursor of the closing
+// flow.
+func (t *Tx) projectPROpened(e Event) error {
+	var p contracts.PROpened
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	_, err := t.tx.ExecContext(t.ctx, `UPDATE workspace SET flow_cursor = ?, updated_at = ?`, string(jsonOf(closingCursor{PR: p})), formatTS(e.TS))
+	return err
+}
+
+// closingCursor is workspace.flow_cursor during the closing.
+type closingCursor struct {
+	PR contracts.PROpened `json:"pr"`
+}
+
 // WorkspaceCost is what the sessions of the workspace spent and the budget
 // of the milestone (0 when the workspace has none of its own), in
 // micro-dollars.
@@ -215,7 +305,7 @@ const replayPage = 500
 // must equal the incrementally maintained state.
 func (d *DB) Rebuild(ctx context.Context) error {
 	return d.Tx(ctx, func(t *Tx) error {
-		for _, table := range []string{"sessions", "edges", "nodes", "workspace"} {
+		for _, table := range []string{"gate_runs", "sessions", "edges", "nodes", "workspace"} {
 			if _, err := t.tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 				return fmt.Errorf("clear %s: %w", table, err)
 			}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -39,8 +40,8 @@ func TestMigrations(t *testing.T) {
 	}
 	var n int
 	must(t, d.sql.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n))
-	if n != 3 {
-		t.Errorf("migrations applied = %d, want 3", n)
+	if n != 4 {
+		t.Errorf("migrations applied = %d, want 4", n)
 	}
 
 	// A database from a newer binary is refused rather than misread.
@@ -275,6 +276,8 @@ func TestMigrationRebuildsNewProjections(t *testing.T) {
 			{Kind: contracts.EventSessionFinished, Payload: payload(contracts.SessionFinished{State: "finished", CostUSDMicros: 5, Result: json.RawMessage(`{"v":1}`)})},
 			{Kind: contracts.EventSessionStarted, Payload: payload(contracts.SessionStarted{Role: "implementer", Harness: "h", Model: "m"})},
 			{Kind: contracts.EventSessionFinished, Payload: payload(contracts.SessionFinished{State: "failed", CostUSDMicros: 7})},
+			{Kind: contracts.EventGateStarted, Payload: payload(contracts.GateRun{Gate: "test", SHA: "a1"})},
+			{Kind: contracts.EventGateFinished, Payload: payload(contracts.GateRun{Gate: "test", SHA: "a1", State: "passed", LogRef: "logs/gates/1.log"})},
 		} {
 			e.Header, e.NodeID, e.SessionID = hdr(10+i), "nd_1", "ss_1"
 			if _, err := x.Append(e); err != nil {
@@ -283,8 +286,8 @@ func TestMigrationRebuildsNewProjections(t *testing.T) {
 		}
 		return nil
 	})
-	// Back to version 2: no sessions table, no cost.
-	for _, q := range []string{`DROP TABLE sessions`, `UPDATE nodes SET cost_usd_micros = 0`, `UPDATE workspace SET cost_usd_micros = 0`, `DELETE FROM schema_migrations WHERE version = 3`} {
+	// Back to version 2: no sessions nor gate_runs table, no cost.
+	for _, q := range []string{`DROP TABLE sessions`, `DROP TABLE gate_runs`, `UPDATE nodes SET cost_usd_micros = 0`, `UPDATE workspace SET cost_usd_micros = 0`, `DELETE FROM schema_migrations WHERE version >= 3`} {
 		_, err := d.sql.Exec(q)
 		must(t, err)
 	}
@@ -295,4 +298,55 @@ func TestMigrationRebuildsNewProjections(t *testing.T) {
 		s.Nodes[0].CostUSDMicros != 12 || s.Workspace.CostUSDMicros != 12 {
 		t.Errorf("after the migration: sessions %+v, nodes %+v, workspace %+v", s.Sessions, s.Nodes, s.Workspace)
 	}
+	if len(s.GateRuns) != 1 || s.GateRuns[0].State != "passed" || s.GateRuns[0].LogRef != "logs/gates/1.log" || s.GateRuns[0].FinishedAt == "" {
+		t.Errorf("after the migration: gate runs %+v", s.GateRuns)
+	}
+}
+
+// The projections of the merge queue and the closing: gate runs from
+// gate.started/gate.finished (a rerun is a new row), the areas a deviation
+// adds, and the PR the closing opened; Rebuild reaches the same state.
+func TestMergeQueueProjections(t *testing.T) {
+	d := openTemp(t)
+	createWorkspace(t, d, 1)
+	addNode(t, d, 3, "nd_1", "1")
+	gate := func(kind, state string) Event {
+		return Event{Kind: kind, NodeID: "nd_1", Payload: payload(contracts.GateRun{Gate: "test", SHA: "a1", State: state})}
+	}
+	tx(t, d, func(x *Tx) error {
+		for i, e := range []Event{
+			gate(contracts.EventGateStarted, ""),
+			gate(contracts.EventGateFinished, "failed"),
+			gate(contracts.EventGateStarted, ""),
+			gate(contracts.EventGateFinished, "passed"),
+			gate(contracts.EventGateStarted, ""),
+			{Kind: contracts.EventAreaDeviation, NodeID: "nd_1", Payload: payload(contracts.AreaDeviation{Declared: []string{"agenda"}, Touched: []string{"agenda", "auth", contracts.SharedArea}, Files: []string{"internal/auth/a.go"}})},
+			{Kind: contracts.EventPROpened, Payload: payload(contracts.PROpened{Ref: "7", URL: "https://x/7"})},
+		} {
+			e.Header = hdr(10 + i)
+			if _, err := x.Append(e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	check := func(when string) {
+		s := snapshot(t, d)
+		var states []string
+		for _, r := range s.GateRuns {
+			states = append(states, r.State)
+		}
+		if !slices.Equal(states, []string{"failed", "passed", "running"}) || s.GateRuns[0].ID != "ev_0010" || s.GateRuns[2].FinishedAt != "" {
+			t.Errorf("%s: gate runs %+v", when, s.GateRuns)
+		}
+		if !slices.Equal(s.Nodes[0].Areas, []string{"agenda", "auth"}) {
+			t.Errorf("%s: areas %v", when, s.Nodes[0].Areas)
+		}
+		if s.Workspace.PR != (contracts.PROpened{Ref: "7", URL: "https://x/7"}) {
+			t.Errorf("%s: PR %+v", when, s.Workspace.PR)
+		}
+	}
+	check("appended")
+	must(t, d.Rebuild(context.Background()))
+	check("rebuilt")
 }

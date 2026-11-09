@@ -87,9 +87,15 @@ func Caches(ecosystems []string, downloads, builds string) (map[string]string, e
 }
 
 // Compose returns the COMPOSE_PROJECT_NAME of a node, which marks the Docker
-// resources the node creates (ADR 0025, item 1).
+// resources the node creates (ADR 0025, item 1). It is in lower case: compose
+// refuses a project name with upper case, and workspace ids are ULIDs.
 func Compose(workspace, node string) map[string]string {
-	return map[string]string{"COMPOSE_PROJECT_NAME": "kluzo-" + workspace + "-" + node}
+	return map[string]string{"COMPOSE_PROJECT_NAME": ComposeProject(workspace, node)}
+}
+
+// ComposeProject is the compose project name of a node.
+func ComposeProject(workspace, node string) string {
+	return strings.ToLower("kluzo-" + workspace + "-" + node)
 }
 
 // Merge returns the union of the maps; later maps win.

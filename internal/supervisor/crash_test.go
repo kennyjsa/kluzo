@@ -33,7 +33,8 @@ const (
 
 // Killing Kluzo anywhere and starting it again continues from the last role
 // that finished, without repeating an effect (ADR 0013): the node ends in the
-// merge queue with each transition journaled once and each comment posted once.
+// milestone branch, merged once and pushed, with each transition journaled
+// once and each comment posted once, and the workspace ready to merge.
 func TestCrashResumesWithoutDuplicates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs the supervisor in child processes")
@@ -80,6 +81,7 @@ func newCrashDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	makeRepo(t, filepath.Join(dir, "repo"))
+	newRemote(t, dir)
 	db := openDB(t, filepath.Join(dir, "state.db"))
 	seed(t, db, ids.NewGenerator(rand.Reader), "1", 6_000_000)
 	if err := db.Close(); err != nil {
@@ -156,10 +158,10 @@ func checkCrashOutcome(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	e.node = snap.Nodes[0].ID
-	if n, r := e.nodeRow(); n.State != core.NodeQueued || !r.Ready {
+	if n, r := e.nodeRow(); n.State != core.NodeIntegrated || !r.Ready {
 		t.Fatalf("node %s, run %+v", n.State, r)
 	}
-	if want := []string{"ready", "running", "in_review", "gating", "queued"}; !slices.Equal(e.moves(), want) {
+	if want := []string{"ready", "running", "in_review", "gating", "queued", "integrating", "integrated"}; !slices.Equal(e.moves(), want) {
 		t.Errorf("moves = %v, want each once: %v", e.moves(), want)
 	}
 	// Every session that finished is paid, the ones a kill made run again too.
@@ -176,11 +178,25 @@ func checkCrashOutcome(t *testing.T, dir string) {
 			comments = append(comments, r.Body)
 		}
 	}
-	if len(comments) != 5 {
-		t.Errorf("comments = %d, want 5 (one per transition):\n%s", len(comments), strings.Join(comments, "\n"))
+	if len(comments) != 7 {
+		t.Errorf("comments = %d, want 7 (one per transition):\n%s", len(comments), strings.Join(comments, "\n"))
 	}
-	if len(labels) == 0 || labels[len(labels)-1] != "orch/queued" {
+	if len(labels) == 0 || labels[len(labels)-1] != "orch/integrated" {
 		t.Errorf("labels = %v", labels)
+	}
+	// One merge on the milestone branch, pushed; the workspace waits for the
+	// human merge of its one PR.
+	merges, err := gitRun(filepath.Join(dir, "repo"), "rev-list", "--merges", "--count", "milestone/v1")
+	if err != nil || strings.TrimSpace(merges) != "1" {
+		t.Errorf("merges on the milestone = %q, %v", merges, err)
+	}
+	local, _ := gitRun(filepath.Join(dir, "repo"), "rev-parse", "milestone/v1")
+	remote, _ := gitRun(filepath.Join(dir, "origin.git"), "rev-parse", "milestone/v1")
+	if local != remote {
+		t.Errorf("milestone local %s, remote %s", local, remote)
+	}
+	if snap.Workspace.State != core.WorkspaceReadyToMerge || len(e.events(contracts.EventPROpened)) != 1 || len(e.events(contracts.EventMergeDone)) != 1 {
+		t.Errorf("workspace %s, pr.opened %d, merge.done %d", snap.Workspace.State, len(e.events(contracts.EventPROpened)), len(e.events(contracts.EventMergeDone)))
 	}
 }
 

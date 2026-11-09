@@ -49,7 +49,7 @@ func (t *Tx) TransitionNode(nodeID string, ev core.NodeEvent, lim core.Limits, h
 // TransitionWorkspace moves the workspace through core's state machine and
 // journals the move; a refused move writes nothing.
 func (t *Tx) TransitionWorkspace(trigger core.WorkspaceTrigger, h Header, effects ...EffectSpec) (core.WorkspaceState, error) {
-	cur, err := t.workspaceState()
+	cur, err := t.WorkspaceState()
 	if err != nil {
 		return "", err
 	}
@@ -84,7 +84,8 @@ func (t *Tx) node(id string) (core.Node, error) {
 	return n, nil
 }
 
-func (t *Tx) workspaceState() (core.WorkspaceState, error) {
+// WorkspaceState is the state of the workspace.
+func (t *Tx) WorkspaceState() (core.WorkspaceState, error) {
 	var state string
 	err := t.tx.QueryRowContext(t.ctx, `SELECT state FROM workspace`).Scan(&state)
 	if errors.Is(err, sql.ErrNoRows) {

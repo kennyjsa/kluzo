@@ -561,16 +561,19 @@ func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Ru
 		Issue: n.IssueRef, Branch: s.branch(n), IssueTitle: issue.Title, IssueBody: issue.Body,
 		Criteria: s.cfg.Criteria[n.IssueRef], Verify: cmds,
 	}
-	// Back for review findings, red gates or both: the findings stay in the
+	// Back for review findings, red gates, a failed integration: the findings stay in the
 	// task until the reviewer judges them, because the coverage asks for an
 	// answer to each.
-	if st.Role == core.RoleImplementer && (r.Rejected || len(r.GateFailures) > 0) {
+	if st.Role == core.RoleImplementer && (r.Rejected || len(r.GateFailures) > 0 || r.Integration != nil) {
 		t.Why = &prompt.Why{}
 		if r.Rejected {
 			t.Why.Review = &prompt.ReviewCause{Findings: r.Findings.Open()}
 		}
 		if len(r.GateFailures) > 0 {
 			t.Why.Gate = gateFailures(r.GateFailures, cmds)
+		}
+		if c := r.Integration; c != nil {
+			t.Why.Integration = &prompt.IntegrationCause{ConflictFiles: c.ConflictFiles, Markers: c.Markers, Freshness: c.Freshness}
 		}
 	}
 	if st.Role == core.RoleImplementer && r.Fresh && n.Attempt > 1 {

@@ -44,3 +44,42 @@ func TestNextWorkspace(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceEffects(t *testing.T) {
+	for _, tt := range []struct {
+		from, to WorkspaceState
+		want     EffectKind
+	}{
+		{WorkspaceNone, WorkspaceAwaitingApproval, EffectEnsureMilestone},
+		{WorkspaceNone, WorkspaceRefining, EffectEnsureMilestone},
+		{WorkspaceRunning, WorkspaceClosing, EffectOpenPR},
+		{WorkspaceReadyToMerge, WorkspaceMerged, EffectCleanupWorkspace},
+		{WorkspaceRunning, WorkspaceCancelled, EffectCleanupWorkspace},
+		{WorkspaceRunning, WorkspacePaused, ""},
+		{WorkspaceClosing, WorkspaceReadyToMerge, ""},
+		{WorkspaceMerged, WorkspaceArchived, ""},
+	} {
+		got := WorkspaceEffects(tt.from, tt.to)
+		if (tt.want == "") != (len(got) == 0) || (len(got) > 0 && (len(got) != 1 || got[0].Kind != tt.want)) {
+			t.Errorf("%q → %q: %+v, want %q", tt.from, tt.to, got, tt.want)
+		}
+	}
+}
+
+func TestAllIntegrated(t *testing.T) {
+	for _, tt := range []struct {
+		nodes []NodeState
+		want  bool
+	}{
+		{nil, false},
+		{[]NodeState{NodeIntegrated}, true},
+		{[]NodeState{NodeIntegrated, NodeCancelled}, true},
+		{[]NodeState{NodeCancelled}, false},
+		{[]NodeState{NodeIntegrated, NodeQueued}, false},
+		{[]NodeState{NodeIntegrated, NodeFailed}, false},
+	} {
+		if got := AllIntegrated(tt.nodes); got != tt.want {
+			t.Errorf("AllIntegrated(%v) = %v", tt.nodes, got)
+		}
+	}
+}

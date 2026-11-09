@@ -408,3 +408,118 @@ func TestSyncAuto(t *testing.T) {
 		t.Errorf("third sync (b again) = %+v", fs.List)
 	}
 }
+
+// toQueue plays a node to the merge queue: approved in the first round, from
+// base b0, at c1.
+var toQueue = []Input{Dispatch{}, implDone(0), gates(1, ports.GatePassed), review(2, true), gates(3, ports.GatePassed)}
+
+// The merge queue (ADR 0009), by table: the turn starts the rebase; a clean
+// rebase on the reviewed tip merges, on a moved tip runs the full gates again
+// (freshness); a conflict or red freshness gates start a new attempt with the
+// cause, or block the node when the attempts are over; the merge integrates
+// the node and cleans it up.
+func TestFlowMergeQueue(t *testing.T) {
+	conflict := &IntegrationFailure{ConflictFiles: []string{"a.go"}, Markers: "<<<<<<<"}
+	for _, tt := range []struct {
+		name    string
+		inputs  []Input
+		state   NodeState
+		effects []EffectKind // of the last decision, without labels and comments
+		check   func(t *testing.T, s NodeFlow, last Decision)
+	}{
+		{"the turn starts the rebase", []Input{QueueTurn{}}, NodeIntegrating, []EffectKind{EffectRebase}, nil},
+		{"a clean rebase on the reviewed tip merges", []Input{QueueTurn{}, Rebased{Tip: "b0", Head: "c1"}}, NodeIntegrating, []EffectKind{EffectMerge},
+			func(t *testing.T, _ NodeFlow, last Decision) {
+				if f := last.Freshness; f == nil || f.Rerun || f.Reviewed != "b0" || f.Tip != "b0" {
+					t.Errorf("freshness = %+v", f)
+				}
+			}},
+		{"a moved tip runs the full gates again", []Input{QueueTurn{}, Rebased{Tip: "t1", Head: "c2"}}, NodeIntegrating, []EffectKind{EffectGates},
+			func(t *testing.T, s NodeFlow, last Decision) {
+				if f := last.Freshness; f == nil || !f.Rerun || s.Run.Head != "c2" || s.Run.Tip != "t1" || !last.Effects[0].Freshness || last.Effects[0].Step != 4 {
+					t.Errorf("freshness = %+v, run %+v, effects %+v", f, s.Run, last.Effects)
+				}
+			}},
+		{"green freshness gates merge", []Input{QueueTurn{}, Rebased{Tip: "t1", Head: "c2"}, GatesDone{Step: 4, Freshness: true, Results: []ports.GateResult{{Gate: "test", State: ports.GatePassed}}}},
+			NodeIntegrating, []EffectKind{EffectMerge}, nil},
+		{"red freshness gates start a new attempt", []Input{QueueTurn{}, Rebased{Tip: "t1", Head: "c2"},
+			GatesDone{Step: 4, Freshness: true, Changed: "x.go", Results: []ports.GateResult{{Gate: "test", State: ports.GateFailed}}}},
+			NodeRunning, []EffectKind{EffectSession},
+			func(t *testing.T, s NodeFlow, _ Decision) {
+				if s.Node.Attempt != 2 || !s.Run.Fresh || s.Run.Ready || s.Run.Integration == nil || s.Run.Integration.Freshness != "x.go" || len(s.Run.GateFailures) != 1 {
+					t.Errorf("after red freshness gates: %+v", s)
+				}
+			}},
+		{"a conflict starts a new attempt with the cause", []Input{QueueTurn{}, Rebased{Conflict: conflict}}, NodeRunning, []EffectKind{EffectSession},
+			func(t *testing.T, s NodeFlow, _ Decision) {
+				if s.Node.Attempt != 2 || s.Run.Step != 0 || !s.Run.Fresh || s.Run.Implementer != nil || s.Run.Integration != conflict {
+					t.Errorf("after a conflict: %+v", s)
+				}
+			}},
+		{"the cause clears when the implementer delivers", []Input{QueueTurn{}, Rebased{Conflict: conflict}, implDone(0)}, NodeRunning, []EffectKind{EffectGates},
+			func(t *testing.T, s NodeFlow, _ Decision) {
+				if s.Run.Integration != nil {
+					t.Errorf("integration cause kept: %+v", s.Run.Integration)
+				}
+			}},
+		{"a conflict on the last attempt blocks", []Input{QueueTurn{}, Rebased{Conflict: conflict}, implDone(0), gates(1, ports.GatePassed), review(2, true), gates(3, ports.GatePassed), QueueTurn{}, Rebased{Conflict: conflict}},
+			NodeBlocked, []EffectKind{EffectNotify},
+			func(t *testing.T, s NodeFlow, _ Decision) {
+				if s.Node.BlockedReason != BlockedTriage {
+					t.Errorf("blocked for %s", s.Node.BlockedReason)
+				}
+			}},
+		{"a tip moved before the merge rebases again", []Input{QueueTurn{}, Rebased{Tip: "b0", Head: "c1"}, TipMoved{}}, NodeIntegrating, []EffectKind{EffectRebase}, nil},
+		{"the merge integrates and cleans up", []Input{QueueTurn{}, Rebased{Tip: "b0", Head: "c1"}, Merged{SHA: "m1"}}, NodeIntegrated, []EffectKind{EffectCleanupNode}, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, ds := play(t, append(slices.Clone(toQueue), tt.inputs...)...)
+			last := ds[len(ds)-1]
+			if s.Node.State != tt.state {
+				t.Fatalf("state = %s, want %s (moves %v)", s.Node.State, tt.state, moves(ds))
+			}
+			var got []EffectKind
+			for _, k := range kindsOf(last) {
+				if k != EffectLabel && k != EffectComment {
+					got = append(got, k)
+				}
+			}
+			if !slices.Equal(got, tt.effects) {
+				t.Errorf("effects = %v, want %v", got, tt.effects)
+			}
+			if tt.check != nil {
+				tt.check(t, s, last)
+			}
+		})
+	}
+}
+
+// Inputs of the merge queue for a node that is not integrating are stale, and
+// a cancelled node is cleaned up like an integrated one; a failed one is not.
+func TestFlowMergeQueueStaleAndEndings(t *testing.T) {
+	s, _ := play(t, toQueue...)
+	for name, in := range map[string]Input{
+		"rebase while queued":          Rebased{Tip: "b0", Head: "c1"},
+		"merge while queued":           Merged{SHA: "m"},
+		"moved tip while queued":       TipMoved{},
+		"freshness gates while queued": GatesDone{Step: 4, Freshness: true},
+	} {
+		if _, err := Apply(s, in, testFlow, flowLimits); !errors.Is(err, ErrStaleInput) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	d := &decider{d: Decision{Next: s}, flow: testFlow, lim: flowLimits}
+	if err := d.move(NodeEvent{Trigger: TriggerCancel}, flowLimits, ""); err != nil || !slices.Contains(kindsOf(d.d), EffectCleanupNode) {
+		t.Errorf("cancel: %v, effects %v", err, kindsOf(d.d))
+	}
+	d = &decider{d: Decision{Next: s}, flow: testFlow, lim: flowLimits}
+	if err := d.fail("x"); err != nil || slices.Contains(kindsOf(d.d), EffectCleanupNode) {
+		t.Errorf("fail: %v, effects %v", err, kindsOf(d.d))
+	}
+}
+
+func TestFullGates(t *testing.T) {
+	if got := testFlow.FullGates(); !slices.Equal(got, []string{"test"}) {
+		t.Errorf("FullGates = %v", got)
+	}
+}

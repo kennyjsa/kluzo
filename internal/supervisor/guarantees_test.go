@@ -101,14 +101,19 @@ func TestGatesAreRealAndFrozen(t *testing.T) {
 		// checkout the gates run in.
 		files: map[string]string{"agenda.go": "package agenda\n", "gate.flag": "x"}}, rev(reviewed(true, nil)))
 	e.drain()
-	if n, _ := e.nodeRow(); n.State != core.NodeQueued {
+	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
 		t.Fatalf("node = %s, moves %v", n.State, e.moves())
 	}
 	if rec.runs[0].Workdir == filepath.Join(e.dir, "ws", "worktrees", e.issue) {
 		t.Errorf("the gates ran in the worktree of the node")
 	}
-	if len(rec.runs) != 2 || rec.runs[1].Command == "exit 1" || slices.Contains(rec.runs[1].Env, "LEAK_X=secret") || !slices.Contains(rec.runs[1].Env, "DB_URL_TEST=db") {
+	if len(rec.runs) != 3 || rec.runs[1].Command == "exit 1" || slices.Contains(rec.runs[1].Env, "LEAK_X=secret") || !slices.Contains(rec.runs[1].Env, "DB_URL_TEST=db") {
 		t.Errorf("runs = %+v", rec.runs)
+	}
+	// The milestone moved after the review: the freshness gate runs the full
+	// gates again on the rebased branch, still with the frozen definitions.
+	if n, _ := e.nodeRow(); len(rec.runs) == 3 && (rec.runs[2].Gate != "test" || rec.runs[2].SHA == rec.runs[1].SHA || rec.runs[2].Command == "exit 1" || n.MergedSHA == "") {
+		t.Errorf("freshness run = %+v", rec.runs[2])
 	}
 	for _, ev := range e.events(contracts.EventGateFinished) {
 		var g contracts.GateRun
@@ -145,7 +150,7 @@ func TestGateFailureReachesThePromptStructured(t *testing.T) {
 		rev(reviewed(true, nil)))
 	e.drain()
 	calls := e.runtime.Calls()
-	if n, _ := e.nodeRow(); n.State != core.NodeQueued || n.Attempt != 2 || len(calls) != 4 {
+	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || n.Attempt != 2 || len(calls) != 4 {
 		t.Fatalf("node %+v, %d calls", n, len(calls))
 	}
 	for _, want := range []string{"Gate `test`", "exit code 1", "- TestOverlap (conflict_test.go:41): got nil, want ErrConflict"} {
@@ -178,7 +183,7 @@ func TestGuaranteesAfterTheRound(t *testing.T) {
 			withFiles(map[string]string{"agenda.go": "package agenda\n", "store_test.go": "//go:build integration\n\npackage agenda\n"}),
 			rev(reviewed(true, nil)),
 		}, func(t *testing.T, e *env) {
-			if n, _ := e.nodeRow(); n.State != core.NodeQueued || len(e.events(contracts.EventProposalCreated)) != 0 {
+			if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || len(e.events(contracts.EventProposalCreated)) != 0 {
 				t.Errorf("node %s, moves %v", n.State, e.moves())
 			}
 		}},
@@ -190,7 +195,7 @@ func TestGuaranteesAfterTheRound(t *testing.T) {
 			rev(reviewed(true, []map[string]any{})),
 		}, func(t *testing.T, e *env) {
 			n, r := e.nodeRow()
-			if n.State != core.NodeQueued || len(r.Findings.List) != 1 || !r.Findings.List[0].Auto || r.Findings.List[0].Status != core.FindingResolved {
+			if n.State != core.NodeIntegrated || len(r.Findings.List) != 1 || !r.Findings.List[0].Auto || r.Findings.List[0].Status != core.FindingResolved {
 				t.Errorf("node %s, findings %+v", n.State, r.Findings.List)
 			}
 			calls := e.runtime.Calls()
@@ -251,7 +256,7 @@ func TestHostCredentialsRefuseSessions(t *testing.T) {
 	}
 	e = newEnvWith(t, envOpts{host: host, prepare: allow}, impl(implemented()), rev(reviewed(true, nil)))
 	e.drain()
-	if n, _ := e.nodeRow(); n.State != core.NodeQueued {
+	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
 		t.Errorf("with allow_host_credentials: node %s", n.State)
 	}
 }
