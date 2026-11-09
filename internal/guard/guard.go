@@ -25,6 +25,10 @@ const (
 	RuleProtectedPath = "protected_path"
 	RuleSecretPath    = "secret_path"
 	RuleOutsideTree   = "outside_worktree"
+	// Rules of the check after the round (ADR 0020, item 2).
+	RuleTestRemoved  = "test_removed"
+	RuleTestDisabled = "test_disabled"
+	RuleSuppression  = "suppression"
 )
 
 // Policy holds what the rules need to know about the project.
@@ -51,21 +55,34 @@ type Decision struct {
 type Change struct {
 	Path    string // relative to the repository root, slash-separated
 	Deleted bool
+	Added   []Line // the lines the change added
+	Removed []Line // the lines the change removed, numbered on the old side
+}
+
+// Line is a line of a file.
+type Line struct {
+	N    int
+	Text string
 }
 
 // Violation is a rule broken by a change.
 type Violation struct {
 	Rule   string
 	Path   string
+	Line   int // the added line, for the rules that read lines
 	Reason string
 }
 
+// Proposal reports whether the violation needs a human: the node is blocked
+// and the change becomes a proposal. The others become automatic findings.
+func (v Violation) Proposal() bool { return v.Rule != RuleSuppression }
+
 // callRule judges a call; it returns nil when the rule has nothing to say.
-// changeRule judges a change of a round. The rules of item 8 (a test deleted,
-// a test disabled) are added to these lists, so each rule has one definition.
+// changeRule judges a change of a round; one change may break a rule more
+// than once (a suppression per line).
 type (
 	callRule   func(Policy, Call, toolInput) *Decision
-	changeRule func(Policy, Change) *Violation
+	changeRule func(Policy, Change) []Violation
 )
 
 func callRules() []callRule {
@@ -73,7 +90,7 @@ func callRules() []callRule {
 }
 
 func changeRules() []changeRule {
-	return []changeRule{ruleProtectedChange}
+	return []changeRule{ruleProtectedChange, ruleTestRemoved, ruleTestDeclRemoved, ruleTestDisabled, ruleSuppression}
 }
 
 // toolInput is the part of a tool input the rules read.
@@ -103,9 +120,7 @@ func (p Policy) CheckChanges(changes []Change) []Violation {
 	var out []Violation
 	for _, ch := range changes {
 		for _, r := range changeRules() {
-			if v := r(p, ch); v != nil {
-				out = append(out, *v)
-			}
+			out = append(out, r(p, ch)...)
 		}
 	}
 	return out
@@ -185,9 +200,9 @@ func ruleSecretRead(p Policy, c Call, in toolInput) *Decision {
 }
 
 // ruleProtectedChange flags a changed file inside the protected paths.
-func ruleProtectedChange(p Policy, ch Change) *Violation {
+func ruleProtectedChange(p Policy, ch Change) []Violation {
 	if p.protected(ch.Path) {
-		return &Violation{Rule: RuleProtectedPath, Path: ch.Path, Reason: ch.Path + " is a protected path"}
+		return []Violation{{Rule: RuleProtectedPath, Path: ch.Path, Reason: ch.Path + " is a protected path"}}
 	}
 	return nil
 }

@@ -161,3 +161,33 @@ func TestReadAt(t *testing.T) {
 		t.Errorf("outside a repository: err = %v, want a git error", err)
 	}
 }
+
+// A gate checkout is the commit as committed: files the agent left in its
+// worktree, ignored or flagged in its index, do not reach it.
+func TestCheckout(t *testing.T) {
+	ctx := context.Background()
+	g := newGit()
+	repo := newRepo(t, g)
+	sha := git(t, g, repo, "rev-parse", "HEAD")
+	path := filepath.Join(t.TempDir(), "gate")
+	if err := g.Checkout(ctx, repo, path, sha); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(path, "left.txt"), "x", 0o644)
+	if err := g.Checkout(ctx, repo, path, sha); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(path, "left.txt")); !os.IsNotExist(err) {
+		t.Errorf("a file of the last run survived: %v", err)
+	}
+	if got := git(t, g, path, "rev-parse", "HEAD"); got != sha {
+		t.Errorf("HEAD = %s, want %s", got, sha)
+	}
+	// Removed by hand: the stale registration does not get in the way.
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Checkout(ctx, repo, path, sha); err != nil {
+		t.Fatal(err)
+	}
+}

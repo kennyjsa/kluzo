@@ -20,11 +20,25 @@ const (
 
 // Journal-only kinds the supervisor writes.
 const (
-	EventGateStarted  = "gate.started"
-	EventGateFinished = "gate.finished"
-	EventEffectFailed = "effect.failed"
-	EventBudgetAlert  = "budget.alert"
+	EventGateStarted     = "gate.started"
+	EventGateFinished    = "gate.finished"
+	EventEffectFailed    = "effect.failed"
+	EventBudgetAlert     = "budget.alert"
+	EventProposalCreated = "proposal.created"
 )
+
+// Proposal kinds and states used so far.
+const (
+	ProposalChange  = "change"
+	ProposalPending = "pending"
+)
+
+// ProposalCreated is the payload of proposal.created.
+type ProposalCreated struct {
+	ProposalID string `json:"proposal_id"`
+	Kind       string `json:"kind"`
+	State      string `json:"state,omitempty"`
+}
 
 // BudgetScopeMilestone is the scope of the budget alert of the milestone.
 const BudgetScopeMilestone = "milestone"

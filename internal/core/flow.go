@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
@@ -153,6 +154,12 @@ type SessionDone struct {
 	Head, Base string
 	// Changed are the lines the round changed (reviewer, from round 2).
 	Changed map[string][]LineRange
+	// What the check after an implementer round found in the work of the
+	// attempt (ADR 0020): Proposal are the changes that need a human (a
+	// protected path, a test deleted or disabled), Auto the findings Kluzo
+	// raises itself (a new lint suppression), without ids.
+	Proposal []string
+	Auto     []Finding
 }
 
 // SessionRetry is a session that failed with a retryable cause and will run
@@ -382,7 +389,7 @@ func (d *decider) failed(st FlowStep, in SessionDone) error {
 		detail += ": " + in.Detail
 	}
 	switch cause {
-	case ports.CauseAuth:
+	case ports.CauseAuth, ports.CauseHostCredentials:
 		d.d.Workspace = TriggerPause
 		return d.block(BlockedPaused, detail+"; run kluzo doctor and resume the workspace")
 	case ports.CauseBudget:
@@ -406,6 +413,11 @@ func (d *decider) implemented(in SessionDone) error {
 		r.Base = in.Base
 	}
 	r.Fresh, r.GateFailures = false, nil
+	if len(in.Proposal) > 0 {
+		return d.block(BlockedProposal, "the work needs a human decision: "+strings.Join(in.Proposal, "; "))
+	}
+	n := d.node()
+	r.Findings = r.Findings.SyncAuto(n.Attempt, n.Round+1, in.Auto)
 	return d.advance(r.Step + 1)
 }
 

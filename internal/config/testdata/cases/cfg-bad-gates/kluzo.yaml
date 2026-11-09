@@ -52,6 +52,13 @@ gates:
     run: make
     required_checks: [x]
   - run: make
+  - name: outside
+    run: make
+    report: ../junit.xml
+  - name: trackerreport
+    source: tracker
+    required_checks: [x]
+    report: junit.xml
 
 milestone_gates:
   - name: e2e

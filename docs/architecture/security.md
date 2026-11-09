@@ -57,6 +57,7 @@ O Kluzo executa agentes de código com permissão para editar arquivos e rodar c
 
 ### Gates e credenciais do host
 
+- **Os gates rodam numa checkout limpa do commit do nó**, nunca no worktree em que o agente trabalhou: arquivos ignorados, flags do índice e o `HOME` e os caches de build das sessões não chegam a eles. Sem sandbox de sistema operacional, o agente ainda alcança esses diretórios com o usuário do Kluzo (limite conhecido acima).
 - **Os gates rodam código escrito pelo agente**, por isso não recebem segredos por padrão. Só recebem as variáveis em `gates[].env_allow`. A recomendação é rodar os gates em container com egress restrito.
 - **Credenciais do host:** se `gh` autenticado, credential helper do git ou chaves em `~/.ssh` estiverem visíveis para o usuário que roda os agentes, o Kluzo recusa iniciar sessões, a menos que `security.allow_host_credentials: true` esteja explícito (ADR 0020).
 

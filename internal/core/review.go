@@ -94,6 +94,44 @@ func (fs Findings) Open() []Finding {
 	return out
 }
 
+// SyncAuto brings the automatic findings in line with what the check after
+// the round found now (current, without ids): one still there stays (or is
+// again) open, one gone is resolved, a new one is added as blocking. A finding
+// is the same when its file and message are, the line may move.
+func (fs Findings) SyncAuto(attempt, round int, current []Finding) Findings {
+	out := Findings{List: slices.Clone(fs.List), Last: fs.Last}
+	key := func(f Finding) string { return f.File + "\x00" + f.Message }
+	now := map[string]Finding{}
+	var order []string
+	for _, f := range current {
+		if _, ok := now[key(f)]; !ok {
+			order = append(order, key(f))
+		}
+		now[key(f)] = f
+	}
+	for i := range out.List {
+		f := &out.List[i]
+		if !f.Auto {
+			continue
+		}
+		if c, ok := now[key(*f)]; ok {
+			f.Status, f.Line = FindingOpen, c.Line
+			delete(now, key(*f))
+		} else {
+			f.Status = FindingResolved
+		}
+	}
+	var news []Finding
+	for _, k := range order {
+		if f, ok := now[k]; ok {
+			f.Auto, f.Severity = true, SeverityBlocking
+			news = append(news, f)
+		}
+	}
+	out, _ = out.Add(attempt, round, news...)
+	return out
+}
+
 func (fs Findings) index(id string) int {
 	return slices.IndexFunc(fs.List, func(f Finding) bool { return f.ID == id })
 }
@@ -313,7 +351,9 @@ func DeriveReview(in ReviewInput) ReviewOutcome {
 	}
 	for _, p := range in.Result.Previous {
 		i := fs.index(p.ID)
-		if i < 0 || fs.List[i].Status != FindingOpen {
+		// An automatic finding is Kluzo's: the check after each round
+		// resolves it, not the reviewer (ADR 0020).
+		if i < 0 || fs.List[i].Status != FindingOpen || fs.List[i].Auto {
 			continue
 		}
 		fs.List[i].Status = p.Status

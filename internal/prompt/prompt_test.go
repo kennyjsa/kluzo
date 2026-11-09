@@ -82,7 +82,7 @@ var findings = []Finding{
 
 var gate = GateFailure{
 	Name: "test", Command: "go test ./...", ExitCode: 1,
-	Failures: []TestFailure{{"TestOverlap", "internal/agenda/conflict_test.go", 41, "got nil, want ErrConflict"}},
+	Failures: []TestFailure{{Test: "TestOverlap", File: "internal/agenda/conflict_test.go", Line: 41, Message: "got nil, want ErrConflict"}},
 	Log:      "=== RUN   TestOverlap\n--- FAIL: TestOverlap (0.00s)\nFAIL\nFAIL\tgithub.com/acme/app/internal/agenda\t0.012s",
 	LogPath:  "logs/gates/test-3.log",
 }
@@ -206,7 +206,7 @@ func externalTask() Task {
 	t.Why = &Why{
 		Review: &ReviewCause{Findings: []Finding{f}},
 		Gate: []GateFailure{{Name: "test", Command: "go test", ExitCode: 1,
-			Failures: []TestFailure{{canary("test"), canary("tfile"), 3, canary("tmsg")}}, Log: canary("log")}},
+			Failures: []TestFailure{{Test: canary("test"), File: canary("tfile"), Line: 3, Message: canary("tmsg")}}, Log: canary("log")}},
 		Integration: &IntegrationCause{ConflictFiles: []string{canary("cfile")}, Markers: canary("markers"), Freshness: canary("fresh")},
 		Triage:      &TriageCause{Summary: canary("tsum"), Params: map[string]string{canary("pk"): canary("pv")}},
 	}

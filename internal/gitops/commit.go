@@ -70,9 +70,20 @@ type DiffFile struct {
 	Path           string
 	Added, Removed int // lines; zero for a binary file
 	Binary         bool
+	Deleted        bool // the file is gone on the new side
 	// Lines are the ranges of the new side the diff added or changed, both
 	// ends included; what a finding of the round may point at.
 	Lines [][2]int
+	// AddedText are the lines the diff added, with their numbers on the new
+	// side, and RemovedText the lines it removed, with their numbers on the
+	// old side, for the check after the round.
+	AddedText, RemovedText []AddedLine
+}
+
+// AddedLine is a line a diff added or removed.
+type AddedLine struct {
+	N    int
+	Text string
 }
 
 // Diff returns what changed between two commits of the repository, file by
@@ -96,49 +107,110 @@ func (g *Git) Diff(ctx context.Context, repo, from, to string) ([]DiffFile, erro
 		index[f.Path] = len(files)
 		files = append(files, f)
 	}
+	status, err := g.run(ctx, repo, append(base, "--name-status", "-z", "--end-of-options", from, to)...)
+	if err != nil {
+		return nil, err
+	}
+	recs := strings.Split(strings.TrimSuffix(status, "\x00"), "\x00")
+	for k := 0; k+1 < len(recs); k += 2 {
+		if i, ok := index[recs[k+1]]; ok && recs[k] == "D" {
+			files[i].Deleted = true
+		}
+	}
 	patch, err := g.run(ctx, repo, append(base, "--unified=0", "--end-of-options", from, to)...)
 	if err != nil {
 		return nil, err
 	}
+	// The lines of a hunk are read by the counts of its header, so a content
+	// line that looks like a header ("--- a/x", "+++ b/x") stays content.
 	cur := -1
+	var next, oldLeft, newLeft, oldNext int
 	sc := bufio.NewScanner(strings.NewReader(patch))
-	sc.Buffer(make([]byte, 64*1024), 16<<20)
+	sc.Buffer(make([]byte, 64*1024), 64<<20)
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
-		case strings.HasPrefix(line, "diff --git "):
-			cur = -1
-		case strings.HasPrefix(line, "+++ b/"):
-			// git ends the name with a tab when it has a space
-			if i, ok := index[strings.TrimSuffix(strings.TrimPrefix(line, "+++ b/"), "\t")]; ok {
-				cur = i
+		case oldLeft+newLeft > 0 && strings.HasPrefix(line, "+"):
+			if cur >= 0 {
+				files[cur].AddedText = append(files[cur].AddedText, AddedLine{N: next, Text: line[1:]})
 			}
-		case strings.HasPrefix(line, "@@ ") && cur >= 0:
-			if r, ok := newRange(line); ok {
-				files[cur].Lines = append(files[cur].Lines, r)
+			next++
+			newLeft--
+		case oldLeft+newLeft > 0 && strings.HasPrefix(line, "-"):
+			if cur >= 0 {
+				files[cur].RemovedText = append(files[cur].RemovedText, AddedLine{N: oldNext, Text: line[1:]})
+			}
+			oldNext++
+			oldLeft--
+		case strings.HasPrefix(line, "\\"): // "\ No newline at end of file"
+		case strings.HasPrefix(line, "diff --git "):
+			cur, oldLeft, newLeft = -1, 0, 0
+		case strings.HasPrefix(line, "--- "):
+			if name, ok := headerPath(line, "a/"); ok && cur < 0 {
+				cur = indexOf(index, name) // the new side may be /dev/null
+			}
+		case strings.HasPrefix(line, "+++ "):
+			if name, ok := headerPath(line, "b/"); ok {
+				cur = indexOf(index, name)
+			}
+		case strings.HasPrefix(line, "@@ "):
+			o, n, ok := hunkRanges(line)
+			if !ok {
+				continue
+			}
+			oldNext, oldLeft, next, newLeft = o[0], o[1], n[0], n[1]
+			if cur >= 0 && n[1] > 0 {
+				files[cur].Lines = append(files[cur].Lines, [2]int{n[0], n[0] + n[1] - 1})
 			}
 		}
 	}
 	return files, sc.Err()
 }
 
-// newRange reads the new side of a hunk header, "@@ -a,b +c,d @@": lines c to
-// c+d-1. A hunk that only removes lines (d = 0) has no new lines.
-func newRange(header string) ([2]int, bool) {
+func indexOf(index map[string]int, name string) int {
+	if i, ok := index[name]; ok {
+		return i
+	}
+	return -1
+}
+
+// headerPath reads the name of a "--- a/x" or "+++ b/x" header. git quotes a
+// name with special characters C-style ("a/x\"y"), even with
+// core.quotePath=false, and ends one with a space with a tab.
+func headerPath(line, side string) (string, bool) {
+	rest := strings.TrimSuffix(line[4:], "\t")
+	if strings.HasPrefix(rest, `"`) {
+		u, err := strconv.Unquote(rest)
+		if err != nil {
+			return "", false
+		}
+		rest = u
+	}
+	return strings.CutPrefix(rest, side)
+}
+
+// hunkRanges reads "@@ -a,b +c,d @@": the start and the count of each side
+// (a count left out is 1).
+func hunkRanges(header string) (old, new [2]int, ok bool) {
 	fields := strings.Fields(header)
-	if len(fields) < 3 || !strings.HasPrefix(fields[2], "+") {
-		return [2]int{}, false
+	if len(fields) < 3 || !strings.HasPrefix(fields[1], "-") || !strings.HasPrefix(fields[2], "+") {
+		return old, new, false
 	}
-	start, count, found := strings.Cut(strings.TrimPrefix(fields[2], "+"), ",")
-	from, err := strconv.Atoi(start)
-	if err != nil {
-		return [2]int{}, false
-	}
-	n := 1
-	if found {
-		if n, err = strconv.Atoi(count); err != nil || n == 0 {
+	parse := func(s string) ([2]int, bool) {
+		start, count, found := strings.Cut(s[1:], ",")
+		from, err := strconv.Atoi(start)
+		if err != nil {
 			return [2]int{}, false
 		}
+		n := 1
+		if found {
+			if n, err = strconv.Atoi(count); err != nil {
+				return [2]int{}, false
+			}
+		}
+		return [2]int{from, n}, true
 	}
-	return [2]int{from, from + n - 1}, true
+	o, ok1 := parse(fields[1])
+	n, ok2 := parse(fields[2])
+	return o, n, ok1 && ok2
 }

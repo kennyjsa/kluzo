@@ -21,6 +21,7 @@ func TestRun(t *testing.T) {
 		{name: "help", args: []string{"help"}, wantCode: 0, wantStdout: "Usage: kluzo"},
 		{name: "no args", args: nil, wantCode: 1, wantStderr: "Usage: kluzo"},
 		{name: "unknown", args: []string{"nope"}, wantCode: 1, wantStderr: `unknown command "nope"`},
+		{name: "doctor without configuration", args: []string{"doctor", "--dir", "/does/not/exist"}, wantCode: 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

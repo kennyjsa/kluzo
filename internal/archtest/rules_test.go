@@ -25,6 +25,8 @@ func TestRulesThemselves(t *testing.T) {
 		{internal("app"), "modernc.org/sqlite", true},
 		{internal("store"), "modernc.org/sqlite", false},
 		{internal("gitops"), "os/exec", true},
+		{internal("gates"), internal("store"), true},
+		{internal("gates"), internal("ports"), false},
 		{internal("platform/exec"), "os/exec", false},
 		{internal("platform/ids"), internal("core"), true},
 	}

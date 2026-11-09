@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,10 +52,11 @@ func (s *Supervisor) worktree(n store.NodeRow) string {
 	return filepath.Join(s.cfg.Dir, "worktrees", n.IssueRef)
 }
 
-// projectEnv is what the sessions and the setup of a node get besides the
-// fixed part: the cache variables and COMPOSE_PROJECT_NAME (ADR 0025).
-func (s *Supervisor) projectEnv(n store.NodeRow) (map[string]string, error) {
-	caches, err := sessionenv.Caches(s.cfg.Project.Config.Caches, s.cfg.Downloads, filepath.Join(s.cfg.Dir, "cache"))
+// projectEnv is what the sessions, the gates and the setup of a node get
+// besides the fixed part: the cache variables, with the build caches under
+// builds, and COMPOSE_PROJECT_NAME (ADR 0025).
+func (s *Supervisor) projectEnv(n store.NodeRow, builds string) (map[string]string, error) {
+	caches, err := sessionenv.Caches(s.cfg.Project.Config.Caches, s.cfg.Downloads, builds)
 	if err != nil {
 		return nil, err
 	}
@@ -73,12 +75,36 @@ func (s *Supervisor) prepare(ctx context.Context, n store.NodeRow) (string, erro
 	if err != nil {
 		return "", err
 	}
-	extra, err := s.projectEnv(n)
+	return base, s.setup(ctx, n, wt, sessionsPlace)
+}
+
+// place is where a checkout of the node runs: its HOME and build caches.
+type place struct{ home, builds string }
+
+// The sessions and the gates of a node use apart HOMEs and build caches: a
+// session cannot leave in them what a gate will run (ADR 0020).
+var (
+	sessionsPlace = place{home: "home", builds: "cache"}
+	gatesPlace    = place{home: "gates-home", builds: "gates-cache"}
+)
+
+// env is the environment of a checkout of the node at p: env_allow from
+// Kluzo, the caches and COMPOSE_PROJECT_NAME.
+func (s *Supervisor) env(n store.NodeRow, p place, allow []string) ([]string, error) {
+	extra, err := s.projectEnv(n, filepath.Join(s.cfg.Dir, p.builds))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	env := sessionenv.Build(sessionenv.Spec{Parent: s.cfg.ParentEnv, Home: filepath.Join(s.cfg.Dir, "home"), Allow: s.cfg.Project.Config.Worktree.EnvAllow, Extra: extra})
-	return base, s.d.Git.Prepare(ctx, gitops.PrepareSpec{Repo: repo, Worktree: wt, Base: s.cfg.Branch, Env: env, DefaultTimeout: 15 * time.Minute})
+	return sessionenv.Build(sessionenv.Spec{Parent: s.cfg.ParentEnv, Home: filepath.Join(s.cfg.Dir, p.home), Allow: allow, Extra: extra}), nil
+}
+
+// setup runs worktree.include and worktree.setup in a checkout of the node.
+func (s *Supervisor) setup(ctx context.Context, n store.NodeRow, dir string, p place) error {
+	env, err := s.env(n, p, s.cfg.Project.Config.Worktree.EnvAllow)
+	if err != nil {
+		return err
+	}
+	return s.d.Git.Prepare(ctx, gitops.PrepareSpec{Repo: s.cfg.Repo, Worktree: dir, Base: s.cfg.Branch, Env: env, DefaultTimeout: 15 * time.Minute})
 }
 
 // session runs the n-th run of a session effect: one role session of the
@@ -99,6 +125,14 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 	}
 	st := s.flow.Steps[r.Step]
 	done := core.SessionDone{Step: r.Step}
+	found, err := s.hostCredentials(ctx)
+	if err != nil {
+		return err
+	}
+	if len(found) > 0 {
+		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseHostCredentials,
+			Detail: "credentials of the host are visible to the sessions (" + strings.Join(found, "; ") + "); remove them, or set security.allow_host_credentials with an isolation of your own"})
+	}
 	left := s.budget(n) - n.CostUSDMicros
 	if left <= 0 {
 		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseBudget, Detail: "the node has no budget left"})
@@ -130,7 +164,7 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 	}
 	done.Session = hs
 	if res.State == ports.StateFinished && len(res.Raw) > 0 && !done.Tampered {
-		if err := s.afterSession(ctx, n, st, round, &done); err != nil {
+		if err := s.afterSession(ctx, n, st, cmp.Or(done.Base, r.Base), round, &done); err != nil {
 			res = ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: "after the session: " + err.Error(), CostUSD: res.CostUSD, Cumulative: res.Cumulative}
 		}
 	}
@@ -179,11 +213,16 @@ func (s *Supervisor) budget(n store.NodeRow) int64 {
 }
 
 // afterSession records what an accepted session produced: the implementer's
-// work as a commit, and for a review from round 2 the lines the round changed.
-func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, st core.FlowStep, round []gitops.DiffFile, done *core.SessionDone) error {
+// work as a commit, checked against the guarantees of ADR 0020 from the base
+// of the attempt, and for a review from round 2 the lines the round changed.
+func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, st core.FlowStep, base string, round []gitops.DiffFile, done *core.SessionDone) error {
 	if st.Role == core.RoleImplementer {
 		head, err := s.d.Git.Commit(ctx, s.cfg.Repo, s.worktree(n), fmt.Sprintf("kluzo: #%s attempt %d round %d", n.IssueRef, n.Attempt, n.Round))
+		if err != nil {
+			return err
+		}
 		done.Head = head
+		done.Proposal, done.Auto, err = s.checkWork(ctx, base, head)
 		return err
 	}
 	if round == nil {
@@ -212,7 +251,7 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 	if !ok {
 		return ports.Result{}, nil, fmt.Errorf("output schema %s of role %s: %w", role.Output, role.Name, ports.ErrPermanent)
 	}
-	in, err := s.promptInput(ctx, n, r, st, role, schema, round)
+	in, err := s.promptInput(ctx, n, r, cmp.Or(done.Base, r.Base), st, role, schema, round)
 	if err != nil {
 		return ports.Result{}, nil, err
 	}
@@ -256,7 +295,7 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 		return ports.Result{}, nil, err
 	}
 	defer ms.Close()
-	env, err := s.projectEnv(n)
+	env, err := s.projectEnv(n, filepath.Join(s.cfg.Dir, sessionsPlace.builds))
 	if err != nil {
 		return ports.Result{}, nil, err
 	}
@@ -491,9 +530,9 @@ func verify(cmds []prompt.Command) []string {
 }
 
 // promptInput gathers what the prompt of a role session needs: the issue, the
-// project rules and the gate commands read from the milestone tip, the
-// criteria, and the cause of the round.
-func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Run, st core.FlowStep, role *config.Role, schema []byte, round []gitops.DiffFile) (prompt.Input, error) {
+// project rules read from the milestone tip, the gate commands frozen at the
+// base of the attempt, the criteria, and the cause of the round.
+func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Run, base string, st core.FlowStep, role *config.Role, schema []byte, round []gitops.DiffFile) (prompt.Input, error) {
 	issue, err := s.d.Tracker.Issue(ctx, n.IssueRef)
 	if err != nil {
 		return prompt.Input{}, err
@@ -506,16 +545,12 @@ func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Ru
 		}
 		rules = append(rules, prompt.ProjectFile{Name: name, Content: b})
 	}
-	tip, err := s.d.Git.ReadAt(ctx, s.cfg.Repo, "refs/heads/"+s.cfg.Branch, ".kluzo/kluzo.yaml")
+	frozen, err := s.frozen(ctx, base)
 	if err != nil {
 		return prompt.Input{}, err
 	}
-	tipCfg, err := config.ParseConfig("kluzo.yaml at the milestone tip", tip)
-	if err != nil {
-		return prompt.Input{}, fmt.Errorf("%w: %w", err, ports.ErrPermanent)
-	}
 	var cmds []prompt.Command
-	for _, g := range tipCfg.Gates {
+	for _, g := range frozen.Gates {
 		if g.Run != "" {
 			cmds = append(cmds, prompt.Command{Name: g.Name, Command: g.Run})
 		}
@@ -574,7 +609,7 @@ func reviewStep(f core.Flow) int {
 func gateFailures(results []ports.GateResult, cmds []prompt.Command) []prompt.GateFailure {
 	out := make([]prompt.GateFailure, len(results))
 	for i, g := range results {
-		out[i] = prompt.GateFailure{Name: g.Gate, Log: g.Summary, LogPath: g.LogRef}
+		out[i] = prompt.GateFailure{Name: g.Gate, ExitCode: g.ExitCode, Failures: g.Failures, Log: g.Summary, LogPath: g.LogRef, Report: g.Report}
 		for _, c := range cmds {
 			if c.Name == g.Gate {
 				out[i].Command = c.Command

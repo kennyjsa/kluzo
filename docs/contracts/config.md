@@ -64,9 +64,18 @@ gates:                         # lidos da ponta da milestone no despacho, nunca 
     run: go test ./...
     timeout: 15m
     env_allow: [DATABASE_URL_TEST]   # gates não recebem segredos por padrão
+    report: reports/junit.xml  # opcional: relatório JUnit XML escrito pelo comando (caminho dentro do worktree)
   - name: ci                   # usa os checks do tracker em vez de um comando
     source: tracker
     required_checks: ["build", "test"]
+
+# Cada gate de nó roda com a definição de kluzo.yaml no commit em que a tentativa começou (a ponta da
+# milestone no despacho), nunca a do worktree. Um gate `run` roda com `sh` numa checkout limpa do
+# commit do nó (preparada com worktree.include e worktree.setup, com HOME e caches de build próprios dos
+# gates, separados dos das sessões), com timeout (padrão 30m), env só com env_allow + caches +
+# COMPOSE_PROJECT_NAME, e o log (redigido, até 64 MiB) em logs/gates/. Falhas estruturadas vêm de
+# `go test -json` (detectado na saída) ou do `report`, apagado antes de cada execução.
+# Um gate `source: tracker` lê os checks do CI para o commit do nó até nenhum estar pendente.
 
 milestone_gates:
   - name: e2e

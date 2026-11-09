@@ -94,7 +94,9 @@ func TestLoadErrors(t *testing.T) {
 			{"kluzo.yaml", 49, "gates[7].required_checks", "required when source is tracker"},
 			{"kluzo.yaml", 53, "gates[8].required_checks", "only valid with source"},
 			{"kluzo.yaml", 54, "gates[9].name", "required"},
-			{"kluzo.yaml", 61, "milestone_gates[1].source", `unknown source "ci"`},
+			{"kluzo.yaml", 57, "gates[10].report", "must be a path inside the worktree"},
+			{"kluzo.yaml", 61, "gates[11].report", "only valid with run"},
+			{"kluzo.yaml", 68, "milestone_gates[1].source", `unknown source "ci"`},
 		}},
 		{"cfg-bad-runtime", []want{
 			{"kluzo.yaml", 60, "runtimes.claude-code.min_version", "not a version"},

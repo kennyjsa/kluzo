@@ -77,7 +77,8 @@ Validação feita pelo Kluzo, além do schema (ADR 0023):
 - `category`: `correctness`, `tests`, `security`, `duplication`, `dead_code`, `style`, `scope`. Código duplicado e código morto são `blocking`.
 - `check` é obrigatório em `blocking` e `major`.
 - Os ids dos findings (`F1`, `F2`…) são atribuídos pelo Kluzo depois da validação, estáveis por nó e através das tentativas.
-- Os findings que o próprio Kluzo gera (supressão nova, teste removido ou desativado, ADR 0020) vêm com `auto: true` e não são contestáveis. O reviewer não envia `auto`; o campo não existe no schema de saída dele.
+- Os findings que o próprio Kluzo gera (supressão de lint nova, ADR 0020) vêm com `auto: true`, `severity: blocking` e não são contestáveis. O reviewer não envia `auto`; o campo não existe no schema de saída dele. Teste removido ou desativado vira proposta, não finding (state-machine.md).
+- O estado de um finding automático é do Kluzo: a conferência depois de cada rodada do implementer o reabre enquanto a supressão estiver no trabalho da tentativa e o resolve quando ela sai. O `previous` do reviewer não muda esse estado.
 
 Validação feita pelo Kluzo, além do schema:
 - `criteria` cobre exatamente os ids de critério do nó.
