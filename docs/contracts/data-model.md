@@ -55,7 +55,7 @@ CREATE TABLE effects (
   id            TEXT PRIMARY KEY,          -- ef_<ulid>
   idem_key      TEXT NOT NULL UNIQUE,      -- derivada do evento de origem
   event_seq     INTEGER NOT NULL REFERENCES events(seq),
-  kind          TEXT NOT NULL,             -- 'tracker.set_label' | 'tracker.comment' | 'session.start' | 'git.merge' | …
+  kind          TEXT NOT NULL,             -- catálogo abaixo
   payload       TEXT NOT NULL,             -- JSON
   state         TEXT NOT NULL,             -- 'pending' | 'done' | 'failed'
   attempts      INTEGER NOT NULL DEFAULT 0, -- execuções iniciadas (contadas antes de rodar)
@@ -74,6 +74,26 @@ Política do outbox, aplicada pelo supervisor (o store só oferece as operaçõe
 - Um efeito iniciado e não concluído (o processo morreu) continua `pending` e roda de novo; o adaptador deduplica pela `idem_key`.
 - A conclusão de um efeito cujo resultado vira entrada do núcleo (sessão, gates) é gravada na mesma transação da decisão: depois dela, a retomada não roda o efeito de novo.
 - Sessões têm política própria (ADR 0024, item 7): `CauseRateLimit` e `CauseRuntime` repetem com o mesmo backoff, em até 2 sessões novas na mesma tentativa; esgotadas, a etapa falha.
+
+Catálogo de efeitos (`kind`). Um tipo novo entra aqui no mesmo PR que o cria:
+
+| `kind` | Dono | Observação |
+|---|---|---|
+| `session.start` | nó | sessão de papel |
+| `gate.run` | nó | gates de etapa; com `freshness`, os gates completos de novo no rebase |
+| `tracker.set_label` / `tracker.comment` | nó | espelho no tracker |
+| `notify` | nó ou workspace | notificação |
+| `git.milestone` | workspace | cria ou adota `milestone/<nome>`; falha permanente (branches divergentes) pausa o workspace (state-machine.md) |
+| `git.rebase` / `git.merge` | nó | fila de merge (ADR 0009) |
+| `scm.open_pr` | workspace | PR `milestone → main`; grava `pr.opened` |
+| `cleanup.node` / `cleanup.workspace` | nó / workspace | limpeza por ciclo de vida (ADR 0025), regras abaixo |
+
+Regras da limpeza (ADR 0025):
+- Imagens que os gates constroem levam os labels `kluzo.workspace=<id do workspace>` e `kluzo.node=<id do nó>` (o id `nd_…`, não o número da issue). `cleanup.node` remove por esses dois labels; `cleanup.workspace`, só pelo primeiro.
+- Docker indisponível é o CLI ausente **ou** o daemon inalcançável (`docker version` sem a parte do servidor). Nos dois casos a limpeza de Docker é pulada com aviso no log e o efeito conclui; o que ficou para trás é achado depois pelo `kluzo clean`, pelos mesmos labels e nomes de projeto. Qualquer outra falha do Docker segue a política do outbox.
+- A branch do nó no remoto é apagada por `cleanup.node` quando o nó termina `integrated` (o conteúdo já está na milestone), com a credencial do bot; branch já ausente conta como sucesso. Nó `cancelled` mantém a branch remota, que é a única cópia do trabalho. `cleanup.workspace` apaga as branches remotas de nós que restarem quando o workspace termina `merged`; em `cancelled`, mantém e as lista na notificação.
+
+`gate_runs` após queda do processo: ao projetar um `gate.started`, uma linha `running` anterior do mesmo `(node_id, gate)` vira `interrupted`, com `finished_at` igual ao `ts` do novo evento. Nenhuma linha fica `running` para sempre.
 
 ```sql
 CREATE TABLE workspace (                   -- uma única linha
@@ -151,7 +171,7 @@ CREATE TABLE gate_runs (
   node_id       TEXT REFERENCES nodes(id), -- nulo para gates da milestone (E2E)
   gate          TEXT NOT NULL,             -- nome em kluzo.yaml
   sha           TEXT NOT NULL,
-  state         TEXT NOT NULL,             -- 'running' | 'passed' | 'failed' | 'error'
+  state         TEXT NOT NULL,             -- 'running' | 'passed' | 'failed' | 'error' | 'interrupted'
   log_ref       TEXT,                      -- arquivo em logs/ ou URL do CI
   started_at    TEXT NOT NULL,
   finished_at   TEXT
