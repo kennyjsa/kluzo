@@ -40,7 +40,7 @@ kluzo/
 | `cmd/kluzo` | Parse de flags; chama `app`; formata a saída | Regra de negócio |
 | `app` | Um caso de uso por operação (`CreateWorkspace`, `ApprovePlan`, `Run`, `Pause`, `AnswerQuestion`…); monta as dependências | Lógica de transição (isso é do `core`) |
 | `core` | `Apply(state, input) → (state, effects)`; validação do grafo; caminho crítico; avaliação de flows; regras de triagem e orçamento | I/O de qualquer tipo; relógio real; geração de ids aleatórios |
-| `supervisor` | Laço do workspace: `planned → ready`, despacho, `core.Apply` e uma transação por decisão (transições, `node.flow`, efeitos); executor do outbox com a política de `data-model.md`; sessão de papel (worktree, prompt, MCP, início ou retomada, conferência pós-sessão, commit); etapas de gate pelo port `Gates`; registro de `mcp.call` e `guard.denied`; retomada depois de um crash | Decidir transições |
+| `supervisor` | Laço do workspace: `planned → ready`, despacho, `core.Apply` e uma transação por decisão (transições, `node.flow`, efeitos); executor do outbox com a política de `data-model.md`; sessão de papel (worktree, prompt, MCP, início ou retomada, conferência pós-sessão, commit); etapas de gate pelo port `Gates`; registro de `mcp.call` e `guard.denied`; manifesto no `session.started`, custo das sessões e `budget.alert` da milestone; fatos da tentativa anterior a partir do journal; retomada depois de um crash | Decidir transições |
 | `ports` | Interfaces e tipos de fronteira | Implementação |
 | `store` | Persistência, `Tx`, reconstrução das projeções a partir do journal | Regras de domínio |
 | `gitops` | Executar `git` (endurecido: sem hooks, fsmonitor nem configuração global ou de sistema); criar, preparar (`worktree.include` e `worktree.setup` da ponta da milestone) e remover o worktree do nó; conferir e restaurar refs, `.git/config` e `.git/hooks` depois de cada sessão; commitar o trabalho do nó (o Kluzo commita, nunca o agente) e calcular o diff de uma rodada; implementar o port `Files` | Falar com o tracker; decidir o nome da branch do nó |
@@ -52,6 +52,10 @@ kluzo/
 | `tracker/*`, `runtime/*`, `notify/*`, `codemap/*` | Implementar um port | Importar `core` |
 | `web` | HTTP, SSE, autenticação via tailnet; chama `app` | Regra de negócio |
 | `platform` | Clock, gerador de ids, `exec` com grupo de processos, remoção de segredos, ambiente das sessões, corte de texto (`text.Clip`, o único) | Conhecer o domínio |
+
+### Sessões e gates no laço do supervisor
+
+O [overview](overview.md) prevê sessões e gates em goroutines próprias, devolvendo o resultado como entrada. Com `max_parallel: 1` na v0.1, o laço roda a sessão e os gates dentro do executor do outbox, sem goroutine: enquanto uma sessão roda, labels e comentários de outros nós esperam. Com o workspace fora de `running`, o laço não inicia sessão nem gate, mas labels, comentários e notificações continuam saindo. Quem ligar o paralelismo move a sessão e os gates para goroutines e mantém a decisão numa transação só.
 
 ## Regras de dependência
 

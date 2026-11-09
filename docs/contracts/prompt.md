@@ -63,7 +63,7 @@ UNTRUSTED:{nonce}>>>
                                        ← findings com id (F1…), `check` e `auto`
 <fatos concretos, dentro de envelopes quando vierem de texto externo>
 
-## Previous attempt (facts)            ← só em sessão nova a partir da tentativa 2; gerado do journal
+## Previous attempt (facts)            ← só em sessão nova a partir da tentativa 2; gerado do journal da tentativa anterior: arquivos alterados (`file.edited`), gates cujo último resultado falhou (`gate.finished`) e findings abertos (último `node.flow`)
 ## Previous findings                   ← só para o reviewer, da rodada 2 em diante: findings abertos com id
 ## Implementer report                  ← só para o reviewer: resultado do implementer, envelopado (fonte não confiável)
 ## Round diff                          ← só para o reviewer, da rodada 2 em diante: diff da rodada; o diff completo vira lista de arquivos
@@ -120,11 +120,13 @@ UNTRUSTED:7f3a9c21>>>
 | reviewer | Sempre sessão nova, com os findings da rodada anterior como checklist | Igual |
 | outros | Sessão nova | Sessão nova |
 
+Uma tentativa nova parte da ponta da milestone, num worktree e numa branch recriados: o trabalho da tentativa anterior fica só no journal, e o implementer o conhece pelos fatos de `Previous attempt`.
+
 Cada sessão tem `max_turns`, configurável por papel (padrão 80). Estourou o limite, a sessão termina como `failed` e a triagem decide.
 
 ## Manifesto da sessão
 
-Ele é gravado no evento `session.started` ([events.md](events.md)):
+O supervisor o grava no campo `manifest` do evento `session.started` ([events.md](events.md)), com o prompt efetivamente enviado (a tarefa reduzida, numa retomada); `harness`, `harness_version` e `model` vêm do init do harness:
 
 ```json
 {
@@ -140,7 +142,7 @@ Ele é gravado no evento `session.started` ([events.md](events.md)):
 }
 ```
 
-O texto completo vai para `logs/sessions/<id>.prompt.md`, depois de passar pelo redact (`platform/redact`).
+O texto completo (system prompt e tarefa) vai para `logs/sessions/<id>.prompt.md`, depois de passar pelo redact (`platform/redact`); uma sessão que roda de novo o sobrescreve com o seu.
 
 ## Testes
 

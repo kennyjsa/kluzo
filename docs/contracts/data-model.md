@@ -86,7 +86,7 @@ CREATE TABLE workspace (                   -- uma única linha
   plan_version  INTEGER,                   -- versão do plano aprovado
   flow_cursor   TEXT,                      -- JSON: posição nos flows upstream/closing
   budget_usd_micros INTEGER,
-  cost_usd_micros   INTEGER NOT NULL DEFAULT 0,
+  cost_usd_micros   INTEGER NOT NULL DEFAULT 0, -- soma dos session.finished do workspace
   updated_at    TEXT NOT NULL
 );
 
@@ -105,10 +105,10 @@ CREATE TABLE nodes (
   step_index    INTEGER,                   -- etapa atual do flow de nó
   overrides     TEXT,                      -- JSON: modelo/harness por label ou milestone
   budget        TEXT NOT NULL,             -- JSON: {attempts, minutes, usd_micros}
-  cost_usd_micros INTEGER NOT NULL DEFAULT 0,
+  cost_usd_micros INTEGER NOT NULL DEFAULT 0, -- soma dos session.finished do nó
   critical      INTEGER NOT NULL DEFAULT 0, -- no caminho crítico (recalculado)
   merged_sha    TEXT,
-  flow          TEXT,                      -- JSON: progresso no flow de nó (evento node.flow; provisório, Q47)
+  flow          TEXT,                      -- JSON: progresso no flow de nó (evento node.flow)
   updated_at    TEXT NOT NULL
 );
 
@@ -128,6 +128,8 @@ CREATE TABLE subtasks (
   PRIMARY KEY (node_id, idx)
 );
 
+-- Projeção de session.started (cria ou assume a linha) e session.finished
+-- (estado, resultado, custo somado), events.md.
 CREATE TABLE sessions (
   id            TEXT PRIMARY KEY,          -- ss_<ulid>
   node_id       TEXT REFERENCES nodes(id), -- nulo em sessões de upstream/closing
