@@ -308,3 +308,32 @@ func TestFailureAfterTheSession(t *testing.T) {
 		t.Errorf("last comment = %q", c[len(c)-1])
 	}
 }
+
+// flakyTracker fails the first state label once; the others go through.
+type flakyTracker struct {
+	*fakes.Tracker
+	failed bool
+}
+
+func (f *flakyTracker) SetStateLabel(ctx context.Context, issue, label string) error {
+	if !f.failed {
+		f.failed = true
+		return errors.New("tracker down")
+	}
+	return f.Tracker.SetStateLabel(ctx, issue, label)
+}
+
+// A label waiting for its backoff holds the newer labels of the issue, so the
+// stale one never lands last.
+func TestLabelsGoOutInOrder(t *testing.T) {
+	e := newEnv(t, impl(implemented()), rev(reviewed(true, nil)))
+	e.sup = rebuild(t, e, &flakyTracker{Tracker: e.tracker})
+	e.drain()
+	issue, _ := e.tracker.Issue(t.Context(), e.issue)
+	if !slices.Contains(issue.Labels, "orch/queued") || slices.Contains(issue.Labels, "orch/ready") {
+		t.Errorf("labels = %v, want orch/queued", issue.Labels)
+	}
+	if c := e.comments(); len(c) != 5 || !strings.Contains(c[0], "dependencies integrated") || !strings.Contains(c[4], "gates passed") {
+		t.Errorf("comments out of order: %q", c)
+	}
+}
