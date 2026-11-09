@@ -11,6 +11,8 @@ package ports
 
 type Tracker interface {
 	Milestone(ctx context.Context, ref string) (Milestone, error)
+	// MilestonesByTitle lista as milestones (abertas e fechadas) com esse título exato.
+	MilestonesByTitle(ctx context.Context, title string) ([]Milestone, error)
 	MilestoneIssues(ctx context.Context, ref string) ([]Issue, error)
 	Issue(ctx context.Context, ref string) (Issue, error)
 
