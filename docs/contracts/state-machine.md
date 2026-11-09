@@ -24,6 +24,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | `awaiting_approval` | `approved` | humano aprova o plano | nenhum item pendente; grafo válido | cria issues e links aprovados; commit de `plans/<milestone>.yaml` |
 | `approved` | `running` | imediato | efeito `git.milestone` concluído | scheduler começa a despachar nós |
 | `approved` | `paused` | efeito `git.milestone` falha permanente (branch local e remota divergentes) | — | notificação; nenhum nó é despachado; o humano reconcilia a branch e retoma (`resume` reenfileira o efeito) |
+| `running` | `paused` | efeito `git.milestone` reenfileirado por um `resume` falha permanente | — | igual à linha anterior |
 | `running` | `paused` | humano pausa | — | sessões ativas recebem `Cancel`; nós voltam para o último estado estável |
 | `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
 | `paused` | `running` | humano retoma | — | scheduler volta a despachar (só depois de `git.milestone` concluído) |
@@ -34,6 +35,10 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | `merged` | `archived` | imediato ou humano | — | remove worktrees; mantém o journal |
 | ativo | `cancelled` | humano cancela | — | `Cancel` em todas as sessões; branch mantida |
 | ativo | `failed` | erro irrecuperável (repositório inacessível, config inválida no meio da execução) | — | item na Inbox com o diagnóstico |
+
+O estado da branch da milestone é o estado do último efeito `git.milestone` no outbox (`pending`, `done`, `failed`); sem efeito, `pending`. O scheduler só despacha sessão, gate ou integração com o workspace `running` **e** esse estado `done`.
+
+A pausa vale para o processo que estiver rodando o `kluzo run`, mesmo vinda de outro processo (CLI, web): a cada volta o supervisor relê o estado e, achando `paused`, envia `Cancel` às sessões ativas e devolve os nós ao último estado estável, como na linha `running → paused`.
 
 Na v0.1 não existe upstream com agentes: `kluzo plan` cria o workspace direto em `awaiting_approval`, a partir de um plano escrito à mão.
 

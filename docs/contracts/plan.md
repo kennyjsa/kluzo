@@ -2,6 +2,8 @@
 
 O plano é o grafo aprovado de uma milestone. Ele é gerado pelo planner (v0.3) ou escrito à mão (v0.1), e na aprovação vai como commit para `.kluzo/plans/<milestone>.yaml`, na branch da milestone. A cada mudança aprovada durante a execução (proposta aceita, nó dividido), `version` sobe e o arquivo ganha um novo commit.
 
+`approved_by` e `approved_at` são preenchidos pelo Kluzo no conteúdo que vai para o commit, com os mesmos valores do evento `plan.approved`; no plano escrito à mão eles ficam ausentes. A conferência do plano ignora esses dois campos.
+
 ```yaml
 version: 1                      # versão do formato
 plan_version: 3                 # versão deste plano (sobe a cada mudança aprovada)
