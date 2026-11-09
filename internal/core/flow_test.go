@@ -159,6 +159,11 @@ func TestFlowFastGateRed(t *testing.T) {
 	if e := lastSession(t, ds[2]); !e.Resume || len(ds[2].Moves) != 0 {
 		t.Errorf("same session, no transition: %+v, moves %v", e, ds[2].Moves)
 	}
+	// Findings stay pending through fast gate retries, until the review.
+	s, _ = play(t, Dispatch{}, implDone(0), gates(1, ports.GatePassed), review(2, true, blockingFinding), implDone(0), gates(1, ports.GateFailed))
+	if !s.Run.Rejected || len(s.Run.GateFailures) != 1 {
+		t.Errorf("rejected round with a red fast gate: %+v", s.Run)
+	}
 	// max_retries 2: the third failure blocks.
 	s, _ = play(t, Dispatch{}, implDone(0), gates(1, ports.GateFailed), implDone(0), gates(1, ports.GateError), implDone(0), gates(1, ports.GateFailed))
 	if s.Node.State != NodeBlocked || s.Node.BlockedReason != BlockedTriage || s.Node.Round != 0 {
@@ -235,6 +240,11 @@ func TestFlowSessionRetryCountsTheCost(t *testing.T) {
 	if s.Run.CostUSD != 70 || len(ds[1].Moves) != 0 || len(ds[1].Effects) != 0 || s.Node.State != NodeRunning {
 		t.Errorf("after a retry: %+v, %+v", s, ds[1])
 	}
+	// A retried implementer round does not resume the same conversation again.
+	s, _ = play(t, Dispatch{}, implDone(0), gates(1, ports.GatePassed), review(2, true, blockingFinding), SessionRetry{Step: 0})
+	if s.Run.Implementer != nil || !s.Run.Rejected {
+		t.Errorf("after a retried round: %+v", s.Run)
+	}
 	if _, err := Apply(s, SessionRetry{Step: 2}, testFlow, flowLimits); !errors.Is(err, ErrStaleInput) {
 		t.Errorf("retry of another step: %v", err)
 	}
@@ -268,15 +278,17 @@ func TestFlowValidate(t *testing.T) {
 	}
 	mutate := func(f func([]FlowStep) []FlowStep) Flow { return Flow{Steps: f(slices.Clone(testFlow.Steps))} }
 	for name, f := range map[string]Flow{
-		"reviewer first":     mutate(func(s []FlowStep) []FlowStep { s[0], s[2] = s[2], s[0]; return s }),
-		"merge not last":     mutate(func(s []FlowStep) []FlowStep { s[3], s[4] = s[4], s[3]; return s }),
-		"no reviewer":        mutate(func(s []FlowStep) []FlowStep { return slices.Delete(s, 2, 4) }),
-		"fast after review":  mutate(func(s []FlowStep) []FlowStep { s[3].Fast = true; return s }),
-		"full before review": mutate(func(s []FlowStep) []FlowStep { s[1].Fast = false; return s }),
-		"no max_rounds":      mutate(func(s []FlowStep) []FlowStep { s[2].MaxRounds = 0; return s }),
-		"two reviewers":      mutate(func(s []FlowStep) []FlowStep { return slices.Insert(s, 3, s[2]) }),
-		"fail to the review": mutate(func(s []FlowStep) []FlowStep { s[3].OnFail = 2; return s }),
-		"too short":          {Steps: testFlow.Steps[:1]},
+		"reviewer first":       mutate(func(s []FlowStep) []FlowStep { s[0], s[2] = s[2], s[0]; return s }),
+		"merge not last":       mutate(func(s []FlowStep) []FlowStep { s[3], s[4] = s[4], s[3]; return s }),
+		"no reviewer":          mutate(func(s []FlowStep) []FlowStep { return slices.Delete(s, 2, 4) }),
+		"fast after review":    mutate(func(s []FlowStep) []FlowStep { s[3].Fast = true; return s }),
+		"full before review":   mutate(func(s []FlowStep) []FlowStep { s[1].Fast = false; return s }),
+		"no max_rounds":        mutate(func(s []FlowStep) []FlowStep { s[2].MaxRounds = 0; return s }),
+		"review not in_review": mutate(func(s []FlowStep) []FlowStep { s[2].Phase = ""; return s }),
+		"implementer phase":    mutate(func(s []FlowStep) []FlowStep { s[0].Phase = NodeInReview; return s }),
+		"two reviewers":        mutate(func(s []FlowStep) []FlowStep { return slices.Insert(s, 3, s[2]) }),
+		"fail to the review":   mutate(func(s []FlowStep) []FlowStep { s[3].OnFail = 2; return s }),
+		"too short":            {Steps: testFlow.Steps[:1]},
 	} {
 		if err := f.Validate(); !errors.Is(err, ErrFlowShape) {
 			t.Errorf("%s: err = %v", name, err)

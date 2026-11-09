@@ -56,8 +56,8 @@ var ErrFlowShape = errors.New("node flow not supported")
 // queue last. config has already checked the references.
 func (f Flow) Validate() error {
 	bad := func(i int, msg string) error { return fmt.Errorf("%w: step %d: %s", ErrFlowShape, i+1, msg) }
-	if len(f.Steps) < 2 || f.Steps[0].Kind != StepRole || f.Steps[0].Role != RoleImplementer {
-		return fmt.Errorf("%w: the first step must be the implementer", ErrFlowShape)
+	if len(f.Steps) < 2 || f.Steps[0].Kind != StepRole || f.Steps[0].Role != RoleImplementer || f.Steps[0].Phase != NodeRunning {
+		return fmt.Errorf("%w: the first step must be the implementer, in phase running", ErrFlowShape)
 	}
 	reviewed := false
 	for i, s := range f.Steps {
@@ -67,8 +67,8 @@ func (f Flow) Validate() error {
 			return bad(i, "the merge queue must be the last step, and only it")
 		case s.Kind == StepRole && i > 0 && (s.Role != RoleReviewer || reviewed):
 			return bad(i, "only one reviewer step may follow the implementer")
-		case s.Kind == StepRole && i > 0 && (s.OnReject != 0 || s.MaxRounds < 1):
-			return bad(i, "the review must return to the implementer and have max_rounds")
+		case s.Kind == StepRole && i > 0 && (s.OnReject != 0 || s.MaxRounds < 1 || s.Phase != NodeInReview):
+			return bad(i, "the review must be in phase in_review, return to the implementer and have max_rounds")
 		case s.Kind == StepGate && s.Fast == reviewed:
 			return bad(i, "fast gates run before the review and full gates after it")
 		case s.Kind == StepGate && f.Steps[s.OnFail].Role != RoleImplementer:
@@ -115,7 +115,8 @@ type Run struct {
 	Base, RoundBase, Head string
 	// GateFailures are the failed gates the implementer is sent back for.
 	GateFailures []ports.GateResult
-	// Rejected says the implementer is back for review findings.
+	// Rejected says the implementer is back for review findings; it stays
+	// set until the reviewer judges them, through fast gate retries.
 	Rejected bool
 	CostUSD  int64 // micro-dollars spent by the sessions of the node
 	Ready    bool  // the node reached the merge queue
@@ -176,13 +177,11 @@ func (SessionRetry) isInput() {}
 func (GatesDone) isInput()    {}
 
 // Move is a transition of the node, in the order it happened. The store
-// replays each one through NextNode with its limits.
+// replays each one through NextNode with its limits, and must reach To.
 type Move struct {
 	Event  NodeEvent
 	Limits Limits
-	From   NodeState
 	To     NodeState
-	Detail string // the second line of the comment, for blocks and failures
 }
 
 // EffectKind is the kind of an effect of the outbox.
@@ -271,7 +270,7 @@ func (d *decider) move(ev NodeEvent, lim Limits, detail string) error {
 		return err
 	}
 	d.d.Next.Node = next
-	d.d.Moves = append(d.d.Moves, Move{Event: ev, Limits: lim, From: from, To: next.State, Detail: detail})
+	d.d.Moves = append(d.d.Moves, Move{Event: ev, Limits: lim, To: next.State})
 	n := len(d.d.Moves)
 	d.effect(Effect{Kind: EffectLabel, Key: fmt.Sprintf("label-%d", n), Label: next.State.Label()})
 	d.effect(Effect{Kind: EffectComment, Key: fmt.Sprintf("comment-%d", n), Body: TransitionComment(from, next, ev, detail)})
@@ -357,6 +356,11 @@ func (d *decider) retry(in SessionRetry) error {
 		return fmt.Errorf("%w: retry of step %d, node at step %d", ErrStaleInput, in.Step, r.Step)
 	}
 	r.CostUSD += in.CostUSD
+	// A failed session gets a new one, not another resume of the same
+	// conversation (prompt.md#sessões).
+	if d.flow.Steps[r.Step].Role == RoleImplementer {
+		r.Implementer = nil
+	}
 	return nil
 }
 
@@ -405,7 +409,7 @@ func (d *decider) implemented(in SessionDone) error {
 	if in.Base != "" {
 		r.Base = in.Base
 	}
-	r.Fresh, r.GateFailures, r.Rejected = false, nil, false
+	r.Fresh, r.GateFailures = false, nil
 	return d.advance(r.Step + 1)
 }
 
@@ -415,6 +419,7 @@ func (d *decider) reviewed(st FlowStep, in SessionDone) error {
 		return fmt.Errorf("accepted review-result: %w", err)
 	}
 	r, n := d.run(), d.node()
+	r.Rejected = false
 	out := DeriveReview(ReviewInput{
 		Result: res, Findings: r.Findings, Attempt: n.Attempt, Round: n.Round + 1, MaxRounds: st.MaxRounds,
 		Changed: in.Changed, Responses: r.Responses,

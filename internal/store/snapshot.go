@@ -36,7 +36,6 @@ type NodeRow struct {
 	Round         int
 	Budget        contracts.NodeBudget
 	MergedSHA     string
-	StepIndex     int             // current step of the node flow
 	Flow          json.RawMessage // the run of the node flow (node.flow); nil before dispatch
 	UpdatedAt     string
 }
@@ -76,12 +75,12 @@ func (d *DB) Snapshot(ctx context.Context) (Snapshot, error) {
 func (d *DB) nodeRows(ctx context.Context) ([]NodeRow, error) {
 	var out []NodeRow
 	err := each(ctx, d.sql,
-		`SELECT id, issue_ref, title, state, COALESCE(prev_state, ''), COALESCE(blocked_reason, ''), areas, attempt, round, budget, COALESCE(merged_sha, ''), COALESCE(step_index, 0), COALESCE(flow, ''), updated_at
+		`SELECT id, issue_ref, title, state, COALESCE(prev_state, ''), COALESCE(blocked_reason, ''), areas, attempt, round, budget, COALESCE(merged_sha, ''), COALESCE(flow, ''), updated_at
 		   FROM nodes ORDER BY id`, nil,
 		func(rows *sql.Rows) error {
 			var n NodeRow
 			var state, prev, reason, areas, budget, flow string
-			if err := rows.Scan(&n.ID, &n.IssueRef, &n.Title, &state, &prev, &reason, &areas, &n.Attempt, &n.Round, &budget, &n.MergedSHA, &n.StepIndex, &flow, &n.UpdatedAt); err != nil {
+			if err := rows.Scan(&n.ID, &n.IssueRef, &n.Title, &state, &prev, &reason, &areas, &n.Attempt, &n.Round, &budget, &n.MergedSHA, &flow, &n.UpdatedAt); err != nil {
 				return err
 			}
 			if flow != "" {

@@ -35,17 +35,19 @@ func (s *Supervisor) gates(ctx context.Context, f store.Effect, p effectPayload)
 	in := core.GatesDone{Step: r.Step}
 	var events []store.Event
 	for _, g := range st.Gates {
+		started, _ := json.Marshal(contracts.GateRun{Gate: g, SHA: r.Head}) // plain data
+		if err := s.append(ctx, store.Event{Kind: contracts.EventGateStarted, NodeID: n.ID, Payload: started}); err != nil {
+			return err
+		}
 		res, err := s.d.Gates.Run(ctx, ports.GateRun{Workspace: s.cfg.Workspace, Node: n.ID, Gate: g, SHA: r.Head, Workdir: s.worktree(n), Fast: st.Fast})
 		if err != nil {
 			return err
 		}
 		res.Gate, res.Summary = g, text.Clip(res.Summary, gateSummaryMax, text.Ellipsis)
 		in.Results = append(in.Results, res)
-		started, _ := json.Marshal(contracts.GateRun{Gate: g, SHA: r.Head}) // plain data
 		finished, _ := json.Marshal(contracts.GateRun{Gate: g, SHA: r.Head, State: res.State, LogRef: res.LogRef})
-		events = append(events,
-			store.Event{Kind: contracts.EventGateStarted, Payload: started},
-			store.Event{Kind: contracts.EventGateFinished, Payload: finished})
+		events = append(events, store.Event{Kind: contracts.EventGateFinished, Payload: finished})
 	}
+	// The finished gates are journaled with the decision they lead to.
 	return s.decide(ctx, n, in, completed(f), events...)
 }

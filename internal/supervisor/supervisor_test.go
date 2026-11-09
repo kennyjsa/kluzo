@@ -292,3 +292,19 @@ func TestRun(t *testing.T) {
 		t.Errorf("Run = %v", err)
 	}
 }
+
+// A failure after the session ran (here the commit of its work) is a runtime
+// failure of the session: its cost counts and the session policy applies.
+func TestFailureAfterTheSession(t *testing.T) {
+	locked := impl(implemented())
+	locked.lock = true
+	e := newEnv(t, locked, locked, locked)
+	e.drain()
+	n, r := e.nodeRow()
+	if n.State != core.NodeBlocked || n.BlockedReason != core.BlockedTriage || r.CostUSD != 30_000 || len(e.runtime.Calls()) != 3 {
+		t.Errorf("node %s/%s, cost %d, calls %d", n.State, n.BlockedReason, r.CostUSD, len(e.runtime.Calls()))
+	}
+	if c := e.comments(); !strings.Contains(c[len(c)-1], "after the session") {
+		t.Errorf("last comment = %q", c[len(c)-1])
+	}
+}

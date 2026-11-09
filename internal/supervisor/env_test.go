@@ -303,6 +303,7 @@ type step struct {
 	files   map[string]string // written in the worktree first
 	cause   ports.Cause       // the session fails with this cause, without a result
 	tamper  bool              // the session creates a branch outside its own
+	lock    bool              // the session leaves the index of its worktree locked: the commit fails
 }
 
 // call is what the scripted runtime was asked.
@@ -396,6 +397,12 @@ func (p *played) play(ctx context.Context, t *testing.T, repo string, spec ports
 		path := filepath.Join(spec.Workdir, name)
 		_ = os.MkdirAll(filepath.Dir(path), 0o755)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Error(err)
+		}
+	}
+	if st.lock {
+		admin := filepath.Join(repo, ".git", "worktrees", filepath.Base(spec.Workdir), "index.lock")
+		if err := os.WriteFile(admin, nil, 0o644); err != nil {
 			t.Error(err)
 		}
 	}

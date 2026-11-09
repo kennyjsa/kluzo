@@ -16,7 +16,8 @@ Formato: contexto, o que o código faz hoje, e a pergunta.
 
 - **Contexto:** prompt.md e ADR 0024 pedem "sessão nova com o próximo `Counter`"; data-model.md tem a tabela `sessions`, mas nenhum evento traz papel, modelo, referência do harness e resultado.
 - **Hoje:** cada efeito `session.start` é uma sessão do Kluzo (`ss_<ulid do efeito>`), e cada execução do efeito é uma sessão do harness com `Counter` = número da execução − 1. A execução é contada antes de rodar (`BeginEffect`), então uma execução interrompida por crash não repete o número. Os eventos da sessão vão para o journal com o `session_id`; a tabela `sessions` continua vazia, e o manifesto do prompt não é gravado no `session.started` (o evento vem do adaptador, que não conhece o manifesto) nem em `logs/sessions/<id>.prompt.md`.
-- **Pergunta:** qual evento alimenta `sessions` (estender `session.started`/`session.finished` com papel, modelo, referência e manifesto?), e quem grava o texto do prompt?
+- **Também:** o custo de uma sessão entra no `Run` (e no orçamento do nó) na transação da decisão. Se o Kluzo morre entre o fim da sessão e a decisão, a sessão roda de novo e o custo da interrompida fica só nos eventos `cost` do journal. O custo do nó também não é projetado em `nodes.cost_usd_micros` nem no workspace, então o orçamento da milestone ainda não o vê.
+- **Pergunta:** qual evento alimenta `sessions` (estender `session.started`/`session.finished` com papel, modelo, referência e manifesto?), e quem grava o texto do prompt? O custo do nó deve ser somado dos eventos `cost` (o que cobre o crash) e projetado nas colunas de custo?
 
 ### Q49 · Sessões e gates no laço
 

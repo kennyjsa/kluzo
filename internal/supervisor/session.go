@@ -94,35 +94,57 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 	}
 	st := s.flow.Steps[r.Step]
 	done := core.SessionDone{Step: r.Step}
+	left := s.budget(n) - r.CostUSD
+	if left <= 0 {
+		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseBudget, Detail: "the node has no budget left"})
+	}
 	if st.Role == core.RoleImplementer && r.Fresh {
 		base, err := s.prepare(ctx, n)
 		var setup *gitops.SetupError
 		switch {
 		case errors.As(err, &setup):
-			return s.failedRun(ctx, f, runNo, n, done, ports.CauseRuntime, setup.Error())
+			// The output of the setup stays out of the comment: it may hold secrets.
+			return s.failedRun(ctx, f, runNo, n, done, ports.CauseRuntime, setupSummary(setup))
 		case err != nil:
 			return err
 		}
 		done.Base = base
 	}
-	left := s.budget(n) - r.CostUSD
-	if left <= 0 {
-		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseBudget, Detail: "the node has no budget left"})
+	var round []gitops.DiffFile
+	if st.Role == core.RoleReviewer && n.Round > 0 {
+		if round, err = s.d.Git.Diff(ctx, s.cfg.Repo, r.RoundBase, r.Head); err != nil {
+			return err
+		}
 	}
-	res, hs, err := s.play(ctx, f, n, r, st, runNo, left, &done)
+	// An error before the harness session starts is retried by the outbox.
+	// Once it started, every failure is a result of the session, so its cost
+	// is stored and the session policy applies.
+	res, hs, err := s.play(ctx, f, n, r, st, runNo, left, round, &done)
 	if err != nil {
 		return err
 	}
 	done.Session = hs
+	if res.State == ports.StateFinished && len(res.Raw) > 0 && !done.Tampered {
+		if err := s.afterSession(ctx, n, st, round, &done); err != nil {
+			res = ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: "after the session: " + err.Error(), CostUSD: res.CostUSD, Cumulative: res.Cumulative}
+		}
+	}
 	if res.State == ports.StateFailed && res.Cause.Retryable() && !done.Tampered && runNo < sessionRuns {
 		return s.decide(ctx, n, core.SessionRetry{Step: r.Step, CostUSD: res.CostUSD}, retried(f, runNo, string(res.Cause)+": "+res.Detail))
 	}
-	if res.State == ports.StateFinished && len(res.Raw) > 0 && !done.Tampered {
-		if err := s.afterSession(ctx, n, r, st, &done); err != nil {
-			return err
-		}
-	}
 	return s.decideSession(ctx, f, n, done, res)
+}
+
+// setupSummary describes a failed worktree.setup without its output.
+func setupSummary(e *gitops.SetupError) string {
+	switch {
+	case e.TimedOut:
+		return "worktree.setup timed out"
+	case e.Err != nil:
+		return "worktree.setup could not start"
+	default:
+		return fmt.Sprintf("worktree.setup exited %d", e.Code)
+	}
 }
 
 // failedRun ends a run that could not start a session.
@@ -153,21 +175,17 @@ func (s *Supervisor) budget(n store.NodeRow) int64 {
 
 // afterSession records what an accepted session produced: the implementer's
 // work as a commit, and for a review from round 2 the lines the round changed.
-func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, r core.Run, st core.FlowStep, done *core.SessionDone) error {
+func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, st core.FlowStep, round []gitops.DiffFile, done *core.SessionDone) error {
 	if st.Role == core.RoleImplementer {
 		head, err := s.d.Git.Commit(ctx, s.cfg.Repo, s.worktree(n), fmt.Sprintf("kluzo: #%s attempt %d round %d", n.IssueRef, n.Attempt, n.Round))
 		done.Head = head
 		return err
 	}
-	if n.Round == 0 {
+	if round == nil {
 		return nil
 	}
-	files, err := s.d.Git.Diff(ctx, s.cfg.Repo, r.RoundBase, r.Head)
-	if err != nil {
-		return err
-	}
 	done.Changed = map[string][]core.LineRange{}
-	for _, f := range files {
+	for _, f := range round {
 		for _, l := range f.Lines {
 			done.Changed[f.Path] = append(done.Changed[f.Path], core.LineRange{From: l[0], To: l[1]})
 		}
@@ -178,8 +196,9 @@ func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, r core.R
 // play assembles the prompt, opens the MCP session and runs the harness
 // session, resuming the implementer's conversation when its segments did not
 // change (prompt.md#sessões, ADR 0024). Then it checks the repository: a
-// change outside the node branch sets done.Tampered.
-func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, r core.Run, st core.FlowStep, runNo int, left int64, done *core.SessionDone) (ports.Result, *core.HarnessSession, error) {
+// change outside the node branch sets done.Tampered. It returns an error only
+// when no harness session ran.
+func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, r core.Run, st core.FlowStep, runNo int, left int64, round []gitops.DiffFile, done *core.SessionDone) (ports.Result, *core.HarnessSession, error) {
 	role := s.cfg.Project.Roles[st.Role]
 	if role == nil {
 		return ports.Result{}, nil, fmt.Errorf("role %s is not in the project: %w", st.Role, ports.ErrPermanent)
@@ -188,7 +207,7 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 	if !ok {
 		return ports.Result{}, nil, fmt.Errorf("output schema %s of role %s: %w", role.Output, role.Name, ports.ErrPermanent)
 	}
-	in, err := s.promptInput(ctx, n, r, st, role, schema)
+	in, err := s.promptInput(ctx, n, r, st, role, schema, round)
 	if err != nil {
 		return ports.Result{}, nil, err
 	}
@@ -262,27 +281,37 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 		spec.Prompt, spec.PriorUsage, nonce = pr.Task, ports.Usage{}, pr.Nonce
 		sess, err = s.d.Runtime.Start(ctx, spec)
 	}
+	branch := "refs/heads/" + s.branch(n)
 	if err != nil {
 		if ports.IsPermanent(err) {
 			return ports.Result{}, nil, err
 		}
-		return ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: err.Error()}, nil, s.d.Git.Check(ctx, snap, "refs/heads/"+s.branch(n))
+		res := ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: err.Error()}
+		return s.checked(ctx, snap, branch, res, done), nil, nil
 	}
 	if err := s.journal(ctx, n.ID, sessionID, sess.Events()); err != nil {
-		_ = sess.Cancel()
-		return ports.Result{}, nil, err
+		s.d.Log.Warn("journal of session events failed", "session", sessionID, "err", err)
 	}
 	res, err := sess.Wait()
 	if err != nil {
-		return ports.Result{}, nil, err
+		res = ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: "wait: " + err.Error()}
 	}
-	if err := s.d.Git.Check(ctx, snap, "refs/heads/"+s.branch(n)); errors.Is(err, gitops.ErrTampered) {
-		done.Tampered = true
-		res.Detail = err.Error()
-	} else if err != nil {
-		return ports.Result{}, nil, err
-	}
+	res = s.checked(ctx, snap, branch, res, done)
 	return res, &core.HarnessSession{Ref: sess.HarnessRef(), Harness: s.d.Runtime.Name(), Model: model, Segments: segments, Nonce: nonce, Cumulative: res.Cumulative}, nil
+}
+
+// checked runs the post-session check on the result of a session: a change
+// outside the node branch sets done.Tampered (the node fails), and a check
+// that could not run makes the session a runtime failure, which is retried.
+func (s *Supervisor) checked(ctx context.Context, snap gitops.Snapshot, branch string, res ports.Result, done *core.SessionDone) ports.Result {
+	err := s.d.Git.Check(ctx, snap, branch)
+	switch {
+	case errors.Is(err, gitops.ErrTampered):
+		done.Tampered, res.Detail = true, err.Error()
+	case err != nil:
+		res = ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: "post-session check: " + err.Error(), CostUSD: res.CostUSD, Cumulative: res.Cumulative}
+	}
+	return res
 }
 
 // check is the validation the core adds to the schema of the role's output
@@ -310,24 +339,29 @@ func (s *Supervisor) check(st core.FlowStep, n store.NodeRow, r core.Run, wt str
 	}
 }
 
-// journal writes the normalized events of a session as they arrive.
+// journal writes the normalized events of a session as they arrive. It keeps
+// reading after a failure: the session must not block on its channel.
 func (s *Supervisor) journal(ctx context.Context, node, session string, events <-chan ports.Event) error {
 	var failed error
 	for ev := range events {
-		if failed != nil {
-			continue // keep reading: the session must not block on its channel
+		if failed == nil {
+			failed = s.append(ctx, store.Event{Kind: ev.Kind, NodeID: node, SessionID: session, Payload: ev.Payload})
 		}
-		h, err := s.header()
-		if err != nil {
-			failed = err
-			continue
-		}
-		failed = s.d.DB.Tx(ctx, func(t *store.Tx) error {
-			_, err := t.Append(store.Event{Header: h, Kind: ev.Kind, NodeID: node, SessionID: session, Payload: ev.Payload})
-			return err
-		})
 	}
 	return failed
+}
+
+// append journals one event that leads to no decision.
+func (s *Supervisor) append(ctx context.Context, e store.Event) error {
+	h, err := s.header()
+	if err != nil {
+		return err
+	}
+	e.Header = h
+	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
+		_, err := t.Append(e)
+		return err
+	})
 }
 
 func verify(cmds []prompt.Command) []string {
@@ -341,7 +375,7 @@ func verify(cmds []prompt.Command) []string {
 // promptInput gathers what the prompt of a role session needs: the issue, the
 // project rules and the gate commands read from the milestone tip, the
 // criteria, and the cause of the round.
-func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Run, st core.FlowStep, role *config.Role, schema []byte) (prompt.Input, error) {
+func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Run, st core.FlowStep, role *config.Role, schema []byte, round []gitops.DiffFile) (prompt.Input, error) {
 	issue, err := s.d.Tracker.Issue(ctx, n.IssueRef)
 	if err != nil {
 		return prompt.Input{}, err
@@ -374,11 +408,17 @@ func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Ru
 		Issue: n.IssueRef, Branch: s.branch(n), IssueTitle: issue.Title, IssueBody: issue.Body,
 		Criteria: s.cfg.Criteria[n.IssueRef], Verify: cmds,
 	}
-	switch {
-	case st.Role == core.RoleImplementer && r.Rejected:
-		t.Why = &prompt.Why{Review: &prompt.ReviewCause{Findings: r.Findings.Open()}}
-	case st.Role == core.RoleImplementer && len(r.GateFailures) > 0:
-		t.Why = &prompt.Why{Gate: gateFailures(r.GateFailures, cmds)}
+	// Back for review findings, red gates or both: the findings stay in the
+	// task until the reviewer judges them, because the coverage asks for an
+	// answer to each.
+	if st.Role == core.RoleImplementer && (r.Rejected || len(r.GateFailures) > 0) {
+		t.Why = &prompt.Why{}
+		if r.Rejected {
+			t.Why.Review = &prompt.ReviewCause{Findings: r.Findings.Open()}
+		}
+		if len(r.GateFailures) > 0 {
+			t.Why.Gate = gateFailures(r.GateFailures, cmds)
+		}
 	}
 	if st.Role == core.RoleImplementer && r.Fresh && n.Attempt > 1 {
 		t.Previous = &prompt.PreviousAttempt{Attempt: n.Attempt - 1, Facts: previousFacts(r)}
@@ -387,8 +427,9 @@ func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Ru
 		t.ImplementerReport = string(r.Report)
 		if n.Round > 0 {
 			t.PreviousFindings = r.Findings.Open()
-			if t.Diff, err = s.roundDiff(ctx, r); err != nil {
-				return prompt.Input{}, err
+			t.Diff = &prompt.Diff{}
+			for _, f := range round {
+				t.Diff.Files = append(t.Diff.Files, prompt.DiffFile{Path: f.Path, Added: f.Added, Removed: f.Removed})
 			}
 		}
 	}
@@ -402,20 +443,6 @@ func reviewStep(f core.Flow) int {
 		}
 	}
 	return 0 // Validate guarantees a reviewer
-}
-
-// roundDiff is the diff the reviewer gets from round 2: the files the round
-// touched with their counts.
-func (s *Supervisor) roundDiff(ctx context.Context, r core.Run) (*prompt.Diff, error) {
-	files, err := s.d.Git.Diff(ctx, s.cfg.Repo, r.RoundBase, r.Head)
-	if err != nil {
-		return nil, err
-	}
-	d := &prompt.Diff{}
-	for _, f := range files {
-		d.Files = append(d.Files, prompt.DiffFile{Path: f.Path, Added: f.Added, Removed: f.Removed})
-	}
-	return d, nil
 }
 
 func gateFailures(results []ports.GateResult, cmds []prompt.Command) []prompt.GateFailure {

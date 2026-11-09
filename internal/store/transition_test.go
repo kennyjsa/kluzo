@@ -293,13 +293,18 @@ func TestRebuildEqualsIncremental(t *testing.T) {
 
 	incremental := snapshot(t, d)
 	if incremental.Nodes[0].State != core.NodeIntegrated || incremental.Nodes[1].PrevState != core.NodeReady || incremental.Workspace.HeadSHA != "m1" ||
-		incremental.Nodes[1].StepIndex != 2 || string(incremental.Nodes[1].Flow) != `{"Step":2}` {
+		string(incremental.Nodes[1].Flow) != `{"Step":2}` {
 		t.Fatalf("scenario did not produce the expected state: %+v", incremental)
 	}
 
 	must(t, d.Rebuild(context.Background()))
 	if diff := cmp.Diff(incremental, snapshot(t, d)); diff != "" {
 		t.Errorf("rebuild differs from the incremental state (-incremental +rebuilt):\n%s", diff)
+	}
+	var step int
+	must(t, d.sql.QueryRow(`SELECT step_index FROM nodes WHERE id = 'nd_2'`).Scan(&step))
+	if step != 2 {
+		t.Errorf("step_index = %d, want 2", step)
 	}
 
 	// Corrupt the projections, then rebuild again.

@@ -157,20 +157,46 @@ func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 			return busy, err
 		}
 	}
-	pending, err := s.d.DB.PendingEffects(ctx, s.d.Clock.Now(), pendingBatch)
-	if err != nil {
+	f, ok, err := s.next(ctx, running)
+	if err != nil || !ok {
 		return false, err
 	}
-	for _, f := range pending {
-		if k := core.EffectKind(f.Kind); running || (k != core.EffectSession && k != core.EffectGates) {
-			return true, s.execute(ctx, f)
-		}
-	}
-	return false, nil
+	return true, s.execute(ctx, f)
 }
 
+// next picks the effect to run: the oldest that is due, except that the
+// labels and comments of an issue go out in order (an older one waiting for
+// its backoff holds the newer ones, so a stale label never wins), and a
+// workspace that is not running starts no session and no gate.
+func (s *Supervisor) next(ctx context.Context, running bool) (store.Effect, bool, error) {
+	now := s.d.Clock.Now()
+	pending, err := s.d.DB.PendingEffects(ctx, farFuture, pendingBatch)
+	if err != nil {
+		return store.Effect{}, false, err
+	}
+	held := map[string]bool{} // issues with an earlier tracker effect pending
+	for _, f := range pending {
+		k := core.EffectKind(f.Kind)
+		tracker := k == core.EffectLabel || k == core.EffectComment
+		var p effectPayload
+		_ = json.Unmarshal(f.Payload, &p) // a bad payload fails in execute
+		switch {
+		case tracker && held[p.Issue]:
+			continue
+		case f.NextAt.After(now), !running && (k == core.EffectSession || k == core.EffectGates):
+			held[p.Issue] = held[p.Issue] || tracker
+			continue
+		}
+		return f, true, nil
+	}
+	return store.Effect{}, false, nil
+}
+
+// farFuture lists every pending effect, due or not.
+var farFuture = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+
 // pendingBatch is how many pending effects Step looks at to find one it may run.
-const pendingBatch = 50
+const pendingBatch = 200
 
 // schedule applies Ready to the planned nodes the graph says are ready, and
 // Dispatch to the next ready node when no node is active.
@@ -284,8 +310,12 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 			if err != nil {
 				return err
 			}
-			if _, err := t.TransitionNode(n.ID, m.Event, m.Limits, h); err != nil {
+			got, err := t.TransitionNode(n.ID, m.Event, m.Limits, h)
+			if err != nil {
 				return err
+			}
+			if got.State != m.To {
+				return fmt.Errorf("node %s: the store reached %s, the core decided %s", n.ID, got.State, m.To)
 			}
 		}
 		if d.Workspace != "" {
