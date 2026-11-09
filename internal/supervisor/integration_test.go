@@ -63,8 +63,8 @@ func TestIntegrationNode(t *testing.T) {
 		}
 	}
 	e := &env{t: t, db: db, node: node}
-	n, r := e.nodeRow()
-	t.Logf("node %s (%s), attempt %d round %d, cost US$ %.4f, moves %v", n.State, n.BlockedReason, n.Attempt, n.Round, float64(r.CostUSD)/1e6, e.moves())
+	n, _ := e.nodeRow()
+	t.Logf("node %s (%s), attempt %d round %d, cost US$ %.4f, moves %v", n.State, n.BlockedReason, n.Attempt, n.Round, float64(n.CostUSDMicros)/1e6, e.moves())
 	if n.State != core.NodeQueued {
 		t.Errorf("node = %s, want queued", n.State)
 	}

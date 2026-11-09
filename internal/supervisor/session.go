@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,6 +19,8 @@ import (
 	"github.com/kennyjsa/kluzo/internal/gitops"
 	"github.com/kennyjsa/kluzo/internal/guard"
 	"github.com/kennyjsa/kluzo/internal/mcp"
+	"github.com/kennyjsa/kluzo/internal/platform/ids"
+	"github.com/kennyjsa/kluzo/internal/platform/redact"
 	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
 	"github.com/kennyjsa/kluzo/internal/platform/text"
 	"github.com/kennyjsa/kluzo/internal/ports"
@@ -94,7 +99,7 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 	}
 	st := s.flow.Steps[r.Step]
 	done := core.SessionDone{Step: r.Step}
-	left := s.budget(n) - r.CostUSD
+	left := s.budget(n) - n.CostUSDMicros
 	if left <= 0 {
 		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseBudget, Detail: "the node has no budget left"})
 	}
@@ -130,7 +135,7 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 		}
 	}
 	if res.State == ports.StateFailed && res.Cause.Retryable() && !done.Tampered && runNo < sessionRuns {
-		return s.decide(ctx, n, core.SessionRetry{Step: r.Step, CostUSD: res.CostUSD}, retried(f, runNo, string(res.Cause)+": "+res.Detail))
+		return s.decide(ctx, n, core.SessionRetry{Step: r.Step}, retried(f, runNo, string(res.Cause)+": "+res.Detail))
 	}
 	return s.decideSession(ctx, f, n, done, res)
 }
@@ -157,7 +162,7 @@ func (s *Supervisor) failedRun(ctx context.Context, f store.Effect, runNo int, n
 
 // decideSession stores the outcome of a session as SessionDone.
 func (s *Supervisor) decideSession(ctx context.Context, f store.Effect, n store.NodeRow, done core.SessionDone, res ports.Result) error {
-	done.State, done.Cause, done.CostUSD = res.State, res.Cause, res.CostUSD
+	done.State, done.Cause = res.State, res.Cause
 	done.Detail = text.Clip(res.Detail, contracts.SummaryMax, text.Ellipsis)
 	if res.State == ports.StateFinished {
 		done.Raw = res.Raw
@@ -224,18 +229,16 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 	// The implementer resumes its conversation within an attempt when the
 	// model, the harness and the stable segments are the same; it then gets
 	// only the reduced task, under the nonce of the conversation.
-	prev, task, nonce := r.Implementer, pr.Task, pr.Nonce
+	prev, reduced := r.Implementer, prompt.Prompt{}
 	resume := st.Role == core.RoleImplementer && prev != nil && prev.Model == model && prev.Harness == s.d.Runtime.Name() && prev.Segments == segments
 	if resume {
 		in.Task.Reduced = true
-		reduced, err := prompt.Build(in, func() (string, error) { return prev.Nonce, nil })
+		reduced, err = prompt.Build(in, func() (string, error) { return prev.Nonce, nil })
 		switch {
 		case errors.Is(err, prompt.ErrNonceCollision):
 			resume = false
 		case err != nil:
 			return ports.Result{}, nil, err
-		default:
-			task, nonce = reduced.Task, prev.Nonce
 		}
 	}
 
@@ -264,21 +267,24 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 	spec := ports.SessionSpec{
 		SessionID: sessionID, Counter: runNo - 1, Attempt: n.Attempt, Round: n.Round,
 		Role:   ports.RoleConfig{Name: role.Name, Model: model, Effort: role.Effort, Tools: role.Tools, MaxTurns: role.MaxTurns},
-		System: pr.System(), Prompt: task, Segments: segments, Workdir: wt, Verify: verify(in.Task.Verify),
+		System: pr.System(), Segments: segments, Workdir: wt, Verify: verify(in.Task.Verify),
 		MCPEndpoint: ms.URL(), MCPToken: ms.Token(), MCPTools: []string{mcp.ToolResult}, Accepted: ms.Accepted,
 		HookEndpoint: ms.HookURL(), Hooked: ms.Hooked, Env: env, MaxBudgetUSDMicros: left,
 		Timeout: time.Duration(role.Budget.Minutes) * time.Minute,
 	}
+	// sent is the prompt the harness gets: the reduced task, under the nonce
+	// of the conversation, when it resumes.
 	var sess ports.Session
+	sent := pr
 	if resume {
-		spec.PriorUsage = prev.Cumulative
+		spec.Prompt, spec.PriorUsage, sent = reduced.Task, prev.Cumulative, reduced
 		sess, err = s.d.Runtime.Resume(ctx, prev.Ref, spec)
 		if errors.Is(err, ports.ErrResumeMismatch) {
 			resume = false
 		}
 	}
 	if !resume {
-		spec.Prompt, spec.PriorUsage, nonce = pr.Task, ports.Usage{}, pr.Nonce
+		spec.Prompt, spec.PriorUsage, sent = pr.Task, ports.Usage{}, pr
 		sess, err = s.d.Runtime.Start(ctx, spec)
 	}
 	branch := "refs/heads/" + s.branch(n)
@@ -289,7 +295,10 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 		res := ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: err.Error()}
 		return s.checked(ctx, snap, branch, res, done), nil, nil
 	}
-	if err := s.journal(ctx, n.ID, sessionID, sess.Events()); err != nil {
+	if err := s.writePrompt(sessionID, sent); err != nil {
+		s.d.Log.Warn("prompt log failed", "session", sessionID, "err", err)
+	}
+	if err := s.journal(ctx, n, sessionID, started{ref: sess.HarnessRef(), prompt: sent}, sess.Events()); err != nil {
 		s.d.Log.Warn("journal of session events failed", "session", sessionID, "err", err)
 	}
 	res, err := sess.Wait()
@@ -297,7 +306,7 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 		res = ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: "wait: " + err.Error()}
 	}
 	res = s.checked(ctx, snap, branch, res, done)
-	return res, &core.HarnessSession{Ref: sess.HarnessRef(), Harness: s.d.Runtime.Name(), Model: model, Segments: segments, Nonce: nonce, Cumulative: res.Cumulative}, nil
+	return res, &core.HarnessSession{Ref: sess.HarnessRef(), Harness: s.d.Runtime.Name(), Model: model, Segments: segments, Nonce: sent.Nonce, Cumulative: res.Cumulative}, nil
 }
 
 // checked runs the post-session check on the result of a session: a change
@@ -339,16 +348,125 @@ func (s *Supervisor) check(st core.FlowStep, n store.NodeRow, r core.Run, wt str
 	}
 }
 
-// journal writes the normalized events of a session as they arrive. It keeps
-// reading after a failure: the session must not block on its channel.
-func (s *Supervisor) journal(ctx context.Context, node, session string, events <-chan ports.Event) error {
-	var failed error
-	for ev := range events {
-		if failed == nil {
-			failed = s.append(ctx, store.Event{Kind: ev.Kind, NodeID: node, SessionID: session, Payload: ev.Payload})
-		}
+// writePrompt keeps the text of the prompt a session got, redacted, in
+// logs/sessions/<id>.prompt.md (prompt.md#manifesto-da-sessão); a session that
+// runs again overwrites it with its own.
+func (s *Supervisor) writePrompt(session string, p prompt.Prompt) error {
+	dir := filepath.Join(s.cfg.Dir, "logs", "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
 	}
-	return failed
+	text := redact.New().String(p.System() + "\n\n" + p.Task)
+	return os.WriteFile(filepath.Join(dir, session+".prompt.md"), []byte(text), 0o600)
+}
+
+// started is what the supervisor adds to the session.started of the adapter:
+// the harness conversation and the prompt it sent, for the manifest.
+type started struct {
+	ref    string
+	prompt prompt.Prompt
+}
+
+// journal writes the normalized events of a session as they arrive, with the
+// manifest in session.started; session.finished carries the cost of the
+// session to the budgets before the decision on it. Each event is journaled
+// on its own: a failure loses that entry only, never the session.finished
+// that follows. It reads to the end: the session must not block on its
+// channel.
+func (s *Supervisor) journal(ctx context.Context, n store.NodeRow, session string, st started, events <-chan ports.Event) error {
+	var errs []error
+	for ev := range events {
+		e := store.Event{Kind: ev.Kind, NodeID: n.ID, SessionID: session, Payload: ev.Payload}
+		var err error
+		switch ev.Kind {
+		case contracts.EventSessionStarted:
+			if e.Payload, err = s.manifest(ev.Payload, st); err != nil {
+				e.Payload = ev.Payload // the session row still needs it
+			}
+			err = errors.Join(err, s.append(ctx, e))
+		case contracts.EventSessionFinished:
+			err = s.finished(ctx, n, e)
+		default:
+			err = s.append(ctx, e)
+		}
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// manifest adds the harness conversation and the session manifest
+// (prompt.md#manifesto-da-sessão) to the payload of session.started.
+func (s *Supervisor) manifest(payload json.RawMessage, st started) (json.RawMessage, error) {
+	var p contracts.SessionStarted
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, fmt.Errorf("session.started: %w", err)
+	}
+	m := st.prompt.Manifest(prompt.Runtime{KluzoVersion: s.cfg.Version, Harness: p.Harness, HarnessVersion: p.HarnessVersion, Model: p.Model})
+	p.HarnessSessionRef = st.ref
+	p.Manifest, _ = json.Marshal(m) // plain data
+	out, _ := json.Marshal(p)       // plain data
+	return out, nil
+}
+
+// finished journals session.finished, which adds the cost of the session to
+// the node and the milestone, and the budget.alert of the milestone when the
+// cost crosses its alert threshold (budgets.milestone.alert_at), with a
+// notification.
+func (s *Supervisor) finished(ctx context.Context, n store.NodeRow, e store.Event) error {
+	h, err := s.header()
+	if err != nil {
+		return err
+	}
+	e.Header = h
+	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
+		before, own, err := t.WorkspaceCost()
+		if err != nil {
+			return err
+		}
+		if _, err := t.Append(e); err != nil {
+			return err
+		}
+		after, _, err := t.WorkspaceCost()
+		if err != nil {
+			return err
+		}
+		limit, threshold := s.milestoneBudget(own)
+		if threshold <= 0 || before >= threshold || after < threshold {
+			return nil
+		}
+		ah, err := s.header()
+		if err != nil {
+			return err
+		}
+		id, err := s.d.IDs.New(ids.Effect, ah.TS)
+		if err != nil {
+			return err
+		}
+		alert, _ := json.Marshal(contracts.BudgetAlert{Scope: contracts.BudgetScopeMilestone, SpentUSDMicros: after, LimitUSDMicros: limit}) // plain data
+		notify, _ := json.Marshal(effectPayload{Node: n.ID, Issue: n.IssueRef, Do: core.Effect{                                              // plain data
+			Kind: core.EffectNotify, Key: "notify", Title: "Milestone budget alert", Priority: ports.PriorityHigh,
+			Body: fmt.Sprintf("the milestone spent US$ %.2f of US$ %.2f", float64(after)/1e6, float64(limit)/1e6),
+		}})
+		_, err = t.Append(store.Event{Header: ah, Kind: contracts.EventBudgetAlert, Payload: alert},
+			store.EffectSpec{ID: id, Kind: string(core.EffectNotify), Key: "notify", Payload: notify})
+		return err
+	})
+}
+
+// milestoneBudget is the budget of the milestone (the workspace's own, or
+// budgets.milestone.usd) and the cost that raises the alert, in
+// micro-dollars; zero when the milestone has no budget.
+func (s *Supervisor) milestoneBudget(own int64) (limit, threshold int64) {
+	b := s.cfg.Project.Config.Budgets.Milestone
+	limit = own
+	if limit == 0 {
+		limit = int64(b.USD * 1e6)
+	}
+	at := b.AlertAt
+	if at == 0 {
+		at = 1
+	}
+	return limit, int64(float64(limit) * at)
 }
 
 // append journals one event that leads to no decision.
@@ -421,7 +539,15 @@ func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Ru
 		}
 	}
 	if st.Role == core.RoleImplementer && r.Fresh && n.Attempt > 1 {
-		t.Previous = &prompt.PreviousAttempt{Attempt: n.Attempt - 1, Facts: previousFacts(r)}
+		evs, err := s.d.DB.NodeEvents(ctx, n.ID)
+		if err != nil {
+			return prompt.Input{}, err
+		}
+		facts, err := previousFacts(evs, n.Attempt-1, s.worktree(n))
+		if err != nil {
+			return prompt.Input{}, err
+		}
+		t.Previous = &prompt.PreviousAttempt{Attempt: n.Attempt - 1, Facts: facts}
 	}
 	if st.Role == core.RoleReviewer {
 		t.ImplementerReport = string(r.Report)
@@ -458,14 +584,94 @@ func gateFailures(results []ports.GateResult, cmds []prompt.Command) []prompt.Ga
 	return out
 }
 
-// previousFacts are the facts of the previous attempt a new one gets.
-func previousFacts(r core.Run) []string {
+// Limits of the facts of a previous attempt (prompt.md#limites).
+const (
+	factFiles    = 50
+	factFindings = 20
+)
+
+// previousFacts are the facts of an attempt a new one gets, from the journal
+// of the node (prompt.md, Previous attempt): the files its sessions changed,
+// the findings still open and the gates whose last run failed. An event
+// belongs to the attempt of the last node.transition before it. Edited paths
+// are made relative to the worktree wt; edits outside it are left out.
+func previousFacts(evs []store.Event, attempt int, wt string) ([]string, error) {
+	cur := 0
+	files := map[string]bool{}
+	gates := map[string]string{} // gate → state of its last run
+	var gateOrder []string
+	var last *contracts.NodeFlow
+	for _, e := range evs {
+		var err error
+		switch e.Kind {
+		case contracts.EventNodeTransition:
+			var p contracts.NodeTransition
+			err = json.Unmarshal(e.Payload, &p)
+			cur = p.Attempt
+		case contracts.EventFileEdited:
+			var p contracts.FileEdited
+			if err = json.Unmarshal(e.Payload, &p); err == nil && cur == attempt {
+				if rel, ok := inside(wt, p.Path); ok {
+					files[rel] = true
+				}
+			}
+		case contracts.EventGateFinished:
+			var p contracts.GateRun
+			if err = json.Unmarshal(e.Payload, &p); err == nil && cur == attempt {
+				if _, ok := gates[p.Gate]; !ok {
+					gateOrder = append(gateOrder, p.Gate)
+				}
+				gates[p.Gate] = p.State
+			}
+		case contracts.EventNodeFlow:
+			if cur == attempt {
+				last = &contracts.NodeFlow{}
+				err = json.Unmarshal(e.Payload, last)
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("journal entry %d (%s): %w", e.Seq, e.Kind, err)
+		}
+	}
 	var facts []string
-	for _, g := range r.GateFailures {
-		facts = append(facts, fmt.Sprintf("gate %s %s", g.Gate, g.State))
+	changed := slices.Sorted(maps.Keys(files))
+	if len(changed) > 0 {
+		fact := "changed files: " + strings.Join(changed[:min(len(changed), factFiles)], ", ")
+		if extra := len(changed) - factFiles; extra > 0 {
+			fact += fmt.Sprintf(" (+%d files)", extra)
+		}
+		facts = append(facts, fact)
 	}
-	if open := r.Findings.Open(); len(open) > 0 {
-		facts = append(facts, fmt.Sprintf("%d review findings were still open", len(open)))
+	for _, g := range gateOrder {
+		if st := gates[g]; st != ports.GatePassed {
+			facts = append(facts, fmt.Sprintf("gate %s %s", g, st))
+		}
 	}
-	return facts
+	if last != nil {
+		var r core.Run
+		if err := json.Unmarshal(last.Run, &r); err != nil {
+			return nil, fmt.Errorf("node.flow of attempt %d: %w", attempt, err)
+		}
+		open := r.Findings.Open()
+		for _, f := range open[:min(len(open), factFindings)] {
+			facts = append(facts, fmt.Sprintf("finding %s still open (%s, %s:%d): %s", f.ID, f.Severity, f.File, f.Line, f.Message))
+		}
+		if extra := len(open) - factFindings; extra > 0 {
+			facts = append(facts, fmt.Sprintf("+%d open findings", extra))
+		}
+	}
+	return facts, nil
+}
+
+// inside returns name relative to the worktree wt, slash-separated, and
+// whether it is inside it; a relative name is already relative to wt.
+func inside(wt, name string) (string, bool) {
+	if !filepath.IsAbs(name) {
+		name = filepath.Join(wt, name)
+	}
+	rel, err := filepath.Rel(wt, filepath.Clean(name))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }

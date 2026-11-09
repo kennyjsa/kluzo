@@ -118,6 +118,11 @@ func (d *DB) migrate(ctx context.Context) error {
 	if current > latest {
 		return fmt.Errorf("%w: database at version %d, binary at %d", ErrFutureSchema, current, latest)
 	}
+	if current > 0 && current < latest {
+		// A migration may add a projection: recompute them from the journal
+		// the older binary wrote.
+		return d.Rebuild(ctx)
+	}
 	return nil
 }
 

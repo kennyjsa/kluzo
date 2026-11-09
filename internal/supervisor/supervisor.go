@@ -56,6 +56,8 @@ type Config struct {
 	Criteria map[string][]core.Criterion
 	// Idle is how long Run waits when there is nothing to do (default 5 s).
 	Idle time.Duration
+	// Version is the Kluzo version, for the session manifest.
+	Version string
 }
 
 // Supervisor runs one workspace. Its methods are called from one goroutine.

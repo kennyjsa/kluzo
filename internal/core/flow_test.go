@@ -23,12 +23,12 @@ var flowLimits = Limits{MaxAttempts: 2}
 
 func implDone(step int) SessionDone {
 	return SessionDone{Step: step, State: ports.StateFinished, Raw: json.RawMessage(`{"status":"done","responses":[]}`),
-		Session: &HarnessSession{Ref: "h1"}, Head: "c1", Base: "b0", CostUSD: 100}
+		Session: &HarnessSession{Ref: "h1"}, Head: "c1", Base: "b0"}
 }
 
 func review(step int, met bool, findings ...map[string]any) SessionDone {
 	raw, _ := json.Marshal(map[string]any{"criteria": []map[string]any{{"id": "AC1", "met": met}}, "findings": findings, "previous": []any{}})
-	return SessionDone{Step: step, State: ports.StateFinished, Raw: raw, CostUSD: 50}
+	return SessionDone{Step: step, State: ports.StateFinished, Raw: raw}
 }
 
 func gates(step int, states ...string) GatesDone {
@@ -90,7 +90,7 @@ func TestFlowApprovedInTheFirstRound(t *testing.T) {
 	if want := []NodeState{NodeRunning, NodeInReview, NodeGating, NodeQueued}; !slices.Equal(moves(ds), want) {
 		t.Errorf("moves = %v, want %v", moves(ds), want)
 	}
-	if !s.Run.Ready || s.Run.Step != 4 || s.Node.State != NodeQueued || s.Run.CostUSD != 150 || s.Run.Base != "b0" {
+	if !s.Run.Ready || s.Run.Step != 4 || s.Node.State != NodeQueued || s.Run.Base != "b0" {
 		t.Errorf("end = %+v", s)
 	}
 	if e := lastSession(t, ds[0]); e.Role != RoleImplementer || e.Resume || !slices.Contains(kindsOf(ds[0]), EffectLabel) || !slices.Contains(kindsOf(ds[0]), EffectComment) {
@@ -235,9 +235,9 @@ func TestFlowEndings(t *testing.T) {
 	}
 }
 
-func TestFlowSessionRetryCountsTheCost(t *testing.T) {
-	s, ds := play(t, Dispatch{}, SessionRetry{Step: 0, CostUSD: 70})
-	if s.Run.CostUSD != 70 || len(ds[1].Moves) != 0 || len(ds[1].Effects) != 0 || s.Node.State != NodeRunning {
+func TestFlowSessionRetry(t *testing.T) {
+	s, ds := play(t, Dispatch{}, SessionRetry{Step: 0})
+	if len(ds[1].Moves) != 0 || len(ds[1].Effects) != 0 || s.Node.State != NodeRunning {
 		t.Errorf("after a retry: %+v, %+v", s, ds[1])
 	}
 	// A retried implementer round does not resume the same conversation again.

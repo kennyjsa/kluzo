@@ -102,6 +102,8 @@ Uma **tentativa** (`attempt`) começa a cada entrada em `running` vinda de `read
 | `dependency_failed` | uma dependência virou `failed` ou `cancelled` | dependência resolvida, ou o nó é replanejado |
 | `paused` | workspace pausado | workspace retomado |
 
+Enquanto a triagem automática não existe (v0.2), toda etapa que falha vai direto para `blocked` (`triage`), com notificação e o motivo no comentário: `CauseGuard`, `CauseMaxTurns`, `CauseRefusal`, `CauseNoResult`, `status: failed` do implementer, as repetições esgotadas de `CauseRateLimit` e `CauseRuntime` e o `worktree.setup` que continua falhando. `CauseAuth` leva o nó a `blocked` (`paused`) e o workspace a `paused`; `CauseBudget`, e o orçamento do nó esgotado antes de uma sessão, levam a `blocked` (`budget`). A conferência pós-sessão que encontra adulteração leva a `failed`. A saída de `blocked` na v0.1 é humana, pela CLI ([v0.1, item 10](../planning/milestones/v0.1.md)), e a etapa atual roda de novo.
+
 ## Labels no tracker
 
 - Todas as labels `orch/*` pertencem ao Kluzo. O Kluzo ignora qualquer `orch/*` aplicada por outro usuário e a reverte.

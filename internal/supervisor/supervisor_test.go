@@ -135,7 +135,13 @@ func TestFullGateRedStartsANewAttempt(t *testing.T) {
 	n, _ := e.nodeRow()
 	calls := e.runtime.Calls()
 	if n.State != core.NodeQueued || n.Attempt != 2 || len(calls) != 4 || calls[2].resume || !strings.Contains(calls[2].prompt, "Previous attempt") {
-		t.Errorf("node %+v, calls %+v", n, calls)
+		t.Fatalf("node %+v, calls %+v", n, calls)
+	}
+	// The facts come from the journal of attempt 1.
+	for _, fact := range []string{"changed files: agenda.go", "gate test failed"} {
+		if !strings.Contains(calls[2].prompt, fact) {
+			t.Errorf("the prompt of attempt 2 misses %q:\n%s", fact, calls[2].prompt)
+		}
 	}
 }
 
@@ -162,14 +168,14 @@ func TestSessionCauses(t *testing.T) {
 			}
 			e := newEnv(t, steps...)
 			e.drain()
-			n, r := e.nodeRow()
+			n, _ := e.nodeRow()
 			snap, _ := e.db.Snapshot(t.Context())
 			if n.State != core.NodeBlocked || n.BlockedReason != tt.reason || snap.Workspace.State != tt.workspace {
 				t.Errorf("node %s/%s, workspace %s", n.State, n.BlockedReason, snap.Workspace.State)
 			}
 			calls := e.runtime.Calls()
-			if len(calls) != tt.runs || calls[len(calls)-1].counter != tt.runs-1 || r.CostUSD != int64(tt.runs)*10_000 {
-				t.Errorf("calls %+v, cost %d", calls, r.CostUSD)
+			if len(calls) != tt.runs || calls[len(calls)-1].counter != tt.runs-1 || n.CostUSDMicros != int64(tt.runs)*10_000 {
+				t.Errorf("calls %+v, cost %d", calls, n.CostUSDMicros)
 			}
 			if len(e.notifier.Sent()) != 1 {
 				t.Errorf("notifications = %+v", e.notifier.Sent())
@@ -214,9 +220,9 @@ func TestTamperingFailsTheNode(t *testing.T) {
 func TestBudgetSpent(t *testing.T) {
 	e := newEnvBudget(t, 10_000, impl(implemented()))
 	e.drain()
-	n, r := e.nodeRow()
-	if n.State != core.NodeBlocked || n.BlockedReason != core.BlockedBudget || r.CostUSD != 10_000 || len(e.runtime.Calls()) != 1 {
-		t.Errorf("node %s/%s, cost %d, calls %d", n.State, n.BlockedReason, r.CostUSD, len(e.runtime.Calls()))
+	n, _ := e.nodeRow()
+	if n.State != core.NodeBlocked || n.BlockedReason != core.BlockedBudget || n.CostUSDMicros != 10_000 || len(e.runtime.Calls()) != 1 {
+		t.Errorf("node %s/%s, cost %d, calls %d", n.State, n.BlockedReason, n.CostUSDMicros, len(e.runtime.Calls()))
 	}
 }
 
@@ -300,9 +306,9 @@ func TestFailureAfterTheSession(t *testing.T) {
 	locked.lock = true
 	e := newEnv(t, locked, locked, locked)
 	e.drain()
-	n, r := e.nodeRow()
-	if n.State != core.NodeBlocked || n.BlockedReason != core.BlockedTriage || r.CostUSD != 30_000 || len(e.runtime.Calls()) != 3 {
-		t.Errorf("node %s/%s, cost %d, calls %d", n.State, n.BlockedReason, r.CostUSD, len(e.runtime.Calls()))
+	n, _ := e.nodeRow()
+	if n.State != core.NodeBlocked || n.BlockedReason != core.BlockedTriage || n.CostUSDMicros != 30_000 || len(e.runtime.Calls()) != 3 {
+		t.Errorf("node %s/%s, cost %d, calls %d", n.State, n.BlockedReason, n.CostUSDMicros, len(e.runtime.Calls()))
 	}
 	if c := e.comments(); !strings.Contains(c[len(c)-1], "after the session") {
 		t.Errorf("last comment = %q", c[len(c)-1])

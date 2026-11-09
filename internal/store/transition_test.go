@@ -286,6 +286,23 @@ func TestRebuildEqualsIncremental(t *testing.T) {
 		_, err := x.Append(Event{Header: hdr(n + 1), Kind: "tool.call", NodeID: "nd_1", SessionID: "ss_1", Payload: payload(map[string]string{"tool": "bash"})})
 		return err
 	})
+	// Sessions: ss_1 runs twice (a retry of the outbox), ss_2 died before its
+	// init; every cost adds up in the node and the workspace.
+	tx(t, d, func(x *Tx) error {
+		for i, e := range []Event{
+			{Kind: contracts.EventSessionStarted, NodeID: "nd_1", SessionID: "ss_1", Payload: payload(contracts.SessionStarted{Role: "implementer", Harness: "claude-code", Model: "m1", Attempt: 1, HarnessSessionRef: "h1"})},
+			{Kind: contracts.EventSessionFinished, NodeID: "nd_1", SessionID: "ss_1", Payload: payload(contracts.SessionFinished{State: "failed", CostUSDMicros: 100})},
+			{Kind: contracts.EventSessionStarted, NodeID: "nd_1", SessionID: "ss_1", Payload: payload(contracts.SessionStarted{Role: "implementer", Harness: "claude-code", Model: "m1", Attempt: 1, HarnessSessionRef: "h2"})},
+			{Kind: contracts.EventSessionFinished, NodeID: "nd_1", SessionID: "ss_1", Payload: payload(contracts.SessionFinished{State: "finished", CostUSDMicros: 50, Result: json.RawMessage(`{"status":"done"}`)})},
+			{Kind: contracts.EventSessionFinished, NodeID: "nd_2", SessionID: "ss_2", Payload: payload(contracts.SessionFinished{State: "failed", CostUSDMicros: 7})},
+		} {
+			e.Header = hdr(500 + i)
+			if _, err := x.Append(e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	for _, tr := range []core.WorkspaceTrigger{core.TriggerPlanProposed, core.TriggerPlanApproved, core.TriggerStart} {
 		n += 3
 		tx(t, d, func(x *Tx) error { _, err := x.TransitionWorkspace(tr, hdr(n)); return err })
@@ -295,6 +312,11 @@ func TestRebuildEqualsIncremental(t *testing.T) {
 	if incremental.Nodes[0].State != core.NodeIntegrated || incremental.Nodes[1].PrevState != core.NodeReady || incremental.Workspace.HeadSHA != "m1" ||
 		string(incremental.Nodes[1].Flow) != `{"Step":2}` {
 		t.Fatalf("scenario did not produce the expected state: %+v", incremental)
+	}
+	if s := incremental.Sessions; len(s) != 1 || s[0].State != "finished" || s[0].HarnessRef != "h2" || s[0].CostUSDMicros != 150 ||
+		string(s[0].Result) != `{"status":"done"}` || incremental.Nodes[0].CostUSDMicros != 150 || incremental.Nodes[1].CostUSDMicros != 7 ||
+		incremental.Workspace.CostUSDMicros != 157 {
+		t.Fatalf("sessions and costs: %+v, nodes %+v, workspace %+v", s, incremental.Nodes, incremental.Workspace)
 	}
 
 	must(t, d.Rebuild(context.Background()))
@@ -308,7 +330,7 @@ func TestRebuildEqualsIncremental(t *testing.T) {
 	}
 
 	// Corrupt the projections, then rebuild again.
-	for _, q := range []string{`UPDATE nodes SET state = 'failed'`, `DELETE FROM edges`, `UPDATE workspace SET state = 'merged'`} {
+	for _, q := range []string{`UPDATE nodes SET state = 'failed'`, `DELETE FROM edges`, `UPDATE workspace SET state = 'merged'`, `DELETE FROM sessions`} {
 		_, err := d.sql.Exec(q)
 		must(t, err)
 	}

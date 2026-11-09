@@ -130,9 +130,13 @@ func (s *session) pump() {
 		}
 	}
 	res := classify(o)
-	s.emit(event(contracts.EventSessionFinished, contracts.SessionFinished{
+	fin := contracts.SessionFinished{
 		State: res.State, Cause: string(res.Cause), DurationMS: s.now().Sub(s.started).Milliseconds(), CostUSDMicros: res.CostUSD,
-	}))
+	}
+	if res.State == ports.StateFinished {
+		fin.Result = res.Raw
+	}
+	s.emit(event(contracts.EventSessionFinished, fin))
 	s.mu.Lock()
 	s.result = res
 	s.mu.Unlock()

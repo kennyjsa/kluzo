@@ -14,7 +14,7 @@ const (
 	EventMergeDone           = "merge.done"
 	// EventNodeFlow records the progress of a node through its flow (step,
 	// findings, the session to resume), so a restart continues from the last
-	// role that finished. Provisional: Q47.
+	// role that finished.
 	EventNodeFlow = "node.flow"
 )
 
@@ -23,7 +23,18 @@ const (
 	EventGateStarted  = "gate.started"
 	EventGateFinished = "gate.finished"
 	EventEffectFailed = "effect.failed"
+	EventBudgetAlert  = "budget.alert"
 )
+
+// BudgetScopeMilestone is the scope of the budget alert of the milestone.
+const BudgetScopeMilestone = "milestone"
+
+// BudgetAlert is the payload of budget.alert.
+type BudgetAlert struct {
+	Scope          string `json:"scope"`
+	SpentUSDMicros int64  `json:"spent_usd_micros"`
+	LimitUSDMicros int64  `json:"limit_usd_micros"`
+}
 
 // WorkspaceCreated is the payload of workspace.created: the facts the
 // workspace row needs that no transition carries (docs/contracts/events.md).
@@ -134,6 +145,10 @@ type SessionStarted struct {
 	// Argv is the frozen command line of the harness (the system prompt as its
 	// hash), for the session manifest (docs/contracts/prompt.md).
 	Argv []string `json:"argv,omitempty"`
+	// HarnessSessionRef and Manifest are added by the supervisor, which knows
+	// the harness conversation and the prompt it sent.
+	HarnessSessionRef string          `json:"harness_session_ref,omitempty"`
+	Manifest          json.RawMessage `json:"manifest,omitempty"`
 }
 
 // SessionMessage is the payload of session.message.
@@ -182,6 +197,9 @@ type SessionFinished struct {
 	DurationMS    int64  `json:"duration_ms"`
 	CostUSDMicros int64  `json:"cost_usd_micros"`
 	Cause         string `json:"cause,omitempty"`
+	// Result is the result the session delivered and Kluzo accepted
+	// (results.md), when it finished.
+	Result json.RawMessage `json:"result,omitempty"`
 }
 
 // GuardDenied is the payload of guard.denied: a tool call the guard hook

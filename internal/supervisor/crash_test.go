@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
@@ -160,6 +161,10 @@ func checkCrashOutcome(t *testing.T, dir string) {
 	}
 	if want := []string{"ready", "running", "in_review", "gating", "queued"}; !slices.Equal(e.moves(), want) {
 		t.Errorf("moves = %v, want each once: %v", e.moves(), want)
+	}
+	// Every session that finished is paid, the ones a kill made run again too.
+	if n, _ := e.nodeRow(); n.CostUSDMicros != int64(len(e.events(contracts.EventSessionFinished)))*10_000 || snap.Workspace.CostUSDMicros != n.CostUSDMicros {
+		t.Errorf("node cost %d, workspace cost %d, %d sessions finished", n.CostUSDMicros, snap.Workspace.CostUSDMicros, len(e.events(contracts.EventSessionFinished)))
 	}
 	ft := &fileTracker{path: filepath.Join(dir, "tracker.jsonl")}
 	recs := ft.read()

@@ -81,11 +81,16 @@ func (t *Tx) Append(e Event, effects ...EffectSpec) (int64, error) {
 	return e.Seq, nil
 }
 
-// queryEvents reads up to limit entries with seq greater than after, in order.
-// A limit of zero or less means no limit.
-func queryEvents(ctx context.Context, q querier, after int64, limit int) ([]Event, error) {
-	query := `SELECT seq, id, ts, kind, COALESCE(node_id, ''), COALESCE(session_id, ''), payload FROM events WHERE seq > ? ORDER BY seq`
+// queryEvents reads up to limit entries with seq greater than after, in order,
+// of one node when node is set. A limit of zero or less means no limit.
+func queryEvents(ctx context.Context, q querier, after int64, limit int, node string) ([]Event, error) {
+	query := `SELECT seq, id, ts, kind, COALESCE(node_id, ''), COALESCE(session_id, ''), payload FROM events WHERE seq > ?`
 	args := []any{after}
+	if node != "" {
+		query += ` AND node_id = ?`
+		args = append(args, node)
+	}
+	query += ` ORDER BY seq`
 	if limit > 0 {
 		query += ` LIMIT ?`
 		args = append(args, limit)
@@ -113,5 +118,10 @@ func queryEvents(ctx context.Context, q querier, after int64, limit int) ([]Even
 
 // Events returns up to limit journal entries with seq greater than after.
 func (d *DB) Events(ctx context.Context, after int64, limit int) ([]Event, error) {
-	return queryEvents(ctx, d.sql, after, limit)
+	return queryEvents(ctx, d.sql, after, limit, "")
+}
+
+// NodeEvents returns the journal entries of one node, in order.
+func (d *DB) NodeEvents(ctx context.Context, node string) ([]Event, error) {
+	return queryEvents(ctx, d.sql, 0, 0, node)
 }
