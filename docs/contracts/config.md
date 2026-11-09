@@ -94,7 +94,7 @@ security:
 
 budgets:                       # padrão; papéis e milestones podem sobrescrever
   node: { attempts: 3, minutes: 60, usd: 6 }
-  milestone: { usd: 60, alert_at: 1.1 }
+  milestone: { usd: 60, alert_at: 1.1 }   # alerta uma vez quando o custo passa de usd × alert_at; não pausa
 
 worktree:                      # preparo de cada worktree, executado pelo Kluzo antes da sessão
   setup: "bash tools/agentes/preparar-worktree.sh"   # lido da ponta da milestone; env como nos gates (env_allow, caches)
