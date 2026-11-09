@@ -421,6 +421,10 @@ func TestHookDeniesWhatThePolicyForbids(t *testing.T) {
 	if len(e.rec.denied) != 3 {
 		t.Errorf("denials = %d, want 3", len(e.rec.denied))
 	}
+	// Every PreToolUse call is remembered by id, allowed or denied, for the canary.
+	if !s.Hooked("toolu_1") || s.Hooked("toolu_2") || s.Hooked("") {
+		t.Errorf("Hooked: toolu_1 %t, toolu_2 %t, empty %t", s.Hooked("toolu_1"), s.Hooked("toolu_2"), s.Hooked(""))
+	}
 }
 
 // The input summary of guard.denied goes through redact and is cut to the

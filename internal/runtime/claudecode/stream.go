@@ -102,8 +102,9 @@ type tracker struct {
 	maxTurns      int
 	prior         ports.Usage // what the conversation used before this session
 	redact        func(string) string
+	hooked        func(toolUseID string) bool // the hook endpoint received the call
 
-	hooks     map[string]int    // tool -> PreToolUse hooks started and not yet matched to a tool_result
+	hooks     map[string]int    // tool -> PreToolUse hook events not yet matched to a tool_result (diagnosis only)
 	toolNames map[string]string // tool_use id -> tool
 	messages  map[string]bool   // assistant message ids already counted
 	turns     int
@@ -115,7 +116,7 @@ type tracker struct {
 func newTracker(spec ports.SessionSpec, harness string, expected, argv []string, redact func(string) string) *tracker {
 	return &tracker{
 		role: spec.Role.Name, harness: harness, attempt: spec.Attempt, round: spec.Round,
-		expectedTools: expected, argv: argv, maxTurns: spec.Role.MaxTurns, prior: spec.PriorUsage, redact: redact,
+		expectedTools: expected, argv: argv, maxTurns: spec.Role.MaxTurns, prior: spec.PriorUsage, redact: redact, hooked: spec.Hooked,
 		hooks: map[string]int{}, toolNames: map[string]string{}, messages: map[string]bool{}, unknown: map[string]int{},
 	}
 }
@@ -271,18 +272,28 @@ func (t *tracker) user(l line) ([]ports.Event, *abort) {
 		case "tool_result":
 			// The canary: a tool that ran without the guard hook means the
 			// settings were ignored, and the guard is gone (ADR 0024, item 6).
-			// Hook events name the tool, not the call, and those of a
-			// subagent can come before its tool_use line: each tool_result
-			// takes one hook started for the same tool.
+			// The hook endpoint is asked by tool_use id. The hook events of
+			// the stream name the tool, not the call (and those of a
+			// subagent can come before its tool_use line), so they are only
+			// matched by name, for the diagnosis.
 			name := t.toolNames[b.ToolUseID]
-			switch {
-			case t.hooks[name] > 0:
+			byName := t.hooks[name] > 0
+			if byName {
 				t.hooks[name]--
-			case ab == nil:
-				ab = &abort{ports.CauseGuard, fmt.Sprintf("tool %s (%s) ran without a PreToolUse hook event: the guard is not active", name, b.ToolUseID)}
+			}
+			out := resultText(b.Content)
+			switch hooked := t.hooked(b.ToolUseID); {
+			case !hooked && b.IsError && strings.HasPrefix(out, "<tool_use_error>"):
+				// Refused by the harness itself (input validation, unknown
+				// tool) before the hooks run: the tool did not run.
+				t.unknown["system/hook-skipped-invalid"]++
+			case !hooked && ab == nil:
+				ab = &abort{ports.CauseGuard, fmt.Sprintf("tool %s (%s) ran without reaching the guard hook (a stream hook event for it: %t): the guard is not active", name, b.ToolUseID, byName)}
+			case hooked && !byName:
+				t.unknown["system/hook_started-missing"]++ // the endpoint saw the call, the stream did not report it
 			}
 			evs = append(evs, event(contracts.EventToolResult, contracts.ToolResult{
-				Tool: t.toolNames[b.ToolUseID], OK: !b.IsError, OutputSummary: t.summary(resultText(b.Content)),
+				Tool: t.toolNames[b.ToolUseID], OK: !b.IsError, OutputSummary: t.summary(out),
 			}))
 		case "text":
 			evs = append(evs, event(contracts.EventSessionMessage, contracts.SessionMessage{Role: "user", Text: text.Clip(t.redact(b.Text), userTextMax, text.Ellipsis)}))
@@ -329,7 +340,7 @@ func (t *tracker) result(l line) []ports.Event {
 	t.end = e
 	for _, n := range t.hooks {
 		if n > 0 {
-			t.unknown["system/hook_started-unmatched"] += n // hooks no tool_result took; see the canary
+			t.unknown["system/hook_started-unmatched"] += n // hook events no tool_result took (diagnosis only)
 		}
 	}
 	return []ports.Event{event(contracts.EventCost, contracts.Cost{InputTokens: session.InputTokens, OutputTokens: session.OutputTokens, CostUSDMicros: session.CostUSD})}

@@ -79,6 +79,7 @@ type Session struct {
 	redact   *redact.Redactor
 	token    string // empty once revoked
 	outcome  Outcome
+	hooked   map[string]bool // tool_use ids the hook received
 	finished bool
 	done     chan struct{}
 }
@@ -95,7 +96,7 @@ func newSession(s *Server, spec SessionSpec) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	sess := &Session{spec: spec, server: s, schema: schema, token: token, done: make(chan struct{}),
+	sess := &Session{spec: spec, server: s, schema: schema, token: token, done: make(chan struct{}), hooked: map[string]bool{},
 		redact: redact.New(append(slices.Clone(spec.Secrets), token)...)}
 
 	srv := sdk.NewServer(&sdk.Implementation{Name: "kluzo", Version: s.version}, nil)
@@ -158,6 +159,15 @@ func (s *Session) Accepted() (json.RawMessage, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.outcome.Result, s.outcome.Accepted
+}
+
+// Hooked reports whether the hook endpoint received the PreToolUse call with
+// this tool_use id, allowed or denied: the runtime checks every tool result
+// against it (ports.SessionSpec.Hooked).
+func (s *Session) Hooked(toolUseID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return toolUseID != "" && s.hooked[toolUseID]
 }
 
 // Close revokes the token and forgets the session, so the same id can be

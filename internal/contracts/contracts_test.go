@@ -157,8 +157,9 @@ func compileSchema(t *testing.T, name string, data []byte) *jsonschema.Schema {
 
 func TestOutputSchemasRejectBrokenOutput(t *testing.T) {
 	tests := []struct{ schema, json string }{
-		{"review-result", `{"v":1,"summary":"x","criteria":[],"findings":[{"severity":"blocking","category":"correctness","file":"a.go","line":1,"message":"m"}]}`}, // no check
-		{"review-result", `{"v":1,"summary":"x","verdict":"approve","criteria":[],"findings":[]}`},                                                                  // verdict is gone
+		{"review-result", `{"v":1,"summary":"x","criteria":[],"findings":[{"severity":"blocking","category":"correctness","file":"a.go","line":1,"message":"m"}]}`},    // no check
+		{"review-result", `{"v":1,"summary":"x","verdict":"approve","criteria":[],"findings":[]}`},                                                                     // verdict is gone
+		{"review-result", `{"v":1,"summary":"x","criteria":[],"findings":[{"severity":"minor","category":"style","file":"a.go","line":1,"message":"m","auto":true}]}`}, // only Kluzo sets auto
 		{"review-result", `{"v":1,"summary":"x","criteria":[],"findings":[{"severity":"bad","category":"style","file":"a","line":1,"message":"m"}]}`},
 		{"node-result", `{"v":1,"summary":"x","status":"failed","criteria":[],"files_changed":[],"tests":{"added":0,"command":""}}`}, // failed without reason
 		{"node-result", `{"v":1,"summary":"x","status":"done","criteria":[{"id":"1","evidence":[]}],"files_changed":[],"tests":{"added":0,"command":""}}`},

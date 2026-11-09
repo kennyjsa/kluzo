@@ -64,3 +64,11 @@ func TestComposeAndMerge(t *testing.T) {
 		t.Errorf("merge = %v", m)
 	}
 }
+
+// An allowed HOME or fixed variable never replaces what Kluzo sets.
+func TestAllowCannotReplaceTheFixedPart(t *testing.T) {
+	env := Build(Spec{Parent: []string{"HOME=/real", "DISABLE_AUTOUPDATER=0"}, Home: "/synthetic", Allow: []string{"HOME", "DISABLE_AUTOUPDATER"}})
+	if !slices.Contains(env, "HOME=/synthetic") || !slices.Contains(env, "DISABLE_AUTOUPDATER=1") || slices.Contains(env, "HOME=/real") {
+		t.Errorf("env = %v", env)
+	}
+}

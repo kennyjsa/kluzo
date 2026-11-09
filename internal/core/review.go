@@ -225,14 +225,13 @@ type ReportedFinding struct {
 	Message  string   `json:"message"`
 	Check    string   `json:"check"`
 	CausedBy *string  `json:"caused_by"`
-	Auto     bool     `json:"auto"`
 }
 
 // CheckReviewResult validates a review-result that passed its schema
 // (results.md): criteria cover exactly the criteria of the node and their
 // evidence exists; previous covers exactly the open findings of earlier
-// rounds and attempts (none in the first round);
-// only Kluzo marks a finding automatic. It returns the problems for the
+// rounds and attempts (none in the first round). A reviewer cannot mark a
+// finding automatic: the schema has no auto field. It returns the problems for the
 // reviewer to fix, or an error when the worktree could not be read.
 func CheckReviewResult(raw json.RawMessage, c ReviewCheck) ([]string, error) {
 	var r ReviewResult
@@ -258,11 +257,6 @@ func CheckReviewResult(raw json.RawMessage, c ReviewCheck) ([]string, error) {
 		ids = append(ids, p.ID)
 	}
 	problems = append(problems, coverage("previous", ids, findingIDs(c.Open))...)
-	for i, f := range r.Findings {
-		if f.Auto {
-			problems = append(problems, fmt.Sprintf("findings[%d]: auto is set by Kluzo only; remove it", i))
-		}
-	}
 	return problems, nil
 }
 

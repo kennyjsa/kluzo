@@ -244,7 +244,7 @@ func TestParseConfig(t *testing.T) {
 				if err != nil {
 					t.Fatalf("ParseConfig: %v", err)
 				}
-				if cfg.Worktree.Timeout != 15*time.Minute || cfg.Project.Name != "agiclin" {
+				if cfg.Worktree.Timeout != 15*time.Minute || cfg.Project.Name != "agiclin" || !slices.Equal(cfg.Worktree.EnvAllow, []string{"NPM_TOKEN"}) {
 					t.Errorf("config = %+v", cfg)
 				}
 				return

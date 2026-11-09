@@ -58,7 +58,7 @@ runtimes:
   claude-code:
     bin: claude
     min_version: latest
-    env_allow: [DATABASE_URL_TEST]
+    env_allow: [DATABASE_URL_TEST, "1BAD"]
   codex:
     bin: codex
 

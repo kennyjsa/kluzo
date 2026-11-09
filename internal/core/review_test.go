@@ -115,9 +115,7 @@ func TestCheckReviewResult(t *testing.T) {
 		return map[string]any{"id": id, "met": met, "evidence": evidence}
 	}
 	prev := func(id, status string) map[string]any { return map[string]any{"id": id, "status": status, "note": "n"} }
-	finding := func(auto bool) map[string]any {
-		return map[string]any{"severity": "major", "category": "tests", "file": "a.go", "line": 1, "message": "m", "check": "c", "auto": auto}
-	}
+	finding := map[string]any{"severity": "major", "category": "tests", "file": "a.go", "line": 1, "message": "m", "check": "c"}
 	good := []map[string]any{crit("AC1", true, "internal/agenda/service.go:41"), crit("AC2", false)}
 	tests := []struct {
 		name     string
@@ -127,14 +125,13 @@ func TestCheckReviewResult(t *testing.T) {
 		open     []Finding
 		want     []string
 	}{
-		{name: "valid first round", criteria: good, findings: []map[string]any{finding(false)}},
+		{name: "valid first round", criteria: good, findings: []map[string]any{finding}},
 		{name: "valid with previous", criteria: good, open: []Finding{openF1, autoF3}, previous: []map[string]any{prev("F1", "resolved"), prev("F3", "open")}},
 		{name: "previous in the first round", criteria: good, previous: []map[string]any{prev("F1", "open")}, want: []string{"previous: F1 is not one of the expected ids"}},
 		{name: "previous missing", criteria: good, open: []Finding{openF1, openF2}, previous: []map[string]any{prev("F2", "open")}, want: []string{"previous: F1 is missing"}},
 		{name: "previous twice", criteria: good, open: []Finding{openF1}, previous: []map[string]any{prev("F1", "open"), prev("F1", "resolved")}, want: []string{"previous: F1 is listed twice"}},
 		{name: "criterion missing", criteria: good[:1], want: []string{"criteria: AC2 is missing"}},
 		{name: "evidence of the reviewer checked too", criteria: []map[string]any{good[0], crit("AC2", true, "nope.go:1")}, want: []string{"nope.go does not exist"}},
-		{name: "auto claimed by the reviewer", criteria: good, findings: []map[string]any{finding(true)}, want: []string{"findings[0]: auto is set by Kluzo only"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
