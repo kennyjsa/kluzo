@@ -411,3 +411,37 @@ func TestGateRunInterruptedByCrash(t *testing.T) {
 	must(t, d.Rebuild(context.Background()))
 	check("rebuilt")
 }
+
+// The journals of other workspaces are read without migrating them: a
+// database at another version is refused, and nothing is written.
+func TestOpenReadOnly(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	d := openAt(t, path)
+	createWorkspace(t, d, 1)
+	must(t, d.Close())
+	ro, err := OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := ro.Snapshot(ctx); err != nil || s.Workspace == nil {
+		t.Errorf("snapshot = %+v, %v", s.Workspace, err)
+	}
+	if err := ro.Tx(ctx, func(x *Tx) error {
+		_, err := x.Append(Event{Header: hdr(50), Kind: "x", Payload: []byte(`{}`)})
+		return err
+	}); err == nil {
+		t.Error("a read-only journal took a write")
+	}
+	must(t, ro.Close())
+	d = openAt(t, path)
+	_, err = d.sql.Exec(`DELETE FROM schema_migrations WHERE version = 5`)
+	must(t, err)
+	must(t, d.Close())
+	if _, err := OpenReadOnly(ctx, path); !errors.Is(err, ErrSchema) {
+		t.Errorf("older schema: %v", err)
+	}
+	if _, err := OpenReadOnly(ctx, filepath.Join(t.TempDir(), "none.db")); err == nil {
+		t.Error("a missing journal was opened")
+	}
+}

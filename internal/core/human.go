@@ -28,6 +28,11 @@ func reasons(cs []ProposalChange) string {
 	return strings.Join(out, "; ")
 }
 
+// ChangeProposal is the payload of a proposal of kind change.
+type ChangeProposal struct {
+	Changes []ProposalChange `json:"changes"`
+}
+
 // ProposalDecided is the decision of a person on the proposal a node is
 // blocked for. An approval lets the work go on to the next step; a rejection
 // sends the node back to the implementer, with an automatic finding per
@@ -130,10 +135,7 @@ func (d *decider) retryAttempt(in Retry) error {
 	if err := d.move(NodeEvent{Trigger: TriggerRetry}, d.lim, "new attempt asked by "+in.By); err != nil {
 		return err
 	}
-	r := d.run()
-	r.Step, r.Implementer, r.Fresh, r.Rejected, r.Ready, r.Tip = 0, nil, true, false, false, ""
-	r.GateFailures, r.Integration = nil, nil
-	return d.start()
+	return d.newAttempt(nil, nil)
 }
 
 // cancel removes the node from the milestone; its cleanup follows.

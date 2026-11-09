@@ -48,7 +48,7 @@ kluzo status <título> [--json]
 kluzo pause|resume <título>
 kluzo proposal list|approve <id>|reject <id>
 kluzo node retry|unblock|cancel <issue>
-kluzo clean [--yes]              # lista o que sobrou; --yes remove
+kluzo clean [--yes] [--images]   # lista o que sobrou; --yes remove
 ```
 
 Variáveis lidas pelo Kluzo (nunca de `.kluzo/`): o token do bot (`KLUZO_GH_TOKEN`, ou `tracker.auth.token_env`; ou o GitHub App em `KLUZO_GH_APP_ID` e `KLUZO_GH_APP_KEY`), com as permissões de [integrations.md](architecture/integrations.md#permissões-no-github), e a credencial do modelo das sessões (`CLAUDE_CODE_OAUTH_TOKEN` ou `ANTHROPIC_API_KEY`, ADR 0024). Na v0.1 as notificações saem no log do `kluzo run`.

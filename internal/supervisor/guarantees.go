@@ -98,7 +98,7 @@ func (s *Supervisor) exceptions(ctx context.Context, node string) (map[exception
 		if p.Node != node || p.Kind != contracts.ProposalChange || p.State != contracts.ProposalApproved {
 			continue
 		}
-		var body changeProposal
+		var body core.ChangeProposal
 		if err := json.Unmarshal(p.Payload, &body); err != nil {
 			return nil, fmt.Errorf("proposal %s: %w", p.ID, err)
 		}
@@ -107,11 +107,6 @@ func (s *Supervisor) exceptions(ctx context.Context, node string) (map[exception
 		}
 	}
 	return out, nil
-}
-
-// changeProposal is the payload of a proposal of kind change.
-type changeProposal struct {
-	Changes []core.ProposalChange `json:"changes"`
 }
 
 // contentHash is the SHA-256 of path at the commit, in hex; "" when the

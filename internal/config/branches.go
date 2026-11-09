@@ -1,6 +1,9 @@
 package config
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 // Defaults of the branch naming scheme (docs/contracts/config.md).
 const (
@@ -32,3 +35,11 @@ func USDMicros(usd float64) int64 { return int64(math.Round(usd * 1e6)) }
 
 // USD converts micro-dollars back to dollars, for people.
 func USD(micros int64) float64 { return float64(micros) / 1e6 }
+
+// MilestoneTitle is the title of the milestone whose branch is branch, and
+// whether branch is a milestone branch at all.
+func (b Branches) MilestoneTitle(branch string) (string, bool) {
+	prefix := b.MilestoneBranch("")
+	title, ok := strings.CutPrefix(branch, prefix)
+	return title, ok && title != ""
+}

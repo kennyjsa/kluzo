@@ -374,9 +374,16 @@ func (d *decider) dispatch() error {
 	if err := d.move(NodeEvent{Trigger: TriggerDispatched}, d.lim, ""); err != nil {
 		return err
 	}
+	return d.newAttempt(nil, nil)
+}
+
+// newAttempt starts the run of a new attempt from the first step, with a new
+// worktree and a new implementer conversation, and the cause it comes back
+// with, if any.
+func (d *decider) newAttempt(gates []ports.GateResult, cause *IntegrationFailure) error {
 	r := d.run()
-	r.Step, r.Implementer, r.Fresh, r.GateFailures, r.Rejected = 0, nil, true, nil, false
-	r.Ready, r.Tip, r.Integration = false, "", nil
+	r.Step, r.Implementer, r.Fresh, r.Rejected, r.Ready, r.Tip = 0, nil, true, false, false, ""
+	r.GateFailures, r.Integration = gates, cause
 	return d.start()
 }
 
@@ -652,10 +659,7 @@ func (d *decider) integrationFailed(cause *IntegrationFailure, gates []ports.Gat
 	if err != nil {
 		return err
 	}
-	r := d.run()
-	r.Step, r.Implementer, r.Fresh, r.Rejected, r.Ready, r.Tip = 0, nil, true, false, false, ""
-	r.GateFailures, r.Integration = gates, cause
-	return d.start()
+	return d.newAttempt(gates, cause)
 }
 
 // FullGates are the gates of the gate steps after the review: those the

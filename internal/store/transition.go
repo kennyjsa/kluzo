@@ -67,6 +67,10 @@ func (t *Tx) TransitionWorkspace(trigger core.WorkspaceTrigger, h Header, effect
 	return next, nil
 }
 
+// Node loads the part of a node row the state machine needs, as this
+// transaction sees it.
+func (t *Tx) Node(id string) (core.Node, error) { return t.node(id) }
+
 // node loads the part of a node row the state machine needs.
 func (t *Tx) node(id string) (core.Node, error) {
 	var n core.Node

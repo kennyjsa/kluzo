@@ -67,7 +67,7 @@ kluzo approve <milestone>        aprova o plano (ou uma proposta)
 kluzo run <milestone>            executa (ou retoma) o downstream
 kluzo status [<milestone>]       estado da milestone e dos nós
 kluzo pause|resume <milestone>   pausa ou retoma
-kluzo clean [--yes]              lista (padrão --dry-run) ou remove o que o Kluzo deixou na máquina
+kluzo clean [--yes] [--images]   lista (padrão --dry-run) ou remove o que o Kluzo deixou na máquina
 kluzo proposal list|approve <id>|reject <id>   decide as propostas
 kluzo node retry|unblock|cancel <issue>        tira um nó de blocked, ou o cancela
 kluzo answer <question-id>       responde uma escalação

@@ -5,6 +5,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -222,6 +223,12 @@ func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 	switch {
 	case running:
 		busy, err = s.schedule(ctx, snap)
+		if errors.Is(err, core.ErrInvalidTransition) {
+			// A person moved the node meanwhile (kluzo node): the next
+			// step reads it again.
+			s.d.Log.Warn("scheduling refused: the node moved", "workspace", s.cfg.Workspace, "err", err)
+			return true, nil
+		}
 	case w.State == core.WorkspaceReadyToMerge:
 		busy, err = s.watchMerge(ctx, w)
 	}
@@ -374,7 +381,33 @@ func retried(f store.Effect, n int, why string) settleFn {
 // transaction: the journal entries of what happened (extra), the moves, the
 // workspace trigger, the new run with its effects, and what happens to the
 // effect whose run produced the input, if any.
+//
+// The decision is taken on the node as read before the transaction; when
+// another process moved the node in between (kluzo node, kluzo proposal, or
+// the loop of kluzo run), the transaction is refused and the decision is
+// taken again on the node as it is now.
 func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, extra ...store.Event) error {
+	for tries := 1; ; tries++ {
+		err := s.decideOnce(ctx, n, in, settle, extra...)
+		if !errors.Is(err, errNodeMoved) || tries == decideTries {
+			return err
+		}
+		if n, err = s.node(ctx, n.ID); err != nil {
+			return err
+		}
+	}
+}
+
+// decideTries is how many times a decision is taken again on a node another
+// process keeps moving.
+const decideTries = 3
+
+// errNodeMoved means the node changed between the read a decision was taken
+// on and its transaction.
+var errNodeMoved = errors.New("the node moved meanwhile")
+
+// decideOnce is one try of decide.
+func (s *Supervisor) decideOnce(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, extra ...store.Event) error {
 	r, err := run(n)
 	if err != nil {
 		return err
@@ -399,6 +432,9 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 		extra = append(extra, store.Event{Kind: contracts.EventMergeFreshness, Payload: body})
 	}
 	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
+		if now, err := t.Node(n.ID); err != nil || now != node {
+			return cmp.Or(err, fmt.Errorf("node %s: %w", n.ID, errNodeMoved))
+		}
 		for _, e := range extra {
 			h, err := s.header()
 			if err != nil {
@@ -476,7 +512,7 @@ func (s *Supervisor) proposal(d core.Decision, in core.Input) (store.Event, bool
 	if err != nil {
 		return store.Event{}, false, err
 	}
-	payload, _ := json.Marshal(changeProposal{Changes: done.Proposal})                                                                                                     // plain data
+	payload, _ := json.Marshal(core.ChangeProposal{Changes: done.Proposal})                                                                                                // plain data
 	body, _ := json.Marshal(contracts.ProposalCreated{ProposalID: id, Kind: contracts.ProposalChange, State: contracts.ProposalPending, Blocking: true, Payload: payload}) // plain data
 	return store.Event{Kind: contracts.EventProposalCreated, Payload: body}, true, nil
 }

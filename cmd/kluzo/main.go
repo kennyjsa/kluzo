@@ -237,11 +237,15 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	}
 	yes := cleanCmd.Flags().Bool("yes", false, "remove; without it, kluzo clean only lists (--dry-run)")
 	dryRun := cleanCmd.Flags().Bool("dry-run", true, "only list what would be removed (the default)")
+	images := cleanCmd.Flags().Bool("images", false, "also every image marked by Kluzo and the dangling images")
 	cleanCmd.RunE = func(cmd *cobra.Command, _ []string) error {
-		if *yes && cmd.Flags().Changed("dry-run") && *dryRun {
+		switch {
+		case *yes && cmd.Flags().Changed("dry-run") && *dryRun:
 			return usageError{fmt.Errorf("--yes and --dry-run contradict each other")}
+		case !*yes && !*dryRun:
+			return usageError{fmt.Errorf("--dry-run=false removes nothing by itself: use --yes")}
 		}
-		out, err := app.Clean{Host: host()}.Execute(cmd.Context(), app.CleanInput{ConfigDir: *dir, Yes: *yes})
+		out, err := app.Clean{Host: host()}.Execute(cmd.Context(), app.CleanInput{ConfigDir: *dir, Yes: *yes, Images: *images})
 		if err != nil {
 			return err
 		}
@@ -330,9 +334,16 @@ func printClean(w io.Writer, out app.CleanOutput) {
 			printf(w, "%s %s %s\n", verb, group.what, i)
 		}
 	}
+	if out.Dangling {
+		printf(w, "%s the dangling images\n", verb)
+	}
+	for _, u := range out.Unsure {
+		printf(w, "left alone (its journal cannot be read): %s\n", u)
+	}
 	if out.Docker != "" {
 		printf(w, "docker not checked: %s\n", out.Docker)
 	}
+	printf(w, "the workspaces and caches of the project took %s\n", app.HumanSize(out.Disk))
 	n := len(out.Checkouts) + len(out.Leftovers) + len(out.Projects) + len(out.Images)
 	switch {
 	case n == 0:

@@ -125,7 +125,9 @@ func (d Doctor) Execute(ctx context.Context, in DoctorInput) (DoctorOutput, erro
 		return out, err
 	}
 	out.Warnings = append(out.Warnings, s.warnings()...)
-	out.Passed = append(out.Passed, "disk: "+HumanSize(s.Disk)+" in the workspaces and caches of the project")
+	if !s.above() {
+		out.Passed = append(out.Passed, "disk: "+HumanSize(s.Disk)+" in the workspaces and caches of the project")
+	}
 	return out, nil
 }
 

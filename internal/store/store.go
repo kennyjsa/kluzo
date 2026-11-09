@@ -69,6 +69,78 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	return d, nil
 }
 
+// OpenReadOnly opens an existing database to read it, without migrating it
+// and without writing: kluzo doctor and kluzo clean read the journals of
+// every workspace, maybe while a kluzo run of another version holds one. A
+// database at another schema version than this binary is refused with
+// ErrSchema.
+func OpenReadOnly(ctx context.Context, path string) (*DB, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", path, err)
+	}
+	q := url.Values{}
+	q.Set("mode", "ro")
+	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", "query_only(1)")
+	conn, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: abs, RawQuery: q.Encode()}).String())
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	d := &DB{sql: conn}
+	var current int
+	err = conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&current)
+	if err == nil {
+		var latest int
+		if latest, err = latestMigration(); err == nil && current != latest {
+			err = schemaError(current, latest)
+		}
+	}
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	return d, nil
+}
+
+// ErrSchema means the database is at another schema version than this
+// binary: it is migrated only by Open.
+var ErrSchema = errors.New("database schema differs from this binary")
+
+// schemaError describes a database at version current for a binary at latest.
+func schemaError(current, latest int) error {
+	if current > latest {
+		return fmt.Errorf("%w: %w: database at version %d, binary at %d", ErrSchema, ErrFutureSchema, current, latest)
+	}
+	return fmt.Errorf("%w: database at version %d, binary at %d", ErrSchema, current, latest)
+}
+
+// latestMigration is the version of the last embedded migration.
+func latestMigration() (int, error) {
+	files, err := migrationsFS.ReadDir("migrations")
+	if err != nil {
+		return 0, err
+	}
+	latest := 0
+	for _, f := range files {
+		version, err := migrationVersion(f.Name())
+		if err != nil {
+			return 0, err
+		}
+		latest = max(latest, version)
+	}
+	return latest, nil
+}
+
+// migrationVersion is the number a migration file name starts with.
+func migrationVersion(name string) (int, error) {
+	version, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+	if err != nil {
+		return 0, fmt.Errorf("migration %s: name must start with its number", name)
+	}
+	return version, nil
+}
+
 // Close releases the database.
 func (d *DB) Close() error { return d.sql.Close() }
 
@@ -92,9 +164,9 @@ func (d *DB) migrate(ctx context.Context) error {
 	sort.Strings(names)
 	latest := 0
 	for _, name := range names {
-		version, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+		version, err := migrationVersion(name)
 		if err != nil {
-			return fmt.Errorf("migration %s: name must start with its number", name)
+			return err
 		}
 		latest = max(latest, version)
 		if version <= current {
@@ -116,7 +188,7 @@ func (d *DB) migrate(ctx context.Context) error {
 		}
 	}
 	if current > latest {
-		return fmt.Errorf("%w: database at version %d, binary at %d", ErrFutureSchema, current, latest)
+		return schemaError(current, latest)
 	}
 	if current > 0 && current < latest {
 		// A migration may add a projection: recompute them from the journal

@@ -182,16 +182,75 @@ func DecideNode(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock
 	if err != nil {
 		return err
 	}
-	if _, ok := in.(core.Cancel); ok {
+	var extra []store.Event
+	switch in := in.(type) {
+	case core.Cancel:
 		if active := activeDependents(snap, n.ID); len(active) > 0 {
 			return fmt.Errorf("%w: cancel first the nodes that depend on #%s: #%s", core.ErrInvalidTransition, issue, strings.Join(active, ", #"))
 		}
+		// The proposal the node was blocked for goes with it.
+		if extra, err = rejectPending(ctx, db, n.ID, in.By); err != nil {
+			return err
+		}
+	case core.Retry:
+		if err := slotFree(snap, n, core.NodeRunning); err != nil {
+			return err
+		}
+	case core.Unblock:
+		if err := slotFree(snap, n, n.PrevState); err != nil {
+			return err
+		}
 	}
-	return s.decide(ctx, n, in, nil)
+	return s.decide(ctx, n, in, nil, extra...)
+}
+
+// rejectPending are the proposal.decided that reject the pending proposals of
+// a node.
+func rejectPending(ctx context.Context, db *store.DB, node, by string) ([]store.Event, error) {
+	ps, err := db.Proposals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Event
+	for _, p := range ps {
+		if p.Node == node && p.State == contracts.ProposalPending {
+			out = append(out, decided(p, contracts.ProposalRejected, by))
+		}
+	}
+	return out, nil
+}
+
+// decided is the proposal.decided of a proposal.
+func decided(p store.ProposalRow, state, by string) store.Event {
+	body, _ := json.Marshal(contracts.ProposalDecided{ProposalID: p.ID, Kind: p.Kind, State: state, By: by}) // plain data
+	return store.Event{Kind: contracts.EventProposalDecided, Payload: body}
+}
+
+// slotFree refuses to put the node back into work while another node holds
+// what it needs: the work slot (max_parallel is 1 in v0.1) to run, review or
+// gate, or the merge queue to integrate. The scheduler would never have given
+// it; the person tries again when the other node leaves.
+func slotFree(snap store.Snapshot, n store.NodeRow, to core.NodeState) error {
+	work := []core.NodeState{core.NodeRunning, core.NodeInReview, core.NodeGating}
+	var holds []core.NodeState
+	switch {
+	case slices.Contains(work, to):
+		holds = work
+	case to == core.NodeIntegrating:
+		holds = []core.NodeState{core.NodeIntegrating}
+	default:
+		return nil
+	}
+	for _, o := range snap.Nodes {
+		if o.ID != n.ID && slices.Contains(holds, o.State) {
+			return fmt.Errorf("%w: #%s is %s; try again when it leaves", core.ErrInvalidTransition, o.IssueRef, o.State)
+		}
+	}
+	return nil
 }
 
 // activeDependents are the issues of the nodes that depend on the node and
-// are not cancelled.
+// are not final (integrated, failed or cancelled).
 func activeDependents(snap store.Snapshot, node string) []string {
 	byID := map[string]store.NodeRow{}
 	for _, n := range snap.Nodes {
@@ -199,7 +258,7 @@ func activeDependents(snap store.Snapshot, node string) []string {
 	}
 	var out []string
 	for _, e := range snap.Edges {
-		if d := byID[e.To]; e.From == node && d.State != core.NodeCancelled && !slices.Contains(out, d.IssueRef) {
+		if d := byID[e.To]; e.From == node && !d.State.Final() && !slices.Contains(out, d.IssueRef) {
 			out = append(out, d.IssueRef)
 		}
 	}
@@ -229,7 +288,7 @@ func DecideProposal(ctx context.Context, db *store.DB, gen *ids.Generator, clk c
 		return fmt.Errorf("proposals of kind %s are not decided in v0.1", ps[i].Kind)
 	}
 	p := ps[i]
-	var body changeProposal
+	var body core.ChangeProposal
 	if err := json.Unmarshal(p.Payload, &body); err != nil {
 		return fmt.Errorf("proposal %s: %w", id, err)
 	}
@@ -237,17 +296,23 @@ func DecideProposal(ctx context.Context, db *store.DB, gen *ids.Generator, clk c
 	if err != nil {
 		return err
 	}
+	if !snap.Workspace.State.Active() {
+		return fmt.Errorf("%w: the workspace is %s", core.ErrInvalidTransition, snap.Workspace.State)
+	}
 	n, err := nodeRow(snap, p.Node)
 	if err != nil {
 		return err
+	}
+	if n.State == core.NodeBlocked {
+		if err := slotFree(snap, n, n.PrevState); err != nil {
+			return err
+		}
 	}
 	state := contracts.ProposalRejected
 	if approved {
 		state = contracts.ProposalApproved
 	}
-	decided, _ := json.Marshal(contracts.ProposalDecided{ProposalID: id, Kind: p.Kind, State: state, By: by}) // plain data
-	return s.decide(ctx, n, core.ProposalDecided{Approved: approved, By: by, Changes: body.Changes}, nil,
-		store.Event{Kind: contracts.EventProposalDecided, Payload: decided})
+	return s.decide(ctx, n, core.ProposalDecided{Approved: approved, By: by, Changes: body.Changes}, nil, decided(p, state, by))
 }
 
 // nodeRow reads a node of the snapshot by id.
