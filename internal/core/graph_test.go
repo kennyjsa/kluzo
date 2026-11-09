@@ -163,7 +163,8 @@ func TestNextToDispatchTieBreaksNumerically(t *testing.T) {
 	for _, id := range []string{"10", "9", "100", "x"} {
 		g.Nodes[id] = GraphNode{ID: id, State: NodePlanned, Areas: []string{SharedArea}}
 	}
-	if got, want := g.NextToDispatch(10), []string{"9", "10", "100", "x"}; !slices.Equal(got, want) {
+	g.Nodes["11"] = GraphNode{ID: "11", State: NodeReady, Areas: []string{SharedArea}} // already moved to ready
+	if got, want := g.NextToDispatch(10), []string{"9", "10", "11", "100", "x"}; !slices.Equal(got, want) {
 		t.Errorf("NextToDispatch() = %v, want %v", got, want)
 	}
 	if got, want := g.Ready(), []string{"9", "10", "100", "x"}; !slices.Equal(got, want) {

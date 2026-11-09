@@ -88,6 +88,7 @@ type HarnessSession struct {
 	Harness    string
 	Model      string
 	Segments   ports.SegmentHashes
+	Nonce      string      // the envelope nonce of its prompt, which a resume keeps
 	Cumulative ports.Usage // pass as PriorUsage to the resume
 }
 
@@ -107,10 +108,11 @@ type Run struct {
 	// Fresh asks for a new worktree before the next implementer session: set
 	// at the start of every attempt.
 	Fresh bool
-	// RoundBase is the commit the current round started from, and Head the
-	// commit of the last implementer session; their diff is what the
-	// reviewer judges as the round.
-	RoundBase, Head string
+	// Base is the commit the attempt started from, RoundBase the commit the
+	// current round started from, and Head the commit of the last
+	// implementer session: the reviewer judges Base..Head, and from round 2
+	// RoundBase..Head as the round.
+	Base, RoundBase, Head string
 	// GateFailures are the failed gates the implementer is sent back for.
 	GateFailures []ports.GateResult
 	// Rejected says the implementer is back for review findings.
@@ -128,11 +130,11 @@ type NodeFlow struct {
 // Input is something that happened to a node in its flow.
 type Input interface{ isInput() }
 
+// Ready is the dependencies of a planned node satisfied.
+type Ready struct{}
+
 // Dispatch is the scheduler giving a ready node a slot.
 type Dispatch struct{}
-
-// Unblock is the reason of a block resolved: the current step runs again.
-type Unblock struct{}
 
 // SessionDone is a role session that ended, after the post-session check.
 type SessionDone struct {
@@ -147,10 +149,18 @@ type SessionDone struct {
 	// Tampered means the session changed the refs, the git configuration or
 	// the hooks (ADR 0024, item 4): the node fails.
 	Tampered bool
-	// Head is the commit of the implementer's work.
-	Head string
+	// Head is the commit of the implementer's work, and Base the commit its
+	// attempt started from (set by the first session of an attempt).
+	Head, Base string
 	// Changed are the lines the round changed (reviewer, from round 2).
 	Changed map[string][]LineRange
+}
+
+// SessionRetry is a session that failed with a retryable cause and will run
+// again in a new session of the same attempt: only its cost counts now.
+type SessionRetry struct {
+	Step    int
+	CostUSD int64
 }
 
 // GatesDone is a gate step that ran every gate.
@@ -159,10 +169,11 @@ type GatesDone struct {
 	Results []ports.GateResult
 }
 
-func (Dispatch) isInput()    {}
-func (Unblock) isInput()     {}
-func (SessionDone) isInput() {}
-func (GatesDone) isInput()   {}
+func (Ready) isInput()        {}
+func (Dispatch) isInput()     {}
+func (SessionDone) isInput()  {}
+func (SessionRetry) isInput() {}
+func (GatesDone) isInput()    {}
 
 // Move is a transition of the node, in the order it happened. The store
 // replays each one through NextNode with its limits.
@@ -223,12 +234,14 @@ func Apply(s NodeFlow, in Input, f Flow, lim Limits) (Decision, error) {
 	d := &decider{d: Decision{Next: s}, flow: f, lim: lim}
 	var err error
 	switch in := in.(type) {
+	case Ready:
+		err = d.move(NodeEvent{Trigger: TriggerDepsSatisfied}, lim, "")
 	case Dispatch:
 		err = d.dispatch()
-	case Unblock:
-		err = d.unblock()
 	case SessionDone:
 		err = d.session(in)
+	case SessionRetry:
+		err = d.retry(in)
 	case GatesDone:
 		err = d.gates(in)
 	default:
@@ -285,13 +298,6 @@ func (d *decider) dispatch() error {
 	return d.start()
 }
 
-func (d *decider) unblock() error {
-	if err := d.move(NodeEvent{Trigger: TriggerUnblock}, d.lim, ""); err != nil {
-		return err
-	}
-	return d.start()
-}
-
 // start queues the work of the current step.
 func (d *decider) start() error {
 	r := d.run()
@@ -345,6 +351,15 @@ func (d *decider) session(in SessionDone) error {
 	}
 }
 
+func (d *decider) retry(in SessionRetry) error {
+	r := d.run()
+	if in.Step != r.Step || d.flow.Steps[r.Step].Kind != StepRole {
+		return fmt.Errorf("%w: retry of step %d, node at step %d", ErrStaleInput, in.Step, r.Step)
+	}
+	r.CostUSD += in.CostUSD
+	return nil
+}
+
 // fail ends the node: the post-session check found tampering.
 func (d *decider) fail(detail string) error {
 	if err := d.move(NodeEvent{Trigger: TriggerFail}, d.lim, detail); err != nil {
@@ -387,6 +402,9 @@ func (d *decider) implemented(in SessionDone) error {
 		return d.block(BlockedTriage, "the implementer gave up (status "+res.Status+")")
 	}
 	r.Implementer, r.Report, r.Responses, r.Head = in.Session, in.Raw, res.Responses, in.Head
+	if in.Base != "" {
+		r.Base = in.Base
+	}
 	r.Fresh, r.GateFailures, r.Rejected = false, nil, false
 	return d.advance(r.Step + 1)
 }

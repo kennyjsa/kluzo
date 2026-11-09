@@ -23,7 +23,7 @@ var flowLimits = Limits{MaxAttempts: 2}
 
 func implDone(step int) SessionDone {
 	return SessionDone{Step: step, State: ports.StateFinished, Raw: json.RawMessage(`{"status":"done","responses":[]}`),
-		Session: &HarnessSession{Ref: "h1"}, Head: "c1", CostUSD: 100}
+		Session: &HarnessSession{Ref: "h1"}, Head: "c1", Base: "b0", CostUSD: 100}
 }
 
 func review(step int, met bool, findings ...map[string]any) SessionDone {
@@ -90,7 +90,7 @@ func TestFlowApprovedInTheFirstRound(t *testing.T) {
 	if want := []NodeState{NodeRunning, NodeInReview, NodeGating, NodeQueued}; !slices.Equal(moves(ds), want) {
 		t.Errorf("moves = %v, want %v", moves(ds), want)
 	}
-	if !s.Run.Ready || s.Run.Step != 4 || s.Node.State != NodeQueued || s.Run.CostUSD != 150 {
+	if !s.Run.Ready || s.Run.Step != 4 || s.Node.State != NodeQueued || s.Run.CostUSD != 150 || s.Run.Base != "b0" {
 		t.Errorf("end = %+v", s)
 	}
 	if e := lastSession(t, ds[0]); e.Role != RoleImplementer || e.Resume || !slices.Contains(kindsOf(ds[0]), EffectLabel) || !slices.Contains(kindsOf(ds[0]), EffectComment) {
@@ -211,11 +211,6 @@ func TestFlowSessionCauses(t *testing.T) {
 			if c := ds[1].Effects[1].Body; !strings.Contains(c, "blocked: "+string(tt.reason)) || !strings.Contains(c, "\n\nimplementer session: "+string(tt.cause)+": why") {
 				t.Errorf("comment = %q", c)
 			}
-			// Unblocking runs the step again, in a new session.
-			s2, ds2 := play(t, Dispatch{}, SessionDone{Step: 0, State: ports.StateFailed, Cause: tt.cause}, Unblock{})
-			if s2.Node.State != NodeRunning || lastSession(t, ds2[2]).Role != RoleImplementer {
-				t.Errorf("after unblock: %+v", s2.Node)
-			}
 		})
 	}
 }
@@ -235,6 +230,23 @@ func TestFlowEndings(t *testing.T) {
 	}
 }
 
+func TestFlowSessionRetryCountsTheCost(t *testing.T) {
+	s, ds := play(t, Dispatch{}, SessionRetry{Step: 0, CostUSD: 70})
+	if s.Run.CostUSD != 70 || len(ds[1].Moves) != 0 || len(ds[1].Effects) != 0 || s.Node.State != NodeRunning {
+		t.Errorf("after a retry: %+v, %+v", s, ds[1])
+	}
+	if _, err := Apply(s, SessionRetry{Step: 2}, testFlow, flowLimits); !errors.Is(err, ErrStaleInput) {
+		t.Errorf("retry of another step: %v", err)
+	}
+}
+
+func TestFlowReady(t *testing.T) {
+	d, err := Apply(NodeFlow{Node: Node{State: NodePlanned}}, Ready{}, testFlow, flowLimits)
+	if err != nil || d.Next.Node.State != NodeReady || len(d.Effects) != 2 || d.Effects[0].Label != "orch/ready" {
+		t.Errorf("ready = %+v, %v", d, err)
+	}
+}
+
 func TestFlowRefusesStaleInputs(t *testing.T) {
 	s, _ := play(t, Dispatch{})
 	for name, in := range map[string]Input{
@@ -245,8 +257,8 @@ func TestFlowRefusesStaleInputs(t *testing.T) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
-	if _, err := Apply(s, Unblock{}, testFlow, flowLimits); !errors.Is(err, ErrInvalidTransition) {
-		t.Errorf("unblock of a running node: %v", err)
+	if _, err := Apply(s, Ready{}, testFlow, flowLimits); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("ready of a running node: %v", err)
 	}
 }
 
