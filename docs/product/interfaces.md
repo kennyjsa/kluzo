@@ -71,6 +71,8 @@ kluzo answer <question-id>       responde uma escalação
 kluzo serve                      sobe a web e o supervisor (v0.3)
 ```
 
+`<milestone>` é sempre o **título** da milestone no tracker, o mesmo do campo `milestone` do plano e do nome do workspace. O `kluzo plan` lê `.kluzo/plans/<milestone>.yaml` e acha a milestone no tracker pelo título; título ausente ou repetido é erro de configuração (saída 2), e `--ref <número>` desfaz a ambiguidade. Sem o registro global (v0.2), `<milestone>` é obrigatório também no `status`.
+
 O detalhamento de cada comando está em [F29](features/F29-cli.md).
 
 ## Tracker
