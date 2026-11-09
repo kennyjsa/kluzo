@@ -70,9 +70,11 @@ gates:                         # lidos da ponta da milestone no despacho, nunca 
     required_checks: ["build", "test"]
 
 # Cada gate de nó roda com a definição de kluzo.yaml no commit em que a tentativa começou (a ponta da
-# milestone no despacho), nunca a do worktree. Um gate `run` roda com `sh` no worktree, com timeout
-# (padrão 30m), env só com env_allow + caches + COMPOSE_PROJECT_NAME, e o log (redigido) em
-# logs/gates/. Falhas estruturadas vêm de `go test -json` (detectado na saída) ou do `report`.
+# milestone no despacho), nunca a do worktree. Um gate `run` roda com `sh` numa checkout limpa do
+# commit do nó (preparada com worktree.include e worktree.setup, com HOME e caches de build próprios dos
+# gates, separados dos das sessões), com timeout (padrão 30m), env só com env_allow + caches +
+# COMPOSE_PROJECT_NAME, e o log (redigido, até 64 MiB) em logs/gates/. Falhas estruturadas vêm de
+# `go test -json` (detectado na saída) ou do `report`, apagado antes de cada execução.
 # Um gate `source: tracker` lê os checks do CI para o commit do nó até nenhum estar pendente.
 
 milestone_gates:

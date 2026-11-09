@@ -3,6 +3,7 @@ package gitops
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -152,4 +153,28 @@ func (g *Git) ReadAt(ctx context.Context, repo, rev, path string) ([]byte, error
 		return nil, err
 	}
 	return []byte(out), nil
+}
+
+// Checkout gives path a clean, detached checkout of commit: whatever was there
+// (a previous checkout, files left by a gate) is removed first. The gates run
+// there, never in the worktree of the node, whose ignored files, index flags
+// and configuration the agent controls (ADR 0020).
+func (g *Git) Checkout(ctx context.Context, repo, path, commit string) error {
+	if _, err := g.run(ctx, repo, "worktree", "prune"); err != nil {
+		return err
+	}
+	wts, err := g.worktrees(ctx, repo)
+	if err != nil {
+		return err
+	}
+	if _, found := wts[canonical(path)]; found {
+		if _, err := g.run(ctx, repo, "worktree", "remove", "--force", "--force", "--end-of-options", path); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return err
+	}
+	_, err = g.run(ctx, repo, "worktree", "add", "--detach", "--end-of-options", path, commit)
+	return err
 }

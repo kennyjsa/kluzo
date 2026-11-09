@@ -77,9 +77,9 @@ func TestGatesAreRealAndFrozen(t *testing.T) {
 	frozenOnce := sync.Once{}
 	e := newEnvWith(t, envOpts{
 		prepare: func(repo string) {
-			onMilestone(t, repo, map[string]string{".kluzo/kluzo.yaml": withGates(t, repo, `gates:
+			onMilestone(t, repo, map[string]string{".gitignore": "*.flag\n", ".kluzo/kluzo.yaml": withGates(t, repo, `gates:
   - name: build
-    run: test -f agenda.go
+    run: test -f agenda.go && test ! -e gate.flag
     fast: true
   - name: test
     run: test "$DB_URL_TEST" = db && test -z "$LEAK_X" && echo "$COMPOSE_PROJECT_NAME" | grep -q '^kluzo-'
@@ -96,10 +96,16 @@ func TestGatesAreRealAndFrozen(t *testing.T) {
 			}
 			return rec
 		},
-	}, impl(implemented()), rev(reviewed(true, nil)))
+	}, step{role: core.RoleImplementer, results: []any{implemented()},
+		// An ignored file the agent leaves in its worktree never reaches the
+		// checkout the gates run in.
+		files: map[string]string{"agenda.go": "package agenda\n", "gate.flag": "x"}}, rev(reviewed(true, nil)))
 	e.drain()
 	if n, _ := e.nodeRow(); n.State != core.NodeQueued {
 		t.Fatalf("node = %s, moves %v", n.State, e.moves())
+	}
+	if rec.runs[0].Workdir == filepath.Join(e.dir, "ws", "worktrees", e.issue) {
+		t.Errorf("the gates ran in the worktree of the node")
 	}
 	if len(rec.runs) != 2 || rec.runs[1].Command == "exit 1" || slices.Contains(rec.runs[1].Env, "LEAK_X=secret") || !slices.Contains(rec.runs[1].Env, "DB_URL_TEST=db") {
 		t.Errorf("runs = %+v", rec.runs)

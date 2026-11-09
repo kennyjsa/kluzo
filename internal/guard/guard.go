@@ -56,6 +56,7 @@ type Change struct {
 	Path    string // relative to the repository root, slash-separated
 	Deleted bool
 	Added   []Line // the lines the change added
+	Removed []Line // the lines the change removed, numbered on the old side
 }
 
 // Line is a line of a file.
@@ -89,7 +90,7 @@ func callRules() []callRule {
 }
 
 func changeRules() []changeRule {
-	return []changeRule{ruleProtectedChange, ruleTestRemoved, ruleTestDisabled, ruleSuppression}
+	return []changeRule{ruleProtectedChange, ruleTestRemoved, ruleTestDeclRemoved, ruleTestDisabled, ruleSuppression}
 }
 
 // toolInput is the part of a tool input the rules read.

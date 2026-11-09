@@ -13,7 +13,7 @@ kluzo/
 │   │   ├── fakes/              # implementações em memória para testes
 │   │   └── contracttest/       # suíte que todo adaptador deve passar
 │   ├── store/                  # SQLite, migrations, Tx, journal, projeções, outbox
-│   ├── gitops/                 # git local endurecido: worktree e preparo, conferência pós-sessão, commit do nó, diff da rodada, rebase, merge; port Files
+│   ├── gitops/                 # git local endurecido: worktree e preparo, checkout limpa dos gates, conferência pós-sessão, commit do nó, diff da rodada, rebase, merge; port Files
 │   ├── config/                 # carga e validação de .kluzo/
 │   ├── contracts/              # tipos de eventos e resultados, JSON Schemas embutidos
 │   ├── gates/                  # port Gates: comando no worktree ou checks do CI; log, go test -json, JUnit

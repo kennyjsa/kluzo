@@ -18,7 +18,7 @@ type Doctor struct {
 	Env []string
 	// Helpers reads the git credential helpers of a HOME
 	// (gitops.HostCredentialHelpers when nil).
-	Helpers func(ctx context.Context, home string) ([]string, error)
+	Helpers func(ctx context.Context, home, xdgConfig string) ([]string, error)
 }
 
 // DoctorInput selects the configuration directory.

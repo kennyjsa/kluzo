@@ -1,6 +1,8 @@
 package guard
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -19,10 +21,12 @@ var testFiles = []string{
 // IsTest reports whether the slash-separated path is a test file.
 func IsTest(name string) bool { return matchAny(testFiles, name) }
 
-// skipMarkers disable a test when added to a test file.
+// skipMarkers disable a test when added to a test file: a skip, a build
+// constraint that leaves the file out, or a focus that leaves the others out.
 var skipMarkers = []string{
-	"t.Skip(", "t.Skipf(", "t.SkipNow(", "b.Skip(", // Go
+	"t.Skip(", "t.Skipf(", "t.SkipNow(", "b.Skip(", "//go:build", "// +build", // Go
 	".skip(", "xit(", "xdescribe(", "xtest(", ".todo(", // JavaScript
+	".only(", "fit(", "fdescribe(", "ftest(", // JavaScript focus
 	"@pytest.mark.skip", "pytest.skip(", "@unittest.skip", "self.skipTest(", // Python
 	"@Disabled", "@Ignore", // JUnit
 	"#[ignore]",         // Rust
@@ -46,6 +50,29 @@ func ruleTestRemoved(_ Policy, ch Change) []Violation {
 		return []Violation{{Rule: RuleTestRemoved, Path: ch.Path, Reason: ch.Path + " is a test file and was deleted"}}
 	}
 	return nil
+}
+
+// testDecl matches the line that declares a test.
+var testDecl = regexp.MustCompile("^\\s*(func (Test|Benchmark|Fuzz|Example)\\w*\\(|def test_\\w*|(it|test|describe|context)\\(\\s*['\"`]|@Test\\b|#\\[test\\])")
+
+// ruleTestDeclRemoved flags a test declaration removed from a test file the
+// round kept, unless the same line was added back (a move): a test deleted
+// or renamed out of the runner (TestX → testX).
+func ruleTestDeclRemoved(_ Policy, ch Change) []Violation {
+	if ch.Deleted || !IsTest(ch.Path) {
+		return nil
+	}
+	added := map[string]bool{}
+	for _, l := range ch.Added {
+		added[strings.TrimSpace(l.Text)] = true
+	}
+	var out []Violation
+	for _, l := range ch.Removed {
+		if testDecl.MatchString(l.Text) && !added[strings.TrimSpace(l.Text)] {
+			out = append(out, Violation{Rule: RuleTestRemoved, Path: ch.Path, Reason: fmt.Sprintf("a test was removed from %s: %s", ch.Path, strings.TrimSpace(l.Text))})
+		}
+	}
+	return out
 }
 
 // ruleTestDisabled flags a skip marker added to a test file.

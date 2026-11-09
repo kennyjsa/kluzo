@@ -52,10 +52,11 @@ func (s *Supervisor) worktree(n store.NodeRow) string {
 	return filepath.Join(s.cfg.Dir, "worktrees", n.IssueRef)
 }
 
-// projectEnv is what the sessions and the setup of a node get besides the
-// fixed part: the cache variables and COMPOSE_PROJECT_NAME (ADR 0025).
-func (s *Supervisor) projectEnv(n store.NodeRow) (map[string]string, error) {
-	caches, err := sessionenv.Caches(s.cfg.Project.Config.Caches, s.cfg.Downloads, filepath.Join(s.cfg.Dir, "cache"))
+// projectEnv is what the sessions, the gates and the setup of a node get
+// besides the fixed part: the cache variables, with the build caches under
+// builds, and COMPOSE_PROJECT_NAME (ADR 0025).
+func (s *Supervisor) projectEnv(n store.NodeRow, builds string) (map[string]string, error) {
+	caches, err := sessionenv.Caches(s.cfg.Project.Config.Caches, s.cfg.Downloads, builds)
 	if err != nil {
 		return nil, err
 	}
@@ -74,12 +75,36 @@ func (s *Supervisor) prepare(ctx context.Context, n store.NodeRow) (string, erro
 	if err != nil {
 		return "", err
 	}
-	extra, err := s.projectEnv(n)
+	return base, s.setup(ctx, n, wt, sessionsPlace)
+}
+
+// place is where a checkout of the node runs: its HOME and build caches.
+type place struct{ home, builds string }
+
+// The sessions and the gates of a node use apart HOMEs and build caches: a
+// session cannot leave in them what a gate will run (ADR 0020).
+var (
+	sessionsPlace = place{home: "home", builds: "cache"}
+	gatesPlace    = place{home: "gates-home", builds: "gates-cache"}
+)
+
+// env is the environment of a checkout of the node at p: env_allow from
+// Kluzo, the caches and COMPOSE_PROJECT_NAME.
+func (s *Supervisor) env(n store.NodeRow, p place, allow []string) ([]string, error) {
+	extra, err := s.projectEnv(n, filepath.Join(s.cfg.Dir, p.builds))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	env := sessionenv.Build(sessionenv.Spec{Parent: s.cfg.ParentEnv, Home: filepath.Join(s.cfg.Dir, "home"), Allow: s.cfg.Project.Config.Worktree.EnvAllow, Extra: extra})
-	return base, s.d.Git.Prepare(ctx, gitops.PrepareSpec{Repo: repo, Worktree: wt, Base: s.cfg.Branch, Env: env, DefaultTimeout: 15 * time.Minute})
+	return sessionenv.Build(sessionenv.Spec{Parent: s.cfg.ParentEnv, Home: filepath.Join(s.cfg.Dir, p.home), Allow: allow, Extra: extra}), nil
+}
+
+// setup runs worktree.include and worktree.setup in a checkout of the node.
+func (s *Supervisor) setup(ctx context.Context, n store.NodeRow, dir string, p place) error {
+	env, err := s.env(n, p, s.cfg.Project.Config.Worktree.EnvAllow)
+	if err != nil {
+		return err
+	}
+	return s.d.Git.Prepare(ctx, gitops.PrepareSpec{Repo: s.cfg.Repo, Worktree: dir, Base: s.cfg.Branch, Env: env, DefaultTimeout: 15 * time.Minute})
 }
 
 // session runs the n-th run of a session effect: one role session of the
@@ -270,7 +295,7 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 		return ports.Result{}, nil, err
 	}
 	defer ms.Close()
-	env, err := s.projectEnv(n)
+	env, err := s.projectEnv(n, filepath.Join(s.cfg.Dir, sessionsPlace.builds))
 	if err != nil {
 		return ports.Result{}, nil, err
 	}

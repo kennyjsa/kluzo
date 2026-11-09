@@ -11,7 +11,6 @@ import (
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
-	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/store"
 )
@@ -38,9 +37,15 @@ func (s *Supervisor) gates(ctx context.Context, f store.Effect, p effectPayload)
 	if err != nil {
 		return err
 	}
-	extra, err := s.projectEnv(n)
-	if err != nil {
+	// The gates run in a clean checkout of the commit, never in the worktree
+	// of the node: ignored files, index flags and caches there are the
+	// agent's (ADR 0020).
+	dir := filepath.Join(s.cfg.Dir, "gates", n.IssueRef)
+	if err := s.d.Git.Checkout(ctx, s.cfg.Repo, dir, r.Head); err != nil {
 		return err
+	}
+	if err := s.setup(ctx, n, dir, gatesPlace); err != nil {
+		return fmt.Errorf("prepare the checkout of the gates: %w", err)
 	}
 	in := core.GatesDone{Step: r.Step}
 	var events []store.Event
@@ -54,7 +59,11 @@ func (s *Supervisor) gates(ctx context.Context, f store.Effect, p effectPayload)
 		if err := s.append(ctx, store.Event{Kind: contracts.EventGateStarted, NodeID: n.ID, Payload: started}); err != nil {
 			return err
 		}
-		res, err := s.d.Gates.Run(ctx, s.gateRun(n, r, st, def, extra))
+		run, err := s.gateRun(n, r, st, def, dir)
+		if err != nil {
+			return err
+		}
+		res, err := s.d.Gates.Run(ctx, run)
 		if err != nil {
 			return err
 		}
@@ -67,11 +76,14 @@ func (s *Supervisor) gates(ctx context.Context, f store.Effect, p effectPayload)
 	return s.decide(ctx, n, in, completed(f), events...)
 }
 
-// gateRun is the run of one gate: its frozen definition, and an environment
-// with only its env_allow, the caches and COMPOSE_PROJECT_NAME (ADR 0020,
-// ADR 0025).
-func (s *Supervisor) gateRun(n store.NodeRow, r core.Run, st core.FlowStep, def config.Gate, extra map[string]string) ports.GateRun {
-	env := sessionenv.Build(sessionenv.Spec{Parent: s.cfg.ParentEnv, Home: filepath.Join(s.cfg.Dir, "home"), Allow: def.EnvAllow, Extra: extra})
+// gateRun is the run of one gate in the checkout dir: its frozen definition,
+// and an environment with only its env_allow, the caches and
+// COMPOSE_PROJECT_NAME (ADR 0020, ADR 0025).
+func (s *Supervisor) gateRun(n store.NodeRow, r core.Run, st core.FlowStep, def config.Gate, dir string) (ports.GateRun, error) {
+	env, err := s.env(n, gatesPlace, def.EnvAllow)
+	if err != nil {
+		return ports.GateRun{}, err
+	}
 	var secrets []string
 	for _, kv := range env {
 		if k, v, _ := strings.Cut(kv, "="); slices.Contains(def.EnvAllow, k) {
@@ -79,8 +91,8 @@ func (s *Supervisor) gateRun(n store.NodeRow, r core.Run, st core.FlowStep, def 
 		}
 	}
 	return ports.GateRun{
-		Workspace: s.cfg.Workspace, Node: n.ID, Gate: def.Name, SHA: r.Head, Workdir: s.worktree(n), Fast: st.Fast,
+		Workspace: s.cfg.Workspace, Node: n.ID, Gate: def.Name, SHA: r.Head, Workdir: dir, Fast: st.Fast,
 		Command: def.Run, Tracker: def.Source == "tracker", RequiredChecks: def.RequiredChecks, Timeout: def.Timeout, Report: def.Report,
 		Env: env, Secrets: secrets,
-	}
+	}, nil
 }

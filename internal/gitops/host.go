@@ -9,12 +9,15 @@ import (
 )
 
 // HostCredentialHelpers returns the credential helpers the git of the host
-// user configures (system, global and XDG files), read with the HOME of that
-// user: unlike every other command of this package, it reads the host
-// configuration on purpose, for the check of ADR 0020, item 6. It only reads
-// one key, with the includes of those files.
-func (g *Git) HostCredentialHelpers(ctx context.Context, home string) ([]string, error) {
+// user configures (system, global and XDG files), read with the HOME and the
+// XDG_CONFIG_HOME of that user: unlike every other command of this package,
+// it reads the host configuration on purpose, for the check of ADR 0020,
+// item 6. It only reads one key, with the includes of those files.
+func (g *Git) HostCredentialHelpers(ctx context.Context, home, xdgConfig string) ([]string, error) {
 	env := []string{"HOME=" + home, "GIT_TERMINAL_PROMPT=0"}
+	if xdgConfig != "" {
+		env = append(env, "XDG_CONFIG_HOME="+xdgConfig)
+	}
 	for _, kv := range g.env {
 		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "LANG" {
 			env = append(env, kv)

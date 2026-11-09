@@ -50,6 +50,9 @@ func (s *Supervisor) checkWork(ctx context.Context, base, head string) ([]string
 		for _, l := range f.AddedText {
 			changes[i].Added = append(changes[i].Added, guard.Line{N: l.N, Text: l.Text})
 		}
+		for _, l := range f.RemovedText {
+			changes[i].Removed = append(changes[i].Removed, guard.Line{N: l.N, Text: l.Text})
+		}
 	}
 	policy := guard.Policy{ProtectedPaths: frozen.ProtectedPaths}
 	var proposal []string

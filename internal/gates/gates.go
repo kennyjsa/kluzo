@@ -26,11 +26,17 @@ const (
 	DefaultPoll    = 30 * time.Second
 )
 
-// Bounds of what a run keeps in memory and in the result.
+// Bounds of what a run keeps on disk, in memory and in the result.
 const (
-	reportMax  = 16 << 20 // bytes of a JUnit report read
-	summaryMax = 16_000   // characters of the summary: its head and its end
-	summaryEnd = 12_000   // of which the end of the output
+	reportMax     = 16 << 20 // bytes of a JUnit report read
+	defaultLogMax = 64 << 20 // bytes of a gate log
+	lineMax       = 1 << 20  // bytes of a line before it is cut
+	summaryHead   = 4_000    // bytes of the start of the output kept for the summary
+	summaryEnd    = 12_000   // and of its end
+	failuresMax   = 200      // structured failures kept
+	messageMax    = 4_000    // characters of a failure message
+	testOutMax    = 16 << 10 // bytes of output kept per test of go test -json
+	outputGrace   = 5 * time.Second
 )
 
 // Config configures the runner.
@@ -47,6 +53,8 @@ type Config struct {
 	Wait func(ctx context.Context, d time.Duration) error
 	// Secrets are values masked in every log, besides the token shapes.
 	Secrets []string
+	// LogMax bounds each log, in bytes (64 MiB).
+	LogMax int
 }
 
 // Runner runs gates.
@@ -58,6 +66,9 @@ var _ ports.Gates = (*Runner)(nil)
 func New(cfg Config) *Runner {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultTimeout
+	}
+	if cfg.LogMax <= 0 {
+		cfg.LogMax = defaultLogMax
 	}
 	if cfg.Poll <= 0 {
 		cfg.Poll = DefaultPoll
@@ -91,12 +102,34 @@ func (r *Runner) Run(ctx context.Context, run ports.GateRun) (ports.GateResult, 
 	}
 }
 
-// command runs the command with sh in the worktree, with only the environment
-// of the run; its standard error goes to the same log.
+// command runs the command with sh in the checkout of the gate, with only
+// the environment of the run. Its output goes, redacted, to the log as it
+// arrives; only a bounded part of it stays in memory.
 func (r *Runner) command(ctx context.Context, run ports.GateRun, timeout time.Duration) (ports.GateResult, error) {
+	if run.Report != "" {
+		// A report from an earlier run, or one committed by the agent, must
+		// not pass for the failures of this run.
+		if err := removeReport(run.Workdir, run.Report); err != nil {
+			return ports.GateResult{}, fmt.Errorf("gate %s: old report: %w", run.Gate, err)
+		}
+	}
+	log, err := r.newLog(run)
+	if err != nil {
+		return ports.GateResult{}, err
+	}
+	f, err := os.OpenFile(log, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return ports.GateResult{}, fmt.Errorf("gate log: %w", err)
+	}
+	rd := redact.New(append(append([]string(nil), r.cfg.Secrets...), run.Secrets...)...)
+	out := newSink(f, rd, r.cfg.LogMax)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	o, runErr := exec.Run(runCtx, exec.Spec{Bin: "sh", Args: []string{"-c", "exec 2>&1\n" + run.Command}, Dir: run.Workdir, Env: run.Env})
+	st, runErr := exec.RunTo(runCtx, exec.Spec{Bin: "sh", Args: []string{"-c", run.Command}, Dir: run.Workdir, Env: run.Env}, out, outputGrace)
+	out.flush()
+	if err := f.Close(); err != nil {
+		return ports.GateResult{}, fmt.Errorf("gate log: %w", err)
+	}
 	if err := ctx.Err(); err != nil {
 		return ports.GateResult{}, err // Kluzo is stopping: the gate runs again later
 	}
@@ -104,32 +137,21 @@ func (r *Runner) command(ctx context.Context, run ports.GateRun, timeout time.Du
 	if runErr != nil && !timedOut {
 		return ports.GateResult{}, fmt.Errorf("gate %s did not run: %w", run.Gate, runErr)
 	}
-	rd := redact.New(append(append([]string(nil), r.cfg.Secrets...), run.Secrets...)...)
-	output := rd.String(o.Stdout + o.Stderr)
-	text, failures := goTestJSON(output)
-	res := ports.GateResult{Gate: run.Gate, State: ports.GatePassed, ExitCode: o.Status.Code, Failures: failures}
+	res := ports.GateResult{Gate: run.Gate, State: ports.GatePassed, ExitCode: st.Code, LogRef: log, Failures: out.tests.failures()}
 	switch {
 	case timedOut:
 		res.State = ports.GateError
-		text += fmt.Sprintf("\n[kluzo] the gate timed out after %s\n", timeout)
-	case o.Status.Code != 0:
+		out.text.add(fmt.Sprintf("\n[kluzo] the gate timed out after %s\n", timeout))
+	case st.Code != 0:
 		res.State = ports.GateFailed
 	}
-	log, err := r.newLog(run)
-	if err != nil {
-		return ports.GateResult{}, err
-	}
-	if err := os.WriteFile(log, []byte(output), 0o600); err != nil {
-		return ports.GateResult{}, fmt.Errorf("gate log: %w", err)
-	}
-	res.LogRef = log
 	if run.Report != "" && res.State != ports.GatePassed {
 		report, junit, err := readReport(run.Workdir, run.Report)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			text += fmt.Sprintf("\n[kluzo] the report %s was not written\n", run.Report)
+			out.text.add(fmt.Sprintf("\n[kluzo] the report %s was not written\n", run.Report))
 		case err != nil:
-			text += fmt.Sprintf("\n[kluzo] the report %s could not be read: %v\n", run.Report, err)
+			out.text.add(fmt.Sprintf("\n[kluzo] the report %s could not be read: %v\n", run.Report, err))
 		default:
 			res.Failures = append(res.Failures, junit...)
 			res.Report = strings.TrimSuffix(log, ".log") + ".junit.xml"
@@ -138,11 +160,12 @@ func (r *Runner) command(ctx context.Context, run ports.GateRun, timeout time.Du
 			}
 		}
 	}
+	res.Failures = res.Failures[:min(len(res.Failures), failuresMax)]
 	for i := range res.Failures {
 		f := &res.Failures[i]
-		f.Test, f.File, f.Message = rd.String(f.Test), rd.String(f.File), rd.String(f.Message)
+		f.Test, f.File, f.Message = rd.String(f.Test), rd.String(f.File), rd.String(clip(f.Message, messageMax))
 	}
-	res.Summary = summary(text)
+	res.Summary = out.text.String()
 	return res, nil
 }
 
@@ -180,6 +203,19 @@ func safeName(s string) string {
 	}, s)
 }
 
+// removeReport deletes the report inside the checkout, if it is there.
+func removeReport(workdir, report string) error {
+	root, err := os.OpenRoot(workdir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.Remove(report); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // readReport reads the JUnit report from inside the worktree: a path that
 // leaves it, through .. or a symlink, is refused by os.Root.
 func readReport(workdir, report string) ([]byte, []ports.TestFailure, error) {
@@ -199,16 +235,6 @@ func readReport(workdir, report string) ([]byte, []ports.TestFailure, error) {
 	}
 	failures, err := junitFailures(data)
 	return data, failures, err
-}
-
-// summary keeps the head and the end of a long output.
-func summary(s string) string {
-	r := []rune(s)
-	if len(r) <= summaryMax {
-		return s
-	}
-	head := summaryMax - summaryEnd
-	return string(r[:head]) + fmt.Sprintf("\n…(%d characters omitted)…\n", len(r)-summaryMax) + string(r[len(r)-summaryEnd:])
 }
 
 // checks reads the required checks of the commit from the CI until none is

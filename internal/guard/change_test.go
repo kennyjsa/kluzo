@@ -42,6 +42,13 @@ func TestChangeRules(t *testing.T) {
 		{"rust allow", Change{Path: "src/a.rs", Added: added("#[allow(dead_code)]")}, []want{{RuleSuppression, 10, false}}},
 		{"suppression in a test that is also disabled", Change{Path: "a_test.go", Added: added("t.Skip() //nolint")}, []want{{RuleTestDisabled, 10, true}, {RuleSuppression, 10, false}}},
 		{"plain code", Change{Path: "a.go", Added: added("// skip the header", "return nil")}, nil},
+		{"build constraint on a test file", Change{Path: "a_test.go", Added: added("//go:build ignore")}, []want{{RuleTestDisabled, 10, true}}},
+		{"focus", Change{Path: "a.spec.ts", Added: added("describe.only('agenda', () => {")}, []want{{RuleTestDisabled, 10, true}}},
+		{"test renamed out of the runner", Change{Path: "a_test.go", Removed: added("func TestList(t *testing.T) {"), Added: added("func testList(t *testing.T) {")}, []want{{RuleTestRemoved, 0, true}}},
+		{"test function deleted", Change{Path: "test_api.py", Removed: added("def test_list(client):")}, []want{{RuleTestRemoved, 0, true}}},
+		{"JS test deleted", Change{Path: "a.test.js", Removed: added("  it('lists', () => {")}, []want{{RuleTestRemoved, 0, true}}},
+		{"test moved inside the file", Change{Path: "a_test.go", Removed: added("func TestList(t *testing.T) {"), Added: added("func TestList(t *testing.T) {")}, nil},
+		{"helper removed from a test file", Change{Path: "a_test.go", Removed: added("func helper() {}")}, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var got []want

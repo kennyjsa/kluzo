@@ -41,13 +41,14 @@ func FromEnv(env []string, helpers []string) Spec {
 }
 
 // Check scans the host whose environment is env; helpers reads the git
-// credential helpers of a HOME (gitops.HostCredentialHelpers).
-func Check(ctx context.Context, env []string, helpers func(ctx context.Context, home string) ([]string, error)) ([]string, error) {
+// credential helpers of a HOME and XDG_CONFIG_HOME
+// (gitops.HostCredentialHelpers).
+func Check(ctx context.Context, env []string, helpers func(ctx context.Context, home, xdgConfig string) ([]string, error)) ([]string, error) {
 	s := FromEnv(env, nil)
 	if s.Home == "" {
 		return nil, errors.New("HOME is not set: the credentials of the host cannot be checked")
 	}
-	h, err := helpers(ctx, s.Home)
+	h, err := helpers(ctx, s.Home, s.XDGConfig)
 	if err != nil {
 		return nil, err
 	}

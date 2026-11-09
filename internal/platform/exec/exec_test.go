@@ -4,6 +4,7 @@ package exec
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"strconv"
@@ -126,4 +127,27 @@ func waitGone(t *testing.T, pid int) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Errorf("process %d still alive", pid)
+}
+
+func TestRunTo(t *testing.T) {
+	env := []string{"PATH=" + os.Getenv("PATH")}
+	var out strings.Builder
+	start := time.Now()
+	// A child left in the background with the output open does not hold the run.
+	st, err := RunTo(context.Background(), Spec{Bin: "sh", Args: []string{"-c", "sleep 30 & echo hi; echo err >&2"}, Env: env}, &out, 200*time.Millisecond)
+	if err != nil || st.Code != 0 || !strings.Contains(out.String(), "hi") || !strings.Contains(out.String(), "err") || time.Since(start) > 5*time.Second {
+		t.Errorf("background child: %+v %v %q after %s", st, err, out.String(), time.Since(start))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start = time.Now()
+	if _, err := RunTo(ctx, Spec{Bin: "sh", Args: []string{"-c", "sleep 30"}, Env: env}, io.Discard, time.Second); !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
+		t.Errorf("timeout: %v after %s", err, time.Since(start))
+	}
+	if st, err := RunTo(context.Background(), Spec{Bin: "sh", Args: []string{"-c", "exit 4"}, Env: env}, io.Discard, time.Second); err != nil || st.Code != 4 {
+		t.Errorf("exit 4: %+v %v", st, err)
+	}
+	if _, err := RunTo(context.Background(), Spec{Bin: "/does/not/exist"}, io.Discard, time.Second); err == nil {
+		t.Error("a missing program is not an error")
+	}
 }

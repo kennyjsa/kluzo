@@ -3,12 +3,14 @@ package gates
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kennyjsa/kluzo/internal/platform/redact"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/ports/fakes"
 )
@@ -159,12 +161,11 @@ func TestJUnitReport(t *testing.T) {
 	if b, err := os.ReadFile(res.Report); err != nil || !strings.Contains(string(b), "overlap") {
 		t.Errorf("report copy: %v", err)
 	}
-	// A report that leaves the worktree through a symlink is not read.
+	// A report the command points outside the worktree with a symlink is
+	// not read.
 	outside := filepath.Join(t.TempDir(), "junit.xml")
 	_ = os.WriteFile(outside, []byte(junit), 0o644)
-	dir = t.TempDir()
-	_ = os.Symlink(outside, filepath.Join(dir, "junit.xml"))
-	res, err = r.Run(context.Background(), ports.GateRun{Node: "n", Gate: "e2e", SHA: "s", Workdir: dir, Command: "exit 1", Env: env(), Report: "junit.xml"})
+	res, err = r.Run(context.Background(), ports.GateRun{Node: "n", Gate: "e2e", SHA: "s", Workdir: t.TempDir(), Command: "ln -s '" + outside + "' junit.xml; exit 1", Env: env(), Report: "junit.xml"})
 	if err != nil || len(res.Failures) != 0 || !strings.Contains(res.Summary, "could not be read") {
 		t.Errorf("symlinked report: %+v %v", res, err)
 	}
@@ -175,11 +176,52 @@ func TestJUnitReport(t *testing.T) {
 	}
 }
 
+// goTestJSON feeds output to a sink, as a command would.
+func goTestJSON(output string) (string, []ports.TestFailure) {
+	s := newSink(io.Discard, redact.New(), defaultLogMax)
+	_, _ = s.Write([]byte(output))
+	s.flush()
+	return s.text.String(), s.tests.failures()
+}
+
 func TestSummaryKeepsHeadAndEnd(t *testing.T) {
-	s := "HEAD" + strings.Repeat("x", 30_000) + "END"
-	got := summary(s)
-	if !strings.HasPrefix(got, "HEAD") || !strings.HasSuffix(got, "END") || len([]rune(got)) > summaryMax+100 {
-		t.Errorf("summary of %d runes: %d runes", len(s), len([]rune(got)))
+	var h headTail
+	h.add("HEAD")
+	for range 1000 {
+		h.add(strings.Repeat("x", 100))
+	}
+	h.add("END")
+	got := h.String()
+	if !strings.HasPrefix(got, "HEAD") || !strings.HasSuffix(got, "END") || len(got) > summaryHead+summaryEnd+100 || !strings.Contains(got, "omitted") {
+		t.Errorf("summary of %d bytes", len(got))
+	}
+}
+
+// A gate that writes without end fills neither the disk nor the memory of
+// Kluzo, and a server it leaves in the background does not hold it.
+func TestOutputIsBounded(t *testing.T) {
+	r := New(Config{LogDir: filepath.Join(t.TempDir(), "logs"), LogMax: 1 << 20})
+	res, err := r.Run(context.Background(), ports.GateRun{Node: "n", Gate: "g", SHA: "s", Workdir: t.TempDir(), Env: env(),
+		Command: "head -c 5000000 /dev/zero | tr '\\0' 'x' | fold -w 100; (sleep 30 &); echo done"})
+	if err != nil || res.State != ports.GatePassed {
+		t.Fatalf("result %+v %v", res, err)
+	}
+	fi, _ := os.Stat(res.LogRef)
+	if fi.Size() > 1<<20+1000 || len(res.Summary) > summaryHead+summaryEnd+100 || !strings.HasSuffix(strings.TrimSpace(res.Summary), "done") {
+		t.Errorf("log %d bytes, summary %d bytes", fi.Size(), len(res.Summary))
+	}
+}
+
+// A report left from before does not pass for the failures of this run.
+func TestStaleReportIsRemoved(t *testing.T) {
+	r, _ := newRunner(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "junit.xml"), []byte(junit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Run(context.Background(), ports.GateRun{Node: "n", Gate: "e2e", SHA: "s", Workdir: dir, Command: "exit 1", Env: env(), Report: "junit.xml"})
+	if err != nil || len(res.Failures) != 0 || !strings.Contains(res.Summary, "was not written") {
+		t.Errorf("stale report: %+v %v", res, err)
 	}
 }
 

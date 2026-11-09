@@ -153,3 +153,36 @@ func (t *tail) String() string {
 	defer t.mu.Unlock()
 	return string(t.buf)
 }
+
+// RunTo runs a program to the end with its standard output and error both
+// written to w, and stdin empty. When ctx ends, the process group is killed.
+// Once the program exits, its children that still hold the output get grace
+// before the pipes are closed and the group is killed: a server left in the
+// background does not hold the caller. The error is the failure to start it
+// or the end of ctx; a non-zero exit is only in the Status.
+func RunTo(ctx context.Context, spec Spec, w io.Writer, grace time.Duration) (Status, error) {
+	cmd := osexec.Command(spec.Bin, spec.Args...)
+	cmd.Dir, cmd.Env = spec.Dir, spec.Env
+	if cmd.Env == nil {
+		cmd.Env = []string{}
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Stdout, cmd.Stderr = w, w
+	cmd.WaitDelay = grace
+	if err := cmd.Start(); err != nil {
+		return Status{Code: -1}, fmt.Errorf("start %s: %w", spec.Bin, err)
+	}
+	pgid := cmd.Process.Pid
+	stop := context.AfterFunc(ctx, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+	err := cmd.Wait()
+	stop()
+	_ = syscall.Kill(-pgid, syscall.SIGKILL) // what is left of the group
+	st := Status{Code: cmd.ProcessState.ExitCode()}
+	var ee *osexec.ExitError
+	if errors.As(err, &ee) {
+		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			st.Signal = ws.Signal().String()
+		}
+	}
+	return st, ctx.Err()
+}

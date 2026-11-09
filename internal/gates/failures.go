@@ -2,7 +2,6 @@ package gates
 
 import (
 	"bytes"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -24,50 +23,67 @@ type testEvent struct {
 // goLocation is the file:line: a failure message of the testing package starts with.
 var goLocation = regexp.MustCompile(`^\s*([\w./-]+\.go):(\d+): ?(.*)$`)
 
-// goTestJSON reads an output that may hold go test -json events. It returns
-// the output as text (the Output of each event, other lines as they are) and
-// the failed tests: only the innermost ones, since a test fails with its
-// subtests, and a package that failed without a failed test (a build error).
-func goTestJSON(output string) (string, []ports.TestFailure) {
-	var text strings.Builder
-	type key struct{ pkg, test string }
-	outputs := map[key][]string{}
-	var failed []key
-	for line := range strings.Lines(output) {
-		var ev testEvent
-		if !strings.HasPrefix(line, "{") || json.Unmarshal([]byte(line), &ev) != nil || ev.Action == "" {
-			text.WriteString(line)
-			continue
+type testKey struct{ pkg, test string }
+
+// goTests reads go test -json events (go doc test2json) and gives the failed
+// tests: only the innermost ones, since a test fails with its subtests, and a
+// package that failed without a failed test (a build error). It keeps at most
+// testOutMax bytes of output per test.
+type goTests struct {
+	outputs map[testKey]*bytes.Buffer
+	failed  []testKey
+}
+
+func (g *goTests) add(ev testEvent) {
+	k := testKey{ev.Package, ev.Test}
+	switch ev.Action {
+	case "output":
+		b := g.outputs[k]
+		if b == nil {
+			b = &bytes.Buffer{}
+			g.outputs[k] = b
 		}
-		text.WriteString(ev.Output)
-		k := key{ev.Package, ev.Test}
-		switch ev.Action {
-		case "output":
-			outputs[k] = append(outputs[k], ev.Output)
-		case "fail":
-			failed = append(failed, k)
+		if b.Len() < testOutMax {
+			b.WriteString(ev.Output[:min(len(ev.Output), testOutMax-b.Len())])
+		}
+	case "fail":
+		if len(g.failed) < 4*failuresMax {
+			g.failed = append(g.failed, k)
 		}
 	}
-	failedTests := map[string]bool{} // package/test of the failed tests
-	for _, k := range failed {
+}
+
+func (g *goTests) output(k testKey) []string {
+	if b := g.outputs[k]; b != nil {
+		return strings.SplitAfter(b.String(), "\n")
+	}
+	return nil
+}
+
+func (g *goTests) failures() []ports.TestFailure {
+	failedTests := map[string]bool{} // package\x00test of the failed tests
+	for _, k := range g.failed {
 		if k.test != "" {
 			failedTests[k.pkg+"\x00"+k.test] = true
 		}
 	}
 	var out []ports.TestFailure
-	for _, k := range failed {
+	for _, k := range g.failed {
+		if len(out) == failuresMax {
+			break
+		}
 		if k.test == "" {
-			if !hasFailedTest(failedTests, k.pkg) {
-				out = append(out, ports.TestFailure{Test: k.pkg, Message: strings.TrimSpace(strings.Join(outputs[k], ""))})
+			if !hasFailedTest(failedTests, k.pkg+"\x00") {
+				out = append(out, ports.TestFailure{Test: k.pkg, Message: strings.TrimSpace(strings.Join(g.output(k), ""))})
 			}
 			continue
 		}
 		if hasFailedTest(failedTests, k.pkg+"\x00"+k.test+"/") {
 			continue // the failure is in a subtest
 		}
-		out = append(out, goFailure(k.test, outputs[k]))
+		out = append(out, goFailure(k.test, g.output(k)))
 	}
-	return text.String(), out
+	return out
 }
 
 // hasFailedTest reports whether a failed test starts with prefix.
@@ -121,7 +137,7 @@ type junitResult struct {
 func junitFailures(data []byte) ([]ports.TestFailure, error) {
 	d := xml.NewDecoder(bytes.NewReader(data))
 	var out []ports.TestFailure
-	for {
+	for len(out) < failuresMax {
 		tok, err := d.Token()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -146,4 +162,5 @@ func junitFailures(data []byte) ([]ports.TestFailure, error) {
 			out = append(out, ports.TestFailure{Test: name, File: c.File, Line: c.Line, Message: msg})
 		}
 	}
+	return out[:min(len(out), failuresMax)], nil
 }

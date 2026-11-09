@@ -22,8 +22,8 @@ func TestDoctorHostCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	none := func(context.Context, string) ([]string, error) { return nil, nil }
-	keychain := func(context.Context, string) ([]string, error) { return []string{"osxkeychain"}, nil }
+	none := func(context.Context, string, string) ([]string, error) { return nil, nil }
+	keychain := func(context.Context, string, string) ([]string, error) { return []string{"osxkeychain"}, nil }
 
 	out, err := Doctor{Env: []string{"HOME=" + home}, Helpers: none}.Execute(context.Background(), DoctorInput{Dir: dir})
 	if err != nil || len(out.Refused)+len(out.Warnings) != 0 {
