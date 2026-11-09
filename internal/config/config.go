@@ -190,8 +190,9 @@ func (c *Config) validate(r report) {
 		}
 	}
 	c.validateCodeMap(r)
-	validateGates(r, "gates", c.Gates)
-	validateGates(r, "milestone_gates", c.MilestoneGates)
+	secrets := c.credentialEnv()
+	validateGates(r, "gates", c.Gates, secrets)
+	validateGates(r, "milestone_gates", c.MilestoneGates, secrets)
 	c.validateBudgets(r)
 	c.validateWorkspaceResources(r)
 	for h, rt := range c.Runtimes {
@@ -202,7 +203,7 @@ func (c *Config) validate(r report) {
 		if rt.MinVersion != "" && !versionPattern.MatchString(rt.MinVersion) {
 			r.add(join(p, "min_version"), fmt.Sprintf("%q is not a version like 2.1.186", rt.MinVersion))
 		}
-		validateEnvAllow(r, join(p, "env_allow"), rt.EnvAllow)
+		validateEnvAllow(r, join(p, "env_allow"), rt.EnvAllow, secrets)
 	}
 	if d := c.Defaults; d.Harness != "" && d.Model != "" {
 		if msg := checkPair(d.Harness, d.Model); msg != "" {
@@ -293,7 +294,7 @@ func (c *Config) validateWorkspaceResources(r report) {
 	if c.Worktree.Timeout < 0 {
 		r.add("worktree.timeout", "must not be negative")
 	}
-	validateEnvAllow(r, "worktree.env_allow", c.Worktree.EnvAllow)
+	validateEnvAllow(r, "worktree.env_allow", c.Worktree.EnvAllow, c.credentialEnv())
 	for i, f := range c.Worktree.Include {
 		if f == "" || path.IsAbs(f) || path.Clean(f) != f || strings.HasPrefix(f, "../") {
 			r.add(idx("worktree.include", i), fmt.Sprintf("%q must be a clean path relative to the repository", f))
@@ -328,7 +329,7 @@ func (c *Config) validateBudgets(r report) {
 
 // validateGates checks a gate list: unique names, and exactly one of a command
 // (`run`) or the tracker's checks (`source: tracker`).
-func validateGates(r report, path string, gates []Gate) {
+func validateGates(r report, path string, gates []Gate, secrets []string) {
 	seen := map[string]bool{}
 	for i, g := range gates {
 		p := idx(path, i)
@@ -355,17 +356,46 @@ func validateGates(r report, path string, gates []Gate) {
 		if g.Timeout < 0 {
 			r.add(join(p, "timeout"), "must not be negative")
 		}
-		validateEnvAllow(r, join(p, "env_allow"), g.EnvAllow)
+		validateEnvAllow(r, join(p, "env_allow"), g.EnvAllow, secrets)
 	}
 }
 
-// validateEnvAllow checks an env_allow list: environment variable names, each once.
-func validateEnvAllow(r report, path string, names []string) {
+// reservedEnv are variables Kluzo sets itself or keeps from agents and
+// gates: an env_allow that names one would replace the synthetic HOME or hand
+// out a credential (ADR 0024, item 3; security.md).
+var reservedEnv = []string{"HOME", "PATH", "SSH_AUTH_SOCK", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "DISABLE_AUTOUPDATER"}
+
+// reservedEnvPrefixes are the families of reserved variables: git's own and Kluzo's.
+var reservedEnvPrefixes = []string{"GIT_", "KLUZO_"}
+
+// credentialEnv are the variables that hold Kluzo's own credentials.
+func (c *Config) credentialEnv() []string {
+	a := c.Tracker.Auth
+	var out []string
+	names := []string{a.TokenEnvName(c.Tracker.Kind), a.AppIDEnv, a.KeyFileEnv}
+	if c.Notify != nil {
+		names = append(names, c.Notify.URLEnv)
+	}
+	for _, n := range names {
+		if n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// validateEnvAllow checks an env_allow list: environment variable names, each
+// once, none reserved; secrets are the variables of Kluzo's own credentials.
+func validateEnvAllow(r report, path string, names, secrets []string) {
 	seen := map[string]bool{}
 	for i, n := range names {
+		reserved := slices.Contains(reservedEnv, n) || slices.Contains(secrets, n) ||
+			slices.ContainsFunc(reservedEnvPrefixes, func(p string) bool { return strings.HasPrefix(n, p) })
 		switch {
 		case !envName.MatchString(n):
 			r.add(idx(path, i), fmt.Sprintf("%q is not an environment variable name", n))
+		case reserved:
+			r.add(idx(path, i), fmt.Sprintf("%q is reserved to Kluzo: it would replace the session environment or pass a credential", n))
 		case seen[n]:
 			r.add(idx(path, i), fmt.Sprintf("duplicate variable %q", n))
 		}

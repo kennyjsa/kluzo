@@ -81,7 +81,7 @@ secret_paths: ["[bad"]
 worktree:
   include: ["../outside"]
   timeout: -1m
-  env_allow: [NPM_TOKEN, "NPM-TOKEN", NPM_TOKEN]
+  env_allow: [NPM_TOKEN, "NPM-TOKEN", NPM_TOKEN, HOME, GIT_DIR]
 
 caches: [go, cobol]
 

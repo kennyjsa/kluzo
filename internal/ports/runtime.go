@@ -41,7 +41,7 @@ var ErrResumeMismatch = errors.New("session cannot be resumed: its inputs change
 
 // ErrNoGuard means the spec has no hook endpoint, or no way to ask it what it
 // received, so the session would run unguarded.
-var ErrNoGuard = fmt.Errorf("the session has no guard hook endpoint: %w", ErrPermanent)
+var ErrNoGuard = fmt.Errorf("the session has no guard hook endpoint or no hooked-call lookup: %w", ErrPermanent)
 
 // RoleConfig is the part of a role a runtime needs, with the precedence of
 // overrides already applied.
@@ -90,7 +90,8 @@ type SessionSpec struct {
 	// Hooked reports whether the hook endpoint received the tool call with
 	// this tool_use id. The adapter asks it for every tool result: a call the
 	// hook did not see ran unguarded (the canary, ADR 0024, item 6). Required
-	// with HookEndpoint.
+	// with HookEndpoint; it is the lookup of the MCP session opened for this
+	// run (a new one on Resume).
 	Hooked func(toolUseID string) bool
 	// Env holds the project variables of the session (env_allow, caches,
 	// COMPOSE_PROJECT_NAME). Nothing of the environment of Kluzo is passed.

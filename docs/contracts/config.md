@@ -93,6 +93,8 @@ worktree:                      # preparo de cada worktree, executado pelo Kluzo 
   env_allow: [NPM_TOKEN]         # variáveis do Kluzo repassadas ao setup, além de caches e COMPOSE_PROJECT_NAME
   timeout: 15m                   # falha do setup: erro de runtime repetível; persistindo, blocked (triage)
 
+# env_allow (gates, runtimes, worktree) não aceita HOME, PATH, SSH_AUTH_SOCK, GIT_*, KLUZO_*,
+# CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY nem as variáveis de credencial do tracker e do notify
 secret_paths: [".env", ".env.*"]   # o hook nega leitura por ferramenta de arquivo; leitura via shell é limite conhecido
 
 caches: [go, node]               # ecossistemas com cache de download compartilhado (ADR 0025)

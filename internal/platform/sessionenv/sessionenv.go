@@ -33,7 +33,7 @@ func Build(s Spec) []string {
 			parent[k] = v
 		}
 	}
-	env := map[string]string{"HOME": s.Home}
+	env := map[string]string{}
 	for _, k := range []string{"PATH", "LANG", "LC_ALL", "TERM"} {
 		if v, ok := parent[k]; ok {
 			env[k] = v
@@ -44,6 +44,7 @@ func Build(s Spec) []string {
 			env[k] = v
 		}
 	}
+	env["HOME"] = s.Home // after Allow: an allowed HOME never replaces the synthetic one
 	for k, v := range fixed {
 		env[k] = v
 	}

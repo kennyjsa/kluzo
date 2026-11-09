@@ -66,6 +66,8 @@ func TestLoadErrors(t *testing.T) {
 			{"kluzo.yaml", 83, "worktree.timeout", "negative"},
 			{"kluzo.yaml", 84, "worktree.env_allow[1]", `"NPM-TOKEN" is not an environment variable name`},
 			{"kluzo.yaml", 84, "worktree.env_allow[2]", `duplicate variable "NPM_TOKEN"`},
+			{"kluzo.yaml", 84, "worktree.env_allow[3]", `"HOME" is reserved to Kluzo`},
+			{"kluzo.yaml", 84, "worktree.env_allow[4]", `"GIT_DIR" is reserved to Kluzo`},
 			{"kluzo.yaml", 86, "caches[1]", `unknown ecosystem "cobol"`},
 			{"kluzo.yaml", 89, "retention.logs", "days like 90d"},
 			{"kluzo.yaml", 90, "retention.disk_warn", "size like 20GB"},
@@ -282,5 +284,15 @@ func TestDefaultRolesAreTheContractTexts(t *testing.T) {
 		if string(got) != string(want) {
 			t.Errorf("embedded roles/%s.md differs from docs/contracts/roles/%s.md", name, name)
 		}
+	}
+}
+
+// The variables of Kluzo's own credentials are reserved too.
+func TestEnvAllowRefusesCredentials(t *testing.T) {
+	var es Errors
+	cfg := &Config{Tracker: Tracker{Kind: "github", Auth: TrackerAuth{Kind: "token", TokenEnv: "GITHUB_TOKEN"}}, Notify: &Notify{Kind: "ntfy", URLEnv: "NTFY_URL"}}
+	validateEnvAllow((&source{}).report(&es), "gates[0].env_allow", []string{"DATABASE_URL", "GITHUB_TOKEN", "NTFY_URL"}, cfg.credentialEnv())
+	if len(es) != 2 || !strings.Contains(es[0].Msg, "GITHUB_TOKEN") || !strings.Contains(es[1].Msg, "NTFY_URL") {
+		t.Errorf("errors = %v", es)
 	}
 }
