@@ -77,12 +77,14 @@ Validação feita pelo Kluzo, além do schema (ADR 0023):
 - `category`: `correctness`, `tests`, `security`, `duplication`, `dead_code`, `style`, `scope`. Código duplicado e código morto são `blocking`.
 - `check` é obrigatório em `blocking` e `major`.
 - Os ids dos findings (`F1`, `F2`…) são atribuídos pelo Kluzo depois da validação, estáveis por nó e através das tentativas.
-- Os findings que o próprio Kluzo gera (supressão nova, teste removido ou desativado, ADR 0020) vêm com `auto: true` e não são contestáveis.
+- Os findings que o próprio Kluzo gera (supressão nova, teste removido ou desativado, ADR 0020) vêm com `auto: true` e não são contestáveis. O reviewer não envia `auto`; o campo não existe no schema de saída dele.
 
 Validação feita pelo Kluzo, além do schema:
 - `criteria` cobre exatamente os ids de critério do nó.
 - Da rodada 2 em diante, `previous` cobre exatamente os findings `blocking` e `major` abertos (inclusive os de tentativas anteriores).
-- Da rodada 2 em diante, um finding fora dos trechos alterados na rodada exige `caused_by` (o `caminho:linha` alterado que o causou). Sem isso, é rebaixado para `minor`, exceto `security`.
+- Da rodada 2 em diante, um finding fora dos trechos alterados na rodada exige `caused_by` (o `caminho:linha` alterado que o causou). Sem isso, ou com um `caused_by` que não aponta para uma linha alterada na rodada, é rebaixado para `minor`, exceto `security`. Vale para todas as categorias, inclusive `duplication` e `dead_code`: o que não foi apontado na rodada em que apareceu não volta como bloqueio.
+- A evidência dos critérios do reviewer passa pela mesma conferência de arquivo e linha que a do implementer.
+- Na última rodada, critério com `met: false` leva a `blocked` (`triage`), como um `blocking` aberto. Os `major` só viram `gap` quando o nó é aprovado; se ele vai para a triagem, continuam abertos para a próxima tentativa.
 - Saída que falha em qualquer regra é inválida: o reviewer recebe o erro uma vez para corrigir.
 
 ## `triage-result` (triage)
