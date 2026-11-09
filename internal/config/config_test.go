@@ -168,6 +168,7 @@ func TestLoadErrors(t *testing.T) {
 		{"flow-bad-on-fail", []want{
 			{"flows/node.yaml", 5, "steps[2].on_fail", `"q" is not an earlier role step`},
 			{"flows/node.yaml", 6, "steps[3].on_fail", `"later" is not an earlier role step`},
+			{"flows/node.yaml", 7, "steps[4].max_retries", "must not be negative"},
 		}},
 		{"flow-unknown-role", []want{{"flows/node.yaml", 9, "steps[2].role", `role "tester" does not exist`}}},
 		{"flow-unknown-gate", []want{

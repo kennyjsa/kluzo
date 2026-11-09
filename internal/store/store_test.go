@@ -38,8 +38,8 @@ func TestMigrations(t *testing.T) {
 	}
 	var n int
 	must(t, d.sql.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n))
-	if n != 1 {
-		t.Errorf("migrations applied = %d, want 1", n)
+	if n != 2 {
+		t.Errorf("migrations applied = %d, want 2", n)
 	}
 
 	// A database from a newer binary is refused rather than misread.
@@ -223,8 +223,13 @@ func TestOutbox(t *testing.T) {
 	})
 	now := epoch.Add(time.Hour)
 
-	must(t, d.CompleteEffect(ctx, "ef_a", now))
-	must(t, d.RetryEffect(ctx, "ef_b", "tracker down", now.Add(time.Minute)))
+	complete := func(id string) error { return d.Tx(ctx, func(x *Tx) error { return x.CompleteEffect(id, now) }) }
+	fail := func(id, msg string) error { return d.Tx(ctx, func(x *Tx) error { return x.FailEffect(id, msg) }) }
+	must(t, complete("ef_a"))
+	if n, err := d.BeginEffect(ctx, "ef_b"); err != nil || n != 1 {
+		t.Fatalf("BeginEffect = %d, %v", n, err)
+	}
+	must(t, d.Tx(ctx, func(x *Tx) error { return x.RetryEffect("ef_b", "tracker down", now.Add(time.Minute)) }))
 	pending, err := d.PendingEffects(ctx, now, 10)
 	must(t, err)
 	if len(pending) != 1 || pending[0].ID != "ef_c" {
@@ -235,16 +240,22 @@ func TestOutbox(t *testing.T) {
 	if len(pending) != 2 || pending[0].ID != "ef_b" || pending[0].Attempts != 1 || pending[0].LastError != "tracker down" || !pending[0].NextAt.Equal(now.Add(time.Minute)) {
 		t.Fatalf("after the backoff ef_b is pending again, got %+v", pending)
 	}
-	must(t, d.FailEffect(ctx, "ef_b", "gave up"))
+	if n, _ := d.BeginEffect(ctx, "ef_b"); n != 2 {
+		t.Errorf("second run = %d, want 2", n)
+	}
+	must(t, fail("ef_b", "gave up"))
 	pending, _ = d.PendingEffects(ctx, now.Add(time.Hour), 10)
 	if len(pending) != 1 || pending[0].ID != "ef_c" {
 		t.Errorf("a failed effect must leave the queue, got %+v", pending)
 	}
 	// Completing twice, or an unknown effect, is an error.
-	if err := d.CompleteEffect(ctx, "ef_a", now); !errors.Is(err, ErrNotFound) {
+	if err := complete("ef_a"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second completion: error = %v, want ErrNotFound", err)
 	}
-	if err := d.FailEffect(ctx, "ef_zzz", "x"); !errors.Is(err, ErrNotFound) {
+	if err := fail("ef_zzz", "x"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown effect: error = %v, want ErrNotFound", err)
+	}
+	if _, err := d.BeginEffect(ctx, "ef_a"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("begin of a done effect: error = %v, want ErrNotFound", err)
 	}
 }

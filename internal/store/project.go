@@ -27,6 +27,8 @@ func (t *Tx) project(e Event) error {
 		return t.projectEdgeAdded(e)
 	case contracts.EventMergeDone:
 		return t.projectMergeDone(e)
+	case contracts.EventNodeFlow:
+		return t.projectNodeFlow(e)
 	}
 	return nil
 }
@@ -106,6 +108,15 @@ func (t *Tx) projectMergeDone(e Event) error {
 	}
 	_, err = t.tx.ExecContext(t.ctx, `UPDATE workspace SET head_sha = ?, updated_at = ?`, p.MergeSHA, formatTS(e.TS))
 	return err
+}
+
+func (t *Tx) projectNodeFlow(e Event) error {
+	var p contracts.NodeFlow
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	res, err := t.tx.ExecContext(t.ctx, `UPDATE nodes SET step_index = ?, flow = ?, updated_at = ? WHERE id = ?`, p.Step, string(p.Run), formatTS(e.TS), e.NodeID)
+	return expectOne(res, err, fmt.Sprintf("node %s does not exist", e.NodeID))
 }
 
 // expectOne turns "no row updated" into ErrStateMismatch.

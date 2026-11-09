@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -64,24 +65,48 @@ func (d *DB) PendingEffects(ctx context.Context, now time.Time, limit int) ([]Ef
 	return out, nil
 }
 
-// CompleteEffect marks an effect as done.
-func (d *DB) CompleteEffect(ctx context.Context, id string, at time.Time) error {
-	return d.updateEffect(ctx, id, `UPDATE effects SET state = 'done', attempts = attempts + 1, done_at = ?, next_at = NULL WHERE id = ? AND state = 'pending'`, formatTS(at))
+// BeginEffect records that a run of the effect starts and returns its number
+// (1 for the first). It is written before the run, so a run the process did
+// not finish still counts: the policy's limit and a session's harness counter
+// never repeat a number.
+func (d *DB) BeginEffect(ctx context.Context, id string) (int, error) {
+	var n int
+	err := d.sql.QueryRowContext(ctx, `UPDATE effects SET attempts = attempts + 1 WHERE id = ? AND state = 'pending' RETURNING attempts`, id).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("%w: pending effect %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("begin effect %s: %w", id, err)
+	}
+	return n, nil
 }
 
-// RetryEffect records a failed attempt and schedules the next one.
-func (d *DB) RetryEffect(ctx context.Context, id, lastError string, nextAt time.Time) error {
-	return d.updateEffect(ctx, id, `UPDATE effects SET attempts = attempts + 1, last_error = ?, next_at = ? WHERE id = ? AND state = 'pending'`, lastError, formatTS(nextAt))
+// RetryEffect records why the run failed and schedules the next one, in the
+// transaction that stores what the failed run cost.
+func (t *Tx) RetryEffect(id, lastError string, nextAt time.Time) error {
+	return updateEffect(t.ctx, t.tx, id, `UPDATE effects SET last_error = ?, next_at = ? WHERE id = ? AND state = 'pending'`, lastError, formatTS(nextAt))
 }
 
-// FailEffect gives up on an effect after its last attempt.
-func (d *DB) FailEffect(ctx context.Context, id, lastError string) error {
-	return d.updateEffect(ctx, id, `UPDATE effects SET state = 'failed', attempts = attempts + 1, last_error = ?, next_at = NULL WHERE id = ? AND state = 'pending'`, lastError)
+// CompleteEffect marks an effect as done, in the transaction that stores what
+// its run produced: a restart never runs it again after that.
+func (t *Tx) CompleteEffect(id string, at time.Time) error {
+	return updateEffect(t.ctx, t.tx, id, `UPDATE effects SET state = 'done', done_at = ?, next_at = NULL WHERE id = ? AND state = 'pending'`, formatTS(at))
+}
+
+// FailEffect gives up on an effect, in the transaction that journals
+// effect.failed.
+func (t *Tx) FailEffect(id, lastError string) error {
+	return updateEffect(t.ctx, t.tx, id, `UPDATE effects SET state = 'failed', last_error = ?, next_at = NULL WHERE id = ? AND state = 'pending'`, lastError)
+}
+
+// execer is what updateEffect needs of a *sql.DB or a *sql.Tx.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // updateEffect runs an update whose last argument placeholder is the effect id.
-func (d *DB) updateEffect(ctx context.Context, id, query string, args ...any) error {
-	res, err := d.sql.ExecContext(ctx, query, append(args, id)...)
+func updateEffect(ctx context.Context, db execer, id, query string, args ...any) error {
+	res, err := db.ExecContext(ctx, query, append(args, id)...)
 	if err != nil {
 		return fmt.Errorf("update effect %s: %w", id, err)
 	}

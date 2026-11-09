@@ -192,7 +192,7 @@ func (dr *driver) drain(ctx context.Context) error {
 			return err
 		}
 		dr.crash.at(crashAfterExec, dr.execs)
-		if err := dr.db.CompleteEffect(ctx, f.ID, epoch.Add(24*time.Hour)); err != nil {
+		if err := dr.db.Tx(ctx, func(x *Tx) error { return x.CompleteEffect(f.ID, epoch.Add(24*time.Hour)) }); err != nil {
 			return err
 		}
 		dr.crash.at(crashAfterMarks, dr.execs)

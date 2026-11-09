@@ -183,6 +183,31 @@ type Result struct {
 	Version string          // versão do harness vista no início
 }
 
+// ---------- Gates ----------
+
+// A implementação real (comando ou checks do tracker, definição lida da ponta
+// da milestone) é do item 8; o supervisor só pede a execução.
+type Gates interface {
+	// Um gate que roda e falha é um GateResult; erro quer dizer que ele não
+	// pôde rodar (o efeito é repetido, a não ser com ErrPermanent).
+	Run(ctx context.Context, run GateRun) (GateResult, error)
+}
+
+type GateRun struct {
+	Workspace, Node string
+	Gate            string // nome em kluzo.yaml
+	SHA             string // o commit testado
+	Workdir         string // o worktree do nó
+	Fast            bool   // gate rápido, antes do review
+}
+
+type GateResult struct {
+	Gate    string
+	State   string // "passed" | "failed" | "error"
+	Summary string // fim da saída, sem segredos, para o próximo prompt
+	LogRef  string // arquivo em logs/gates ou URL do CI
+}
+
 // ---------- Notifier ----------
 
 type Notifier interface {
@@ -204,6 +229,7 @@ type Notification struct {
 |---|---|---|---|
 | `Tracker`, `SCM`, `CI` | `github` | `gitlab` | |
 | `Runtime` | `claudecode` | `opencode` | |
+| `Gates` | (item 8) | | |
 | `Notifier` | `log` (no-op) | | `ntfy` |
 
 Todas as interfaces têm um **fake em memória** em `internal/ports/fakes`, com o comportamento do contrato (idempotência, uma label `orch/*` por issue). Os testes do núcleo usam só os fakes ([development.md](../development.md#testes)).

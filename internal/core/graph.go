@@ -182,7 +182,8 @@ func active(s NodeState) bool {
 	return false
 }
 
-// NextToDispatch picks the ready nodes to start now. It fills the free slots
+// NextToDispatch picks the nodes to start now among the ready ones (in state
+// ready, or planned with their dependencies satisfied). It fills the free slots
 // (maxParallel minus active nodes), never picks two nodes that share an area
 // or a node that shares an area with an active one, and prefers the heaviest
 // critical weight, then the smallest ID. The result is deterministic.
@@ -200,6 +201,11 @@ func (g Graph) NextToDispatch(maxParallel int) []string {
 	}
 
 	ready := g.Ready()
+	for _, id := range g.ids() {
+		if g.Nodes[id].State == NodeReady {
+			ready = append(ready, id)
+		}
+	}
 	weights := g.CriticalWeights()
 	sort.SliceStable(ready, func(i, j int) bool {
 		if weights[ready[i]] != weights[ready[j]] {
