@@ -11,7 +11,6 @@ import (
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/docker"
 	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
-	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/store"
 )
 
@@ -63,15 +62,16 @@ func (s *Supervisor) cleanupNode(ctx context.Context, p effectPayload) error {
 	})
 }
 
-// cleanupWorkspace removes, when the workspace is merged or cancelled, every
-// worktree and node branch, the checkouts of the gates, the synthetic HOMEs and
-// the build caches of the workspace, its compose projects and images, the
-// dangling images and the Docker build cache above
-// retention.docker_build_cache. A merged workspace deletes the node branches
-// left on the remote; a cancelled one keeps them and lists them in a
-// notification. state.db, the logs and the download caches of the project
+// cleanupWorkspace runs cleanup.workspace f: when the workspace is merged or
+// cancelled it removes every worktree and node branch, the checkouts of the
+// gates, the synthetic HOMEs and the build caches of the workspace, its
+// compose projects and images, the dangling images and the Docker build cache
+// above retention.docker_build_cache. A merged workspace deletes the node
+// branches left on the remote; a cancelled one keeps them and lists them in a
+// notify effect, queued in the transaction that completes f, so a crash never
+// sends it twice. state.db, the logs and the download caches of the project
 // stay.
-func (s *Supervisor) cleanupWorkspace(ctx context.Context) error {
+func (s *Supervisor) cleanupWorkspace(ctx context.Context, f store.Effect) error {
 	snap, err := s.d.DB.Snapshot(ctx)
 	if err != nil {
 		return err
@@ -91,31 +91,42 @@ func (s *Supervisor) cleanupWorkspace(ctx context.Context) error {
 	if err := s.dockerWorkspace(ctx, names); err != nil {
 		return err
 	}
+	var kept []string
 	switch snap.Workspace.State {
 	case core.WorkspaceMerged:
-		return s.deleteRemoteBranches(ctx, snap.Nodes...)
+		err = s.deleteRemoteBranches(ctx, snap.Nodes...)
 	case core.WorkspaceCancelled:
-		return s.notifyKept(ctx, snap.Nodes)
+		kept, err = s.keptBranches(ctx, snap.Nodes)
 	}
-	return nil
-}
-
-// notifyKept tells a person which node branches a cancelled workspace left on
-// the remote: they hold the only copy of the work.
-func (s *Supervisor) notifyKept(ctx context.Context, nodes []store.NodeRow) error {
-	r, err := s.remote(ctx)
 	if err != nil {
 		return err
 	}
-	kept, err := s.d.Git.RemoteBranches(ctx, s.cfg.Repo, r, s.branches(nodes)...)
-	if err != nil || len(kept) == 0 {
-		return err
+	now := s.d.Clock.Now()
+	var notify []store.EffectSpec
+	if len(kept) > 0 {
+		h := store.Header{TS: now}
+		if notify, err = s.effectSpecs(h, "", "", []core.Effect{{Kind: core.EffectNotify, Key: "kept",
+			Title: "Milestone " + s.cfg.Milestone + " cancelled: node branches kept",
+			Body:  "These branches stay on the remote, with the work of the cancelled nodes: " + strings.Join(kept, ", ") + ". Delete them when you no longer need them."}}); err != nil {
+			return err
+		}
 	}
-	return s.d.Notifier.Notify(ctx, ports.Notification{
-		Title: "Milestone " + s.cfg.Milestone + " cancelled: node branches kept",
-		Body:  "These branches stay on the remote, with the work of the cancelled nodes: " + strings.Join(kept, ", ") + ". Delete them when you no longer need them.",
-		Group: s.cfg.Workspace,
+	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
+		if err := t.FollowEffect(f.ID, now, notify...); err != nil {
+			return err
+		}
+		return completed(f)(t, now)
 	})
+}
+
+// keptBranches are the node branches a cancelled workspace leaves on the
+// remote: they hold the only copy of the work.
+func (s *Supervisor) keptBranches(ctx context.Context, nodes []store.NodeRow) ([]string, error) {
+	r, err := s.remote(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.d.Git.RemoteBranches(ctx, s.cfg.Repo, r, s.branches(nodes)...)
 }
 
 // branches are the branch names of the nodes.

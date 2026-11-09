@@ -15,6 +15,9 @@ const StateLabelPrefix = "orch/"
 // a no-op.
 type Tracker interface {
 	Milestone(ctx context.Context, ref string) (Milestone, error)
+	// MilestonesByTitle lists the milestones, open or closed, whose title is
+	// exactly title, oldest first; none is an empty list, not an error.
+	MilestonesByTitle(ctx context.Context, title string) ([]Milestone, error)
 	MilestoneIssues(ctx context.Context, ref string) ([]Issue, error)
 	Issue(ctx context.Context, ref string) (Issue, error)
 

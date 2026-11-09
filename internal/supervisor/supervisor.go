@@ -534,6 +534,10 @@ func (s *Supervisor) execute(ctx context.Context, f store.Effect) error {
 		if err == nil {
 			return nil // the session stored its own outcome
 		}
+		if errors.Is(err, errPaused) {
+			log.Info("session cancelled by the pause: it runs again on resume")
+			return nil // the effect stays pending; a paused workspace starts no session
+		}
 	case core.EffectGates:
 		err = s.gates(ctx, f, p)
 		if err == nil {
@@ -559,7 +563,10 @@ func (s *Supervisor) execute(ctx context.Context, f store.Effect) error {
 	case core.EffectEnsureMilestone:
 		err = s.ensureMilestone(ctx)
 	case core.EffectCleanupWorkspace:
-		err = s.cleanupWorkspace(ctx)
+		err = s.cleanupWorkspace(ctx, f)
+		if err == nil {
+			return nil // completed with the notification it queued
+		}
 	case core.EffectCommitPlan:
 		err = s.commitPlan(ctx, p)
 	default:

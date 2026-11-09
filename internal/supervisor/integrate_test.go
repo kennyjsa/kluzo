@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
@@ -460,11 +461,10 @@ func TestCleanupWithoutDocker(t *testing.T) {
 	}
 }
 
-// A cancelled node keeps its branch on the remote, the only copy of its work;
-// the cancelled workspace keeps it too and lists it in a notification
-// (docs/contracts/data-model.md, cleanup rules).
-func TestCancelledKeepsRemoteBranches(t *testing.T) {
-	e := newEnv(t)
+// cancelWorkspace cancels the node, whose branch is on the remote, cleans
+// it up, then cancels the workspace.
+func (e *env) cancelWorkspace() {
+	e.t.Helper()
 	e.pushNodeBranch()
 	ctx := context.Background()
 	gen := ids.NewGenerator(rand.Reader)
@@ -476,23 +476,91 @@ func TestCancelledKeepsRemoteBranches(t *testing.T) {
 			store.EffectSpec{ID: ef, Kind: string(core.EffectCleanupNode), Key: "cleanup", Payload: body})
 		return err
 	}); err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
 	e.drain()
 	if n, _ := e.nodeRow(); n.State != core.NodeCancelled || !e.remoteNodeBranch() {
-		t.Fatalf("node %s; remote branch kept %v", n.State, e.remoteNodeBranch())
+		e.t.Fatalf("node %s; remote branch kept %v", n.State, e.remoteNodeBranch())
 	}
 	if err := supervisor.MoveWorkspace(ctx, e.db, gen, e.clock, core.TriggerCancelAll); err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
+}
+
+// kept counts the notifications of the node branches a cancelled workspace
+// kept on the remote.
+func (e *env) kept() int {
+	_, sent := e.snapshot()
+	n := 0
+	for _, s := range sent {
+		if strings.Contains(s.Title, "cancelled") && strings.Contains(s.Body, "issue/1-agenda-api") {
+			n++
+		}
+	}
+	return n
+}
+
+// A cancelled node keeps its branch on the remote, the only copy of its work;
+// the cancelled workspace keeps it too and lists it in a notification
+// (docs/contracts/data-model.md, cleanup rules).
+func TestCancelledKeepsRemoteBranches(t *testing.T) {
+	e := newEnv(t)
+	e.cancelWorkspace()
 	e.drain()
 	if !e.remoteNodeBranch() || len(e.events(contracts.EventEffectFailed)) != 0 {
 		t.Fatalf("remote branch kept %v; failed %d", e.remoteNodeBranch(), len(e.events(contracts.EventEffectFailed)))
 	}
-	_, sent := e.snapshot()
-	if !slices.ContainsFunc(sent, func(n ports.Notification) bool {
-		return strings.Contains(n.Title, "cancelled") && strings.Contains(n.Body, "issue/1-agenda-api")
-	}) {
-		t.Errorf("notifications %+v", sent)
+	if n := e.kept(); n != 1 {
+		_, sent := e.snapshot()
+		t.Errorf("%d notifications of the kept branches: %+v", n, sent)
+	}
+}
+
+// The notification of the kept branches is a notify effect queued in the
+// transaction that completes cleanup.workspace: a crash in the middle of the
+// cleanup sends nothing, the cleanup runs again, and the notification goes
+// out once (Q63).
+func TestCancelledCleanupNotifiesOnceAfterACrash(t *testing.T) {
+	e := newEnv(t)
+	e.cancelWorkspace()
+	// A Kluzo that dies while it lists the branches kept on the remote.
+	ctx, crash := context.WithCancel(context.Background())
+	d, c := assemble(t, e.dir, deps{db: e.db, clock: e.clock, ids: ids.NewGenerator(rand.Reader), tracker: e.tracker, runtime: e.runtime,
+		gates: e.gates, notifier: e.notifier, scm: e.scm, docker: e.docker}, e.issue, "")
+	d.GitToken = func(context.Context) (string, error) { crash(); return "", nil }
+	dying, err := supervisor.New(d, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dying.Step(ctx); err == nil {
+		t.Fatal("the cleanup survived the crash")
+	}
+	pending := func(kind core.EffectKind) int {
+		fs, err := e.db.PendingEffects(context.Background(), time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, f := range fs {
+			if f.Kind == string(kind) {
+				n++
+			}
+		}
+		return n
+	}
+	if e.kept() != 0 || pending(core.EffectCleanupWorkspace) != 1 || pending(core.EffectNotify) != 0 {
+		t.Fatalf("after the crash: %d notifications, cleanup pending %d, notify pending %d", e.kept(), pending(core.EffectCleanupWorkspace), pending(core.EffectNotify))
+	}
+	// Started again: the cleanup completes and queues the notification, which
+	// goes out on its own, later.
+	if _, err := e.sup.Step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if e.kept() != 0 || pending(core.EffectCleanupWorkspace) != 0 || pending(core.EffectNotify) != 1 {
+		t.Fatalf("after the cleanup: %d notifications, cleanup pending %d, notify pending %d", e.kept(), pending(core.EffectCleanupWorkspace), pending(core.EffectNotify))
+	}
+	e.drain()
+	if n := e.kept(); n != 1 || !e.remoteNodeBranch() {
+		t.Errorf("%d notifications of the kept branches; remote branch kept %v", n, e.remoteNodeBranch())
 	}
 }

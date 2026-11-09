@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
@@ -95,7 +96,7 @@ func CreateWorkspace(ctx context.Context, db *store.DB, gen *ids.Generator, clk 
 type PlanApproval struct {
 	Approved contracts.PlanApproved
 	Path     string // the plan file, relative to the repository
-	Content  []byte // what is committed
+	Content  []byte // the plan as written; approved_by and approved_at are added to it
 }
 
 // ApprovePlan journals plan.approved with the commit of the plan on the
@@ -109,7 +110,9 @@ func ApprovePlan(ctx context.Context, db *store.DB, gen *ids.Generator, clk cloc
 		if err != nil {
 			return err
 		}
-		specs, err := s.effectSpecs(h, "", "", []core.Effect{{Kind: core.EffectCommitPlan, Key: "plan", Path: a.Path, Body: string(a.Content),
+		// The committed plan says who approved it and when, as plan.approved does.
+		content := config.StampPlan(a.Content, a.Approved.By, h.TS)
+		specs, err := s.effectSpecs(h, "", "", []core.Effect{{Kind: core.EffectCommitPlan, Key: "plan", Path: a.Path, Body: string(content),
 			Title: fmt.Sprintf("docs(plan): approve plan v%d", a.Approved.PlanVersion)}})
 		if err != nil {
 			return err

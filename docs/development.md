@@ -41,7 +41,7 @@ O token da sandbox precisa das permissões do bot ([integrations.md](architectur
 kluzo init                       # cria .kluzo/; edite os TODO
 kluzo doctor                     # 0 ok, 2 configuração inválida, 3 integração (CLIs, token, credenciais do host)
 # escreva .kluzo/plans/<título>.yaml (docs/contracts/plan.md)
-kluzo plan <número da milestone> # cria o workspace, aguardando aprovação
+kluzo plan <título> [--ref n]    # cria o workspace, aguardando aprovação
 kluzo approve <título>           # aprova; o plano vai em commit na branch da milestone
 kluzo run <título>               # executa até o PR milestone → main ser mergeado (por você)
 kluzo status <título> [--json]

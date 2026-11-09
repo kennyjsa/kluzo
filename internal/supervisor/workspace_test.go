@@ -35,15 +35,18 @@ func TestWorkspaceFromPlan(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(e.events(contracts.EventPlanApproved)) != 1 {
-		t.Error("plan.approved not journaled")
+	approved := e.events(contracts.EventPlanApproved)
+	if len(approved) != 1 {
+		t.Fatal("plan.approved not journaled")
 	}
 	e.drain()
 	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
 		t.Fatalf("node %s, moves %v", n.State, e.moves())
 	}
-	if got := e.git(e.bare(), "show", "milestone/v1:.kluzo/plans/v1.yaml"); got+"\n" != string(plan) {
-		t.Errorf("plan on the remote milestone = %q", got)
+	// The commit says who approved it and when, with the values of plan.approved (Q64).
+	stamped := "version: 1\nmilestone: v1\napproved_by: \"kenny\"\napproved_at: " + approved[0].TS.UTC().Format("2006-01-02T15:04:05.000Z") + "\n"
+	if got := e.git(e.bare(), "show", "milestone/v1:.kluzo/plans/v1.yaml"); got+"\n" != stamped {
+		t.Errorf("plan on the remote milestone = %q, want %q", got, stamped)
 	}
 	if !strings.Contains(e.git(e.bare(), "log", "--format=%s", "milestone/v1"), "docs(plan): approve plan v1") {
 		t.Error("no commit of the plan")

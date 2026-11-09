@@ -186,10 +186,10 @@ func (u Status) Execute(ctx context.Context, in StatusInput) (StatusOutput, erro
 func status(milestone string, s store.Snapshot) StatusOutput {
 	w := s.Workspace
 	out := StatusOutput{Milestone: milestone, Workspace: w.ID, State: string(w.State), Branch: w.Branch, BranchOK: string(w.Milestone),
-		PR: w.PR.URL, CostUSD: float64(w.CostUSDMicros) / 1e6, BudgetUSD: float64(w.BudgetUSDMicros) / 1e6, Nodes: []StatusNode{}}
+		PR: w.PR.URL, CostUSD: config.USD(w.CostUSDMicros), BudgetUSD: config.USD(w.BudgetUSDMicros), Nodes: []StatusNode{}}
 	for _, n := range s.Nodes {
 		out.Nodes = append(out.Nodes, StatusNode{Issue: n.IssueRef, Title: n.Title, State: string(n.State), Blocked: string(n.BlockedReason),
-			Attempt: n.Attempt, Round: n.Round, CostUSD: float64(n.CostUSDMicros) / 1e6, MergeSHA: n.MergedSHA})
+			Attempt: n.Attempt, Round: n.Round, CostUSD: config.USD(n.CostUSDMicros), MergeSHA: n.MergedSHA})
 	}
 	return out
 }

@@ -8,12 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
+	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/prompt"
 	"github.com/kennyjsa/kluzo/internal/store"
+	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
 
 // Each session is a row of sessions, and its session.started carries the
@@ -125,5 +128,75 @@ func TestMilestoneBudgetAlert(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("notifications = %+v", e.notifier.Sent())
+	}
+}
+
+// kluzo pause from another process while a session runs: the supervisor,
+// waiting for the session, reads the state again, cancels the session and
+// leaves the node where it was, with the session to run again; the resume
+// runs it, and the milestone goes on (state-machine.md, Q61).
+func TestPauseFromAnotherProcessCancelsTheSession(t *testing.T) {
+	e := newEnv(t, step{role: core.RoleImplementer, hang: true}, impl(implemented()), rev(reviewed(true, nil)))
+	started, waited := make(chan struct{}, 1), make(chan struct{}, 1)
+	e.runtime.announce = func() { signal(started) }
+	e.runtime.waited = func() { signal(waited) }
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	done := make(chan error, 1)
+	go func() { done <- e.sup.Run(ctx) }()
+	receive(t, started, "the session to start")
+
+	// Another process: kluzo pause opens the journal on its own.
+	other := openDB(t, filepath.Join(e.dir, "state.db"))
+	if err := supervisor.MoveWorkspace(context.Background(), other, ids.NewGenerator(rand.Reader), clock.NewManual(epoch), core.TriggerPause); err != nil {
+		t.Fatal(err)
+	}
+	receive(t, waited, "the session to be cancelled")
+	stop()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	n, _ := e.nodeRow()
+	pending, err := e.db.PendingEffects(context.Background(), time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := 0
+	for _, f := range pending {
+		if f.Kind == string(core.EffectSession) {
+			sessions++
+		}
+	}
+	if n.State != core.NodeRunning || n.Attempt != 1 || sessions != 1 || len(e.runtime.Calls()) != 1 {
+		t.Fatalf("after the pause: node %s attempt %d, session effects pending %d, sessions %d; moves %v", n.State, n.Attempt, sessions, len(e.runtime.Calls()), e.moves())
+	}
+	if err := supervisor.MoveWorkspace(context.Background(), other, ids.NewGenerator(rand.Reader), clock.NewManual(epoch), core.TriggerResume); err != nil {
+		t.Fatal(err)
+	}
+	e.drain()
+	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || n.Attempt != 1 {
+		t.Fatalf("after the resume: node %s attempt %d; moves %v", n.State, n.Attempt, e.moves())
+	}
+	calls := e.runtime.Calls()
+	if len(calls) != 3 || calls[1].role != core.RoleImplementer || calls[1].resume || calls[1].counter != 1 {
+		t.Errorf("sessions %+v", calls)
+	}
+}
+
+// signal sends on c without blocking.
+func signal(c chan struct{}) {
+	select {
+	case c <- struct{}{}:
+	default:
+	}
+}
+
+// receive waits for c, at most 30 s of real time.
+func receive(t *testing.T, c chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-c:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
 	}
 }

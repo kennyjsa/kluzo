@@ -44,27 +44,6 @@ func (a *Adapter) MilestoneIssues(ctx context.Context, ref string) ([]ports.Issu
 	return out, nil
 }
 
-// listIssues returns the issues (not PRs) of a milestone, or of the whole
-// repository when milestone is empty, oldest first. Bodies keep their markers.
-func (a *Adapter) listIssues(ctx context.Context, milestone string) ([]*gh.Issue, error) {
-	opts := &gh.IssueListByRepoOptions{
-		Milestone: milestone, State: "all", Sort: "created", Direction: "asc",
-		ListOptions: gh.ListOptions{PerPage: pageSize},
-	}
-	var out []*gh.Issue
-	err := pages(func(page int) (int, error) {
-		opts.ListOptions.Page = page
-		batch, resp, err := a.gh.Issues.ListByRepo(ctx, a.owner, a.repo, opts)
-		for _, is := range batch {
-			if !is.IsPullRequest() {
-				out = append(out, is)
-			}
-		}
-		return nextPage(resp), err
-	})
-	return out, err
-}
-
 // Issue implements ports.Tracker.
 func (a *Adapter) Issue(ctx context.Context, ref string) (ports.Issue, error) {
 	is, err := a.getIssue(ctx, ref)
