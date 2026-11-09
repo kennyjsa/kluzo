@@ -139,7 +139,7 @@ func (t *Tx) projectSessionStarted(e Event) error {
 		`INSERT INTO sessions (id, node_id, role, harness, model, harness_session_ref, attempt, round, state, started_at)
 		 VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, 'running', ?)
 		 ON CONFLICT (id) DO UPDATE SET harness = excluded.harness, model = excluded.model,
-		   harness_session_ref = excluded.harness_session_ref, state = 'running', finished_at = NULL`,
+		   harness_session_ref = excluded.harness_session_ref, state = 'running', result = NULL, finished_at = NULL`,
 		e.SessionID, e.NodeID, p.Role, p.Harness, p.Model, p.HarnessSessionRef, p.Attempt, p.Round, formatTS(e.TS))
 	return err
 }
@@ -159,7 +159,7 @@ func (t *Tx) projectSessionFinished(e Event) error {
 	// A harness that died before its init has no session.started: its row is
 	// missing, but its cost still counts.
 	if _, err := t.tx.ExecContext(t.ctx,
-		`UPDATE sessions SET state = ?, result = COALESCE(?, result), cost_usd_micros = cost_usd_micros + ?, finished_at = ? WHERE id = ?`,
+		`UPDATE sessions SET state = ?, result = ?, cost_usd_micros = cost_usd_micros + ?, finished_at = ? WHERE id = ?`,
 		p.State, nullJSON(p.Result), p.CostUSDMicros, ts, e.SessionID); err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -257,5 +258,41 @@ func TestOutbox(t *testing.T) {
 	}
 	if _, err := d.BeginEffect(ctx, "ef_a"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("begin of a done effect: error = %v, want ErrNotFound", err)
+	}
+}
+
+// A database from an older binary gets the projections a migration adds,
+// recomputed from its journal; a session that runs again drops the result of
+// the run before.
+func TestMigrationRebuildsNewProjections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	d := openAt(t, path)
+	createWorkspace(t, d, 1)
+	addNode(t, d, 3, "nd_1", "1")
+	tx(t, d, func(x *Tx) error {
+		for i, e := range []Event{
+			{Kind: contracts.EventSessionStarted, Payload: payload(contracts.SessionStarted{Role: "implementer", Harness: "h", Model: "m"})},
+			{Kind: contracts.EventSessionFinished, Payload: payload(contracts.SessionFinished{State: "finished", CostUSDMicros: 5, Result: json.RawMessage(`{"v":1}`)})},
+			{Kind: contracts.EventSessionStarted, Payload: payload(contracts.SessionStarted{Role: "implementer", Harness: "h", Model: "m"})},
+			{Kind: contracts.EventSessionFinished, Payload: payload(contracts.SessionFinished{State: "failed", CostUSDMicros: 7})},
+		} {
+			e.Header, e.NodeID, e.SessionID = hdr(10+i), "nd_1", "ss_1"
+			if _, err := x.Append(e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	// Back to version 2: no sessions table, no cost.
+	for _, q := range []string{`DROP TABLE sessions`, `UPDATE nodes SET cost_usd_micros = 0`, `UPDATE workspace SET cost_usd_micros = 0`, `DELETE FROM schema_migrations WHERE version = 3`} {
+		_, err := d.sql.Exec(q)
+		must(t, err)
+	}
+	must(t, d.Close())
+	d = openAt(t, path)
+	s := snapshot(t, d)
+	if len(s.Sessions) != 1 || s.Sessions[0].State != "failed" || s.Sessions[0].Result != nil || s.Sessions[0].CostUSDMicros != 12 ||
+		s.Nodes[0].CostUSDMicros != 12 || s.Workspace.CostUSDMicros != 12 {
+		t.Errorf("after the migration: sessions %+v, nodes %+v, workspace %+v", s.Sessions, s.Nodes, s.Workspace)
 	}
 }

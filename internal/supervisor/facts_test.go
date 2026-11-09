@@ -52,7 +52,7 @@ func TestPreviousFacts(t *testing.T) {
 		{
 			name: "files, red gates and open findings of the attempt",
 			events: []store.Event{
-				transition(1), edited("b.go"), edited("a.go"), edited("a.go"), gate("build", "failed"), gate("build", "passed"),
+				transition(1), edited("b.go"), edited("/ws/wt/a.go"), edited("a.go"), edited("/etc/hosts"), edited("../x.go"), gate("build", "failed"), gate("build", "passed"),
 				flowWith(resolved, major, minor), gate("test", "failed"), gate("lint", "error"), transition(2), flowWith(resolved, major, minor),
 				edited("c.go"), gate("test", "passed"),
 			},
@@ -74,7 +74,7 @@ func TestPreviousFacts(t *testing.T) {
 		{name: "nothing journaled", events: []store.Event{transition(1)}, attempt: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := previousFacts(tt.events, tt.attempt)
+			got, err := previousFacts(tt.events, tt.attempt, "/ws/wt")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -83,7 +83,7 @@ func TestPreviousFacts(t *testing.T) {
 			}
 		})
 	}
-	if _, err := previousFacts([]store.Event{{Kind: contracts.EventNodeTransition, Payload: json.RawMessage(`{`)}}, 1); err == nil {
+	if _, err := previousFacts([]store.Event{{Kind: contracts.EventNodeTransition, Payload: json.RawMessage(`{`)}}, 1, "/ws/wt"); err == nil {
 		t.Error("a bad journal entry is not an error")
 	}
 }

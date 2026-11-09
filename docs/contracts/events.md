@@ -65,7 +65,7 @@ Cada adaptador de runtime traduz o stream do seu harness para estes eventos. A w
 | `mcp.call` | `{tool, ok}` | chamadas `kluzo_*` |
 | `guard.denied` | `{tool, rule, reason, input_summary}` | hook `PreToolUse` do Kluzo que negou a chamada (ADR 0024); `rule` é `git_write`, `hosting_cli`, `protected_path`, `secret_path` ou `outside_worktree` |
 | `cost` | `{input_tokens, output_tokens, cost_usd_micros}` | totais de uso da sessão: `modelUsage` do `result` menos o acumulado das sessões anteriores da mesma conversa, que o harness soma entre retomadas |
-| `session.finished` | `{state, duration_ms, cost_usd_micros, cause?, result?}` (`result`: o resultado aceito pelo Kluzo, quando a sessão terminou com um; o custo vai para a sessão, o nó e o workspace na projeção deste evento, antes da decisão sobre a sessão) | mensagem `result` |
+| `session.finished` | `{state, duration_ms, cost_usd_micros, cause?, result?}` (`result`: o resultado aceito pelo `kluzo_result` (schema e cobertura), quando a sessão terminou com um; a conferência pós-sessão ainda pode recusar a sessão; o custo vai para a sessão, o nó e o workspace na projeção deste evento, antes da decisão sobre a sessão) | mensagem `result` |
 
 Regras:
 - `session.started` e `session.finished` alimentam a tabela `sessions` ([data-model.md](data-model.md)). Uma sessão do Kluzo (`ss_<ulid>`, uma por efeito `session.start`) pode rodar mais de uma sessão do harness (as repetições do outbox): cada `session.started` assume a linha, e cada `session.finished` soma o seu custo.

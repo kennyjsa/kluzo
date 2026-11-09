@@ -369,28 +369,29 @@ type started struct {
 
 // journal writes the normalized events of a session as they arrive, with the
 // manifest in session.started; session.finished carries the cost of the
-// session to the budgets before the decision on it. It keeps reading after a
-// failure: the session must not block on its channel.
+// session to the budgets before the decision on it. Each event is journaled
+// on its own: a failure loses that entry only, never the session.finished
+// that follows. It reads to the end: the session must not block on its
+// channel.
 func (s *Supervisor) journal(ctx context.Context, n store.NodeRow, session string, st started, events <-chan ports.Event) error {
-	var failed error
+	var errs []error
 	for ev := range events {
-		if failed != nil {
-			continue
-		}
 		e := store.Event{Kind: ev.Kind, NodeID: n.ID, SessionID: session, Payload: ev.Payload}
+		var err error
 		switch ev.Kind {
 		case contracts.EventSessionStarted:
-			e.Payload, failed = s.manifest(ev.Payload, st)
-			if failed == nil {
-				failed = s.append(ctx, e)
+			if e.Payload, err = s.manifest(ev.Payload, st); err != nil {
+				e.Payload = ev.Payload // the session row still needs it
 			}
+			err = errors.Join(err, s.append(ctx, e))
 		case contracts.EventSessionFinished:
-			failed = s.finished(ctx, n, e)
+			err = s.finished(ctx, n, e)
 		default:
-			failed = s.append(ctx, e)
+			err = s.append(ctx, e)
 		}
+		errs = append(errs, err)
 	}
-	return failed
+	return errors.Join(errs...)
 }
 
 // manifest adds the harness conversation and the session manifest
@@ -542,7 +543,7 @@ func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Ru
 		if err != nil {
 			return prompt.Input{}, err
 		}
-		facts, err := previousFacts(evs, n.Attempt-1)
+		facts, err := previousFacts(evs, n.Attempt-1, s.worktree(n))
 		if err != nil {
 			return prompt.Input{}, err
 		}
@@ -592,8 +593,9 @@ const (
 // previousFacts are the facts of an attempt a new one gets, from the journal
 // of the node (prompt.md, Previous attempt): the files its sessions changed,
 // the findings still open and the gates whose last run failed. An event
-// belongs to the attempt of the last node.transition before it.
-func previousFacts(evs []store.Event, attempt int) ([]string, error) {
+// belongs to the attempt of the last node.transition before it. Edited paths
+// are made relative to the worktree wt; edits outside it are left out.
+func previousFacts(evs []store.Event, attempt int, wt string) ([]string, error) {
 	cur := 0
 	files := map[string]bool{}
 	gates := map[string]string{} // gate → state of its last run
@@ -609,7 +611,9 @@ func previousFacts(evs []store.Event, attempt int) ([]string, error) {
 		case contracts.EventFileEdited:
 			var p contracts.FileEdited
 			if err = json.Unmarshal(e.Payload, &p); err == nil && cur == attempt {
-				files[p.Path] = true
+				if rel, ok := inside(wt, p.Path); ok {
+					files[rel] = true
+				}
 			}
 		case contracts.EventGateFinished:
 			var p contracts.GateRun
@@ -657,4 +661,17 @@ func previousFacts(evs []store.Event, attempt int) ([]string, error) {
 		}
 	}
 	return facts, nil
+}
+
+// inside returns name relative to the worktree wt, slash-separated, and
+// whether it is inside it; a relative name is already relative to wt.
+func inside(wt, name string) (string, bool) {
+	if !filepath.IsAbs(name) {
+		name = filepath.Join(wt, name)
+	}
+	rel, err := filepath.Rel(wt, filepath.Clean(name))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }
