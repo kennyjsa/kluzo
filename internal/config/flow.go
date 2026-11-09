@@ -28,6 +28,7 @@ type Step struct {
 	Gate       []string `yaml:"gate"`
 	Scope      string   `yaml:"scope"`
 	OnFail     string   `yaml:"on_fail"`
+	MaxRetries int      `yaml:"max_retries"` // fast gates: failures allowed per attempt (default 3)
 	Approval   string   `yaml:"approval"`
 	MergeQueue string   `yaml:"merge_queue"`
 	OpenPR     string   `yaml:"open_pr"`
@@ -46,7 +47,7 @@ var flowNames = []string{"upstream", "node", "closing"}
 // stepKinds maps each kind key to the optional keys valid with it.
 var stepKinds = map[string][]string{
 	"role":        {"phase", "on_reject", "max_rounds", "interview"},
-	"gate":        {"scope", "on_fail"},
+	"gate":        {"scope", "on_fail", "max_retries"},
 	"approval":    nil,
 	"merge_queue": nil,
 	"loop":        nil,
@@ -54,7 +55,7 @@ var stepKinds = map[string][]string{
 }
 
 // qualifierKeys is every optional step key, for the "not valid on this kind" check.
-var qualifierKeys = []string{"phase", "on_reject", "max_rounds", "interview", "scope", "on_fail"}
+var qualifierKeys = []string{"phase", "on_reject", "max_rounds", "interview", "scope", "on_fail", "max_retries"}
 
 // flowContext is what a flow is validated against.
 type flowContext struct {
@@ -221,6 +222,9 @@ func (v *flowValidator) gateStep(p string, s Step) {
 		if !known[g] {
 			v.r.add(idx(join(p, "gate"), i), fmt.Sprintf("gate %q is not defined in %s of kluzo.yaml", g, section))
 		}
+	}
+	if s.MaxRetries < 0 {
+		v.r.add(join(p, "max_retries"), "must not be negative")
 	}
 	if v.r.src.has(join(p, "on_fail")) && !slices.Contains(v.seenRoles, s.OnFail) {
 		v.r.add(join(p, "on_fail"), fmt.Sprintf("%q is not an earlier role step of this flow", s.OnFail))
