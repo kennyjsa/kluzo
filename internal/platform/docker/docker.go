@@ -16,8 +16,8 @@ import (
 	"github.com/kennyjsa/kluzo/internal/platform/exec"
 )
 
-// ErrUnavailable means there is no docker CLI on the machine: the cleanup of
-// Docker is skipped with a warning.
+// ErrUnavailable means there is no docker CLI on the machine, or its daemon
+// cannot be reached: the cleanup of Docker is skipped with a warning.
 var ErrUnavailable = errors.New("docker is not available")
 
 // Docker runs the docker CLI.
@@ -45,6 +45,23 @@ func (d *Docker) run(ctx context.Context, args ...string) (string, error) {
 		err = fmt.Errorf("docker %s: exit %d: %s", strings.Join(args, " "), o.Status.Code, strings.TrimSpace(o.Stderr))
 	}
 	return o.Stdout, err
+}
+
+// Probe checks that the daemon answers: docker version without the server
+// part (an unreachable daemon) is ErrUnavailable, like a missing CLI
+// (docs/contracts/data-model.md, cleanup rules).
+func (d *Docker) Probe(ctx context.Context) error {
+	out, err := d.run(ctx, "version", "--format", "{{.Server.Version}}")
+	if errors.Is(err, ErrUnavailable) {
+		return err
+	}
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w: the daemon does not answer: %w", ErrUnavailable, err)
+	case strings.TrimSpace(out) == "":
+		return fmt.Errorf("%w: docker version has no server part", ErrUnavailable)
+	}
+	return nil
 }
 
 // Project is a compose project: its name and the working directory compose

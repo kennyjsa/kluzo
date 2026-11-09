@@ -2,6 +2,7 @@ package supervisor_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,8 +12,11 @@ import (
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
+	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/ports/fakes"
+	"github.com/kennyjsa/kluzo/internal/store"
+	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
 
 // git runs plain git in dir and returns its trimmed output.
@@ -26,6 +30,22 @@ func (e *env) git(dir string, args ...string) string {
 }
 
 func (e *env) bare() string { return filepath.Join(e.dir, "origin.git") }
+
+// nodeBranch is the branch of the node of the env.
+const nodeBranch = "refs/heads/issue/1-agenda-api"
+
+// pushNodeBranch puts a branch of the node on the remote, as the push before
+// a gate of the CI does.
+func (e *env) pushNodeBranch() {
+	e.t.Helper()
+	e.git(e.repo, "push", "-q", e.bare(), "+main:"+nodeBranch)
+}
+
+// remoteNodeBranch reports whether the remote has the branch of the node.
+func (e *env) remoteNodeBranch() bool {
+	e.t.Helper()
+	return e.git(e.bare(), "for-each-ref", nodeBranch) != ""
+}
 
 // pushToMilestone commits files to the milestone branch of the remote from
 // another clone, as a person would, and returns the commit.
@@ -59,6 +79,7 @@ func (e *env) snapshot() (*fakes.SCM, []ports.Notification) {
 func TestIntegrationAndClosing(t *testing.T) {
 	e := newEnv(t, impl(implemented()), rev(reviewed(true, nil)))
 	mainBefore := e.git(e.bare(), "rev-parse", "main")
+	e.pushNodeBranch() // as for a gate of the CI
 	e.drain()
 	n, r := e.nodeRow()
 	if n.State != core.NodeIntegrated || n.MergedSHA == "" {
@@ -102,6 +123,9 @@ func TestIntegrationAndClosing(t *testing.T) {
 	if out, _ := gitRun(e.repo, "branch", "--list", "issue/*"); strings.TrimSpace(out) != "" {
 		t.Errorf("node branch kept: %q", out)
 	}
+	if e.remoteNodeBranch() {
+		t.Error("the remote branch of the integrated node was kept")
+	}
 	calls := e.docker.Calls()
 	for _, want := range []string{"compose --project-name kluzo-ws_1-1 down --volumes --rmi local --remove-orphans",
 		"image ls --quiet --no-trunc --filter label=kluzo.workspace=ws_1 --filter label=kluzo.node=" + n.ID} {
@@ -124,7 +148,9 @@ func TestIntegrationAndClosing(t *testing.T) {
 	if e.git(e.bare(), "rev-parse", "main") != mainBefore {
 		t.Error("Kluzo wrote main")
 	}
-	// The human merges; Kluzo observes it and cleans the workspace up.
+	// The human merges; Kluzo observes it and cleans the workspace up, with
+	// the node branches left on the remote.
+	e.pushNodeBranch()
 	if err := scm.Merge(snap.Workspace.PR.Ref); err != nil {
 		t.Fatal(err)
 	}
@@ -146,6 +172,9 @@ func TestIntegrationAndClosing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.dir, "state.db")); err != nil {
 		t.Errorf("state.db: %v", err)
+	}
+	if e.remoteNodeBranch() {
+		t.Error("the merged workspace kept a node branch on the remote")
 	}
 	if failed := e.events(contracts.EventEffectFailed); len(failed) != 0 {
 		t.Errorf("effects failed: %d", len(failed))
@@ -302,20 +331,40 @@ func TestAreaDeviation(t *testing.T) {
 // A gate that reads the CI of the tracker gets the node branch pushed first,
 // with the bot's remote.
 func TestNodeBranchPushedBeforeATrackerGate(t *testing.T) {
-	e := newEnvWith(t, envOpts{prepare: func(repo string) {
-		onMilestone(t, repo, map[string]string{".kluzo/kluzo.yaml": withGates(t, repo, "gates:\n  - name: build\n    run: \"true\"\n    fast: true\n  - name: test\n    source: tracker\n    required_checks: [ci]")})
-	}}, impl(implemented()), rev(reviewed(true, nil)))
+	var e *env
+	seen := map[string]string{} // gate → the node branch on the remote when it ran
+	e = newEnvWith(t, envOpts{
+		prepare: func(repo string) {
+			onMilestone(t, repo, map[string]string{".kluzo/kluzo.yaml": withGates(t, repo, "gates:\n  - name: build\n    run: \"true\"\n    fast: true\n  - name: test\n    source: tracker\n    required_checks: [ci]")})
+		},
+		gates: func(string, string) ports.Gates {
+			return gatesFunc(func(ctx context.Context, run ports.GateRun) (ports.GateResult, error) {
+				seen[run.Gate] = e.git(e.bare(), "for-each-ref", "--format=%(objectname)", nodeBranch)
+				return e.gates.Run(ctx, run)
+			})
+		},
+	}, impl(implemented()), rev(reviewed(true, nil)))
 	e.drain()
 	runs := e.gates.Runs()
 	if len(runs) != 2 || !runs[1].Tracker {
 		t.Fatalf("gate runs = %+v", runs)
 	}
-	if got := e.git(e.bare(), "rev-parse", "issue/1-agenda-api"); got != runs[1].SHA {
-		t.Errorf("node branch on the remote = %s, the gate read %s", got, runs[1].SHA)
+	if seen["test"] != runs[1].SHA {
+		t.Errorf("node branch on the remote = %q, the gate read %s", seen["test"], runs[1].SHA)
 	}
 	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
 		t.Errorf("node %s", n.State)
 	}
+	if e.remoteNodeBranch() {
+		t.Error("the remote branch of the integrated node was kept")
+	}
+}
+
+// gatesFunc is a ports.Gates from a function.
+type gatesFunc func(context.Context, ports.GateRun) (ports.GateResult, error)
+
+func (f gatesFunc) Run(ctx context.Context, run ports.GateRun) (ports.GateResult, error) {
+	return f(ctx, run)
 }
 
 // The milestone branch is created or adopted on both sides when the workspace
@@ -344,12 +393,14 @@ func TestMilestoneBranchCreatedOrAdopted(t *testing.T) {
 			}
 		})
 	}
-	// Diverged branches stop at the first effect that needs the remote, for a
-	// person to reconcile; the node does not integrate.
-	t.Run("diverged: a person decides", func(t *testing.T) {
+	// Diverged branches fail git.milestone for good: the workspace pauses with
+	// a notification and dispatches nothing; a person reconciles the branch
+	// and resumes, which queues git.milestone again, and only then does the
+	// node run.
+	t.Run("diverged: paused until a person reconciles and resumes", func(t *testing.T) {
 		e := newEnv(t, impl(implemented()), rev(reviewed(true, nil)))
 		onMilestone(t, e.repo, map[string]string{"local.txt": "x\n"})
-		e.pushToMilestone(map[string]string{"remote.txt": "y\n"})
+		remote := e.pushToMilestone(map[string]string{"remote.txt": "y\n"})
 		e.drain()
 		failed := e.events(contracts.EventEffectFailed)
 		var p contracts.EffectFailed
@@ -359,21 +410,89 @@ func TestMilestoneBranchCreatedOrAdopted(t *testing.T) {
 		if p.Kind != string(core.EffectEnsureMilestone) || p.Attempts != 1 || !strings.Contains(p.LastError, "diverged") {
 			t.Errorf("effect.failed = %+v", p)
 		}
-		if n, _ := e.nodeRow(); n.State != core.NodeIntegrating || n.MergedSHA != "" {
-			t.Errorf("node %s, merged at %q", n.State, n.MergedSHA)
+		snap, _ := e.db.Snapshot(context.Background())
+		if snap.Workspace.State != core.WorkspacePaused || snap.Workspace.Milestone != core.MilestoneFailed {
+			t.Fatalf("workspace %s, milestone %s", snap.Workspace.State, snap.Workspace.Milestone)
+		}
+		if n, _ := e.nodeRow(); n.State != core.NodePlanned || len(e.moves()) != 0 {
+			t.Errorf("node %s, moves %v: dispatched without the milestone branch", n.State, e.moves())
+		}
+		_, sent := e.snapshot()
+		if !slices.ContainsFunc(sent, func(n ports.Notification) bool { return strings.Contains(n.Title, "Workspace paused") }) {
+			t.Errorf("notifications %+v", sent)
+		}
+		// The person keeps the remote branch and resumes.
+		e.git(e.repo, "checkout", "-q", "main")
+		e.git(e.repo, "update-ref", "refs/heads/milestone/v1", remote)
+		if err := supervisor.MoveWorkspace(context.Background(), e.db, ids.NewGenerator(rand.Reader), e.clock, core.TriggerResume); err != nil {
+			t.Fatal(err)
+		}
+		if snap, _ = e.db.Snapshot(context.Background()); snap.Workspace.State != core.WorkspaceRunning || snap.Workspace.Milestone != core.MilestonePending {
+			t.Fatalf("after the resume: workspace %s, milestone %s", snap.Workspace.State, snap.Workspace.Milestone)
+		}
+		e.drain()
+		if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
+			t.Fatalf("node %s after the resume, moves %v", n.State, e.moves())
+		}
+		if !strings.Contains(e.git(e.bare(), "log", "--format=%s", "milestone/v1"), "a person's change") {
+			t.Error("the reconciled branch was not kept")
 		}
 	})
 }
 
-// Without Docker on the machine, the cleanup of Docker is skipped and the rest
-// of it runs.
+// Without Docker on the machine, or with its daemon unreachable, the cleanup
+// of Docker is skipped and the rest of it runs (docs/contracts/data-model.md).
 func TestCleanupWithoutDocker(t *testing.T) {
-	e := newEnvWith(t, envOpts{noDocker: true}, impl(implemented()), rev(reviewed(true, nil)))
-	e.drain()
-	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || len(e.events(contracts.EventEffectFailed)) != 0 {
-		t.Fatalf("node %s, failed %d", n.State, len(e.events(contracts.EventEffectFailed)))
+	for _, o := range []envOpts{{noDocker: true}, {dockerDown: true}} {
+		e := newEnvWith(t, o, impl(implemented()), rev(reviewed(true, nil)))
+		e.drain()
+		if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || len(e.events(contracts.EventEffectFailed)) != 0 {
+			t.Fatalf("%+v: node %s, failed %d", o, n.State, len(e.events(contracts.EventEffectFailed)))
+		}
+		if _, err := os.Stat(filepath.Join(e.dir, "ws", "worktrees", "1")); !os.IsNotExist(err) {
+			t.Errorf("%+v: the worktree is still there", o)
+		}
+		for _, c := range e.docker.Calls() {
+			if !strings.HasPrefix(c, "version ") {
+				t.Errorf("%+v: docker %s ran without a daemon", o, c)
+			}
+		}
 	}
-	if _, err := os.Stat(filepath.Join(e.dir, "ws", "worktrees", "1")); !os.IsNotExist(err) {
-		t.Error("the worktree is still there")
+}
+
+// A cancelled node keeps its branch on the remote, the only copy of its work;
+// the cancelled workspace keeps it too and lists it in a notification
+// (docs/contracts/data-model.md, cleanup rules).
+func TestCancelledKeepsRemoteBranches(t *testing.T) {
+	e := newEnv(t)
+	e.pushNodeBranch()
+	ctx := context.Background()
+	gen := ids.NewGenerator(rand.Reader)
+	if err := e.db.Tx(ctx, func(x *store.Tx) error {
+		ev, _ := gen.New(ids.Event, e.clock.Now())
+		ef, _ := gen.New(ids.Effect, e.clock.Now())
+		body, _ := json.Marshal(map[string]any{"node": e.node, "issue": e.issue, "do": core.Effect{Kind: core.EffectCleanupNode, Key: "cleanup"}})
+		_, err := x.TransitionNode(e.node, core.NodeEvent{Trigger: core.TriggerCancel}, core.Limits{MaxAttempts: 2}, store.Header{ID: ev, TS: e.clock.Now()},
+			store.EffectSpec{ID: ef, Kind: string(core.EffectCleanupNode), Key: "cleanup", Payload: body})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.drain()
+	if n, _ := e.nodeRow(); n.State != core.NodeCancelled || !e.remoteNodeBranch() {
+		t.Fatalf("node %s; remote branch kept %v", n.State, e.remoteNodeBranch())
+	}
+	if err := supervisor.MoveWorkspace(ctx, e.db, gen, e.clock, core.TriggerCancelAll); err != nil {
+		t.Fatal(err)
+	}
+	e.drain()
+	if !e.remoteNodeBranch() || len(e.events(contracts.EventEffectFailed)) != 0 {
+		t.Fatalf("remote branch kept %v; failed %d", e.remoteNodeBranch(), len(e.events(contracts.EventEffectFailed)))
+	}
+	_, sent := e.snapshot()
+	if !slices.ContainsFunc(sent, func(n ports.Notification) bool {
+		return strings.Contains(n.Title, "cancelled") && strings.Contains(n.Body, "issue/1-agenda-api")
+	}) {
+		t.Errorf("notifications %+v", sent)
 	}
 }

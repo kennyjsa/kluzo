@@ -73,10 +73,12 @@ func newEnvBudget(t *testing.T, budget int64, steps ...step) *env {
 
 // envOpts are the choices of newEnvWith.
 type envOpts struct {
-	budget   int64                                   // of the node; 0: US$ 6
-	noDocker bool                                    // the machine has no docker
-	gates    func(repo, dir string) ports.Gates      // nil: the in-memory fake
-	host     func(context.Context) ([]string, error) // nil: a clean host
+	budget   int64 // of the node; 0: US$ 6
+	noDocker bool  // the machine has no docker
+	// dockerDown: the docker CLI is there, its daemon does not answer.
+	dockerDown bool
+	gates      func(repo, dir string) ports.Gates      // nil: the in-memory fake
+	host       func(context.Context) ([]string, error) // nil: a clean host
 	// prepare changes the repository before the supervisor loads it.
 	prepare func(repo string)
 }
@@ -106,6 +108,9 @@ func newEnvWith(t *testing.T, o envOpts, steps ...step) *env {
 		runtime: &script{t: t, repo: repo, steps: steps, refs: map[string]bool{}}, node: seed(t, db, gen, issue.Ref, budget), issue: issue.Ref}
 	if o.noDocker {
 		e.docker.bin = filepath.Join(dir, "no-docker")
+	}
+	if o.dockerDown {
+		e.docker.down(t)
 	}
 	var gates ports.Gates = e.gates
 	if o.gates != nil {
@@ -226,7 +231,7 @@ func testGit(t *testing.T) func(dir string, args ...string) {
 	}
 }
 
-// seed journals a running workspace with one node and returns the node id.
+// seed journals an approved workspace with one node and returns the node id.
 func seed(t *testing.T, db *store.DB, gen *ids.Generator, issue string, budget int64) string {
 	t.Helper()
 	ctx := context.Background()
@@ -249,10 +254,9 @@ func seed(t *testing.T, db *store.DB, gen *ids.Generator, issue string, budget i
 		if _, err := x.TransitionWorkspace(core.TriggerCreateWithPlan, hdr(), milestone); err != nil {
 			return err
 		}
-		for _, tr := range []core.WorkspaceTrigger{core.TriggerPlanApproved, core.TriggerStart} {
-			if _, err := x.TransitionWorkspace(tr, hdr()); err != nil {
-				return err
-			}
+		// Approved: the supervisor starts it once the milestone branch is ready.
+		if _, err := x.TransitionWorkspace(core.TriggerPlanApproved, hdr()); err != nil {
+			return err
 		}
 		body, _ = json.Marshal(contracts.NodeAdded{IssueRef: issue, Title: "Agenda API", Areas: []string{"agenda"},
 			Budget: contracts.NodeBudget{Attempts: 2, Minutes: 60, USDMicros: budget}})

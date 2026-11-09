@@ -183,14 +183,23 @@ func (t *Tx) projectSessionFinished(e Event) error {
 }
 
 // projectGateStarted records a gate run, running, under the id of its event.
+// A run of the same gate of the same node still running was cut by a crash:
+// it becomes interrupted, finished when the new run starts
+// (docs/contracts/data-model.md), so no row stays running for ever.
 func (t *Tx) projectGateStarted(e Event) error {
 	var p contracts.GateRun
 	if err := decodePayload(e, &p); err != nil {
 		return err
 	}
+	ts := formatTS(e.TS)
+	if _, err := t.tx.ExecContext(t.ctx,
+		`UPDATE gate_runs SET state = 'interrupted', finished_at = ? WHERE COALESCE(node_id, '') = ? AND gate = ? AND state = 'running'`,
+		ts, e.NodeID, p.Gate); err != nil {
+		return err
+	}
 	_, err := t.tx.ExecContext(t.ctx,
 		`INSERT INTO gate_runs (id, node_id, gate, sha, state, started_at) VALUES (?, NULLIF(?, ''), ?, ?, 'running', ?)`,
-		e.ID, e.NodeID, p.Gate, p.SHA, formatTS(e.TS))
+		e.ID, e.NodeID, p.Gate, p.SHA, ts)
 	return err
 }
 

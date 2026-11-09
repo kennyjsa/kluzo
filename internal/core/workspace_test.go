@@ -18,6 +18,8 @@ func TestNextWorkspace(t *testing.T) {
 		{WorkspaceAwaitingApproval, TriggerPlanRejected, WorkspaceRefining, false},
 		{WorkspaceAwaitingApproval, TriggerPlanApproved, WorkspaceApproved, false},
 		{WorkspaceApproved, TriggerStart, WorkspaceRunning, false},
+		{WorkspaceApproved, TriggerMilestoneFailed, WorkspacePaused, false},
+		{WorkspaceRunning, TriggerMilestoneFailed, WorkspacePaused, false},
 		{WorkspaceRunning, TriggerPause, WorkspacePaused, false},
 		{WorkspacePaused, TriggerResume, WorkspaceRunning, false},
 		{WorkspaceRunning, TriggerAllIntegrated, WorkspaceClosing, false},
@@ -30,6 +32,8 @@ func TestNextWorkspace(t *testing.T) {
 		// Forbidden moves.
 		{WorkspaceRefining, TriggerPlanApproved, WorkspaceRefining, true},
 		{WorkspaceApproved, TriggerPause, WorkspaceApproved, true},
+		{WorkspaceRefining, TriggerMilestoneFailed, WorkspaceRefining, true},
+		{WorkspacePaused, TriggerMilestoneFailed, WorkspacePaused, true},
 		{WorkspaceMerged, TriggerCancelAll, WorkspaceMerged, true},
 		{WorkspaceCancelled, TriggerFatal, WorkspaceCancelled, true},
 		{WorkspaceNone, TriggerCancelAll, WorkspaceNone, true},
@@ -47,21 +51,68 @@ func TestNextWorkspace(t *testing.T) {
 
 func TestWorkspaceEffects(t *testing.T) {
 	for _, tt := range []struct {
-		from, to WorkspaceState
-		want     EffectKind
+		from, to  WorkspaceState
+		trigger   WorkspaceTrigger
+		milestone MilestoneState
+		want      EffectKind
 	}{
-		{WorkspaceNone, WorkspaceAwaitingApproval, EffectEnsureMilestone},
-		{WorkspaceNone, WorkspaceRefining, EffectEnsureMilestone},
-		{WorkspaceRunning, WorkspaceClosing, EffectOpenPR},
-		{WorkspaceReadyToMerge, WorkspaceMerged, EffectCleanupWorkspace},
-		{WorkspaceRunning, WorkspaceCancelled, EffectCleanupWorkspace},
-		{WorkspaceRunning, WorkspacePaused, ""},
-		{WorkspaceClosing, WorkspaceReadyToMerge, ""},
-		{WorkspaceMerged, WorkspaceArchived, ""},
+		{WorkspaceNone, WorkspaceAwaitingApproval, TriggerCreateWithPlan, MilestonePending, EffectEnsureMilestone},
+		{WorkspaceNone, WorkspaceRefining, TriggerCreate, MilestonePending, EffectEnsureMilestone},
+		{WorkspaceRunning, WorkspaceClosing, TriggerAllIntegrated, MilestoneDone, EffectOpenPR},
+		{WorkspaceReadyToMerge, WorkspaceMerged, TriggerMergedToMain, MilestoneDone, EffectCleanupWorkspace},
+		{WorkspaceRunning, WorkspaceCancelled, TriggerCancelAll, MilestoneDone, EffectCleanupWorkspace},
+		{WorkspaceApproved, WorkspacePaused, TriggerMilestoneFailed, MilestoneFailed, EffectNotify},
+		{WorkspaceRunning, WorkspacePaused, TriggerMilestoneFailed, MilestoneFailed, EffectNotify},
+		// resume queues the milestone branch again only after it failed.
+		{WorkspacePaused, WorkspaceRunning, TriggerResume, MilestoneFailed, EffectEnsureMilestone},
+		{WorkspacePaused, WorkspaceRunning, TriggerResume, MilestoneDone, ""},
+		{WorkspacePaused, WorkspaceRunning, TriggerResume, MilestonePending, ""},
+		{WorkspaceApproved, WorkspaceRunning, TriggerStart, MilestoneDone, ""},
+		{WorkspaceRunning, WorkspacePaused, TriggerPause, MilestoneDone, ""},
+		{WorkspaceClosing, WorkspaceReadyToMerge, TriggerClosingDone, MilestoneDone, ""},
+		{WorkspaceMerged, WorkspaceArchived, TriggerArchive, MilestoneDone, ""},
 	} {
-		got := WorkspaceEffects(tt.from, tt.to)
+		got := WorkspaceEffects(WorkspaceMove{From: tt.from, To: tt.to, Trigger: tt.trigger, Milestone: tt.milestone})
 		if (tt.want == "") != (len(got) == 0) || (len(got) > 0 && (len(got) != 1 || got[0].Kind != tt.want)) {
-			t.Errorf("%q → %q: %+v, want %q", tt.from, tt.to, got, tt.want)
+			t.Errorf("%q → %q (%s, milestone %s): %+v, want %q", tt.from, tt.to, tt.trigger, tt.milestone, got, tt.want)
+		}
+	}
+}
+
+// The milestone branch effect gates the workspace (state-machine.md): an
+// approved workspace starts once it is done and pauses when it failed; a
+// running one pauses when it failed again after a resume; nothing is
+// dispatched until it is done.
+func TestMilestoneGate(t *testing.T) {
+	for _, tt := range []struct {
+		ws       WorkspaceState
+		m        MilestoneState
+		trigger  WorkspaceTrigger // "": none
+		dispatch bool
+	}{
+		{WorkspaceApproved, MilestonePending, "", false},
+		{WorkspaceApproved, MilestoneDone, TriggerStart, false},
+		{WorkspaceApproved, MilestoneFailed, TriggerMilestoneFailed, false},
+		{WorkspaceRunning, MilestonePending, "", false},
+		{WorkspaceRunning, MilestoneDone, "", true},
+		{WorkspaceRunning, MilestoneFailed, TriggerMilestoneFailed, false},
+		{WorkspacePaused, MilestoneFailed, "", false},
+		{WorkspacePaused, MilestoneDone, "", false},
+		{WorkspaceRefining, MilestoneFailed, "", false},
+		{WorkspaceAwaitingApproval, MilestoneDone, "", false},
+		{WorkspaceClosing, MilestoneDone, "", false},
+	} {
+		got, ok := MilestoneTrigger(tt.ws, tt.m)
+		if got != tt.trigger || ok != (tt.trigger != "") {
+			t.Errorf("%s, milestone %s: trigger %q %v, want %q", tt.ws, tt.m, got, ok, tt.trigger)
+		}
+		if d := Dispatching(tt.ws, tt.m); d != tt.dispatch {
+			t.Errorf("%s, milestone %s: dispatching %v", tt.ws, tt.m, d)
+		}
+		if ok {
+			if _, err := NextWorkspace(tt.ws, got); err != nil {
+				t.Errorf("%s + %s: %v", tt.ws, got, err)
+			}
 		}
 	}
 }
