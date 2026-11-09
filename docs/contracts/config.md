@@ -90,6 +90,7 @@ budgets:                       # padrão; papéis e milestones podem sobrescreve
 worktree:                      # preparo de cada worktree, executado pelo Kluzo antes da sessão
   setup: "bash tools/agentes/preparar-worktree.sh"   # lido da ponta da milestone; env como nos gates (env_allow, caches)
   include: [".env"]              # arquivos ignorados pelo git copiados do checkout principal (só segredos de desenvolvimento)
+  env_allow: [NPM_TOKEN]         # variáveis do Kluzo repassadas ao setup, além de caches e COMPOSE_PROJECT_NAME
   timeout: 15m                   # falha do setup: erro de runtime repetível; persistindo, blocked (triage)
 
 secret_paths: [".env", ".env.*"]   # o hook nega leitura por ferramenta de arquivo; leitura via shell é limite conhecido
