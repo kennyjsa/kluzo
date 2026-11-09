@@ -107,9 +107,7 @@ func (t *Tx) FollowEffect(id string, at time.Time, effects ...EffectSpec) error 
 		return fmt.Errorf("read effect %s: %w", id, err)
 	}
 	for _, f := range effects {
-		if _, err := t.tx.ExecContext(t.ctx,
-			`INSERT INTO effects (id, idem_key, event_seq, kind, payload, state, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-			f.ID, key+"/"+f.Key, seq, f.Kind, string(f.Payload), formatTS(at)); err != nil {
+		if err := t.queue(f, IdemKey(key, f.Key), seq, at); err != nil {
 			return fmt.Errorf("queue effect %s after %s: %w", f.Key, id, err)
 		}
 	}

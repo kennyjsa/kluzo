@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/kennyjsa/kluzo/internal/config"
@@ -242,8 +241,8 @@ func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, st core.
 // session, resuming the implementer's conversation when its segments did not
 // change (prompt.md#sessões, ADR 0024). Then it checks the repository: a
 // change outside the node branch sets done.Tampered. It returns an error only
-// when no harness session ran, or errPaused when the workspace was paused
-// while it ran.
+// when no harness session ran, or a *stopped when the workspace left running
+// while it ran and the session did not tamper with the repository.
 func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, r core.Run, st core.FlowStep, runNo int, left int64, round []gitops.DiffFile, done *core.SessionDone) (ports.Result, *core.HarnessSession, error) {
 	role := s.cfg.Project.Roles[st.Role]
 	if role == nil {
@@ -339,35 +338,39 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 	if err := s.writePrompt(sessionID, sent); err != nil {
 		s.d.Log.Warn("prompt log failed", "session", sessionID, "err", err)
 	}
-	paused := s.watchPause(ctx, sess)
+	stop := s.watchStop(ctx, sess)
 	if err := s.journal(ctx, n, sessionID, started{ref: sess.HarnessRef(), prompt: sent}, sess.Events()); err != nil {
 		s.d.Log.Warn("journal of session events failed", "session", sessionID, "err", err)
 	}
 	res, err := sess.Wait()
-	if paused() {
-		return ports.Result{}, nil, errPaused
-	}
+	by := stop()
 	if err != nil {
 		res = ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: "wait: " + err.Error()}
 	}
 	res = s.checked(ctx, snap, branch, res, done)
+	if by != "" && !done.Tampered {
+		return ports.Result{}, nil, &stopped{state: by} // tampering still fails the node
+	}
 	return res, &core.HarnessSession{Ref: sess.HarnessRef(), Harness: s.d.Runtime.Name(), Model: model, Segments: segments, Nonce: sent.Nonce, Cumulative: res.Cumulative}, nil
 }
 
-// errPaused means the workspace was paused while the session ran: the
-// session was cancelled, and its effect stays pending, to run again when the
-// workspace is resumed.
-var errPaused = errors.New("the workspace was paused: the session was cancelled")
+// stopped means the workspace left running while the session ran (a pause
+// or a cancellation, maybe from another process): the session was cancelled
+// and no decision is taken on it.
+type stopped struct{ state core.WorkspaceState }
 
-// watchPause cancels the session when the workspace is paused, by this
-// process or another one (kluzo pause, the web): while the loop waits for the
-// session, the state is read again every Idle (state-machine.md). The
-// returned function ends the watch and reports whether it cancelled the
-// session. The node keeps its state and its run, the last stable ones: no
-// decision is taken on a cancelled session.
-func (s *Supervisor) watchPause(ctx context.Context, sess ports.Session) func() bool {
+func (e *stopped) Error() string {
+	return "the workspace is " + string(e.state) + ": the session was cancelled"
+}
+
+// watchStop cancels the session when the workspace leaves running: paused or
+// cancelled, by this process or another one (kluzo pause, the web). While the
+// loop waits for the session, the state is read again every Idle
+// (state-machine.md). The returned function ends the watch and returns the
+// state that stopped the session ("" when none did).
+func (s *Supervisor) watchStop(ctx context.Context, sess ports.Session) func() core.WorkspaceState {
 	stop, over := make(chan struct{}), make(chan struct{})
-	var paused atomic.Bool
+	var by core.WorkspaceState
 	go func() {
 		defer close(over)
 		tick := time.NewTicker(s.cfg.Idle)
@@ -381,22 +384,45 @@ func (s *Supervisor) watchPause(ctx context.Context, sess ports.Session) func() 
 			case <-tick.C:
 			}
 			snap, err := s.d.DB.Snapshot(ctx)
-			if err != nil || snap.Workspace == nil || snap.Workspace.State != core.WorkspacePaused {
+			if err != nil || snap.Workspace == nil || snap.Workspace.State == core.WorkspaceRunning {
 				continue
 			}
-			paused.Store(true)
-			s.d.Log.Info("the workspace was paused: the session is cancelled", "workspace", s.cfg.Workspace, "ref", sess.HarnessRef())
+			by = snap.Workspace.State
+			s.d.Log.Info("the workspace left running: the session is cancelled", "workspace", s.cfg.Workspace, "state", by, "ref", sess.HarnessRef())
 			if err := sess.Cancel(); err != nil {
 				s.d.Log.Warn("cancel the session", "ref", sess.HarnessRef(), "err", err)
 			}
 			return
 		}
 	}()
-	return func() bool {
+	return func() core.WorkspaceState {
 		close(stop)
-		<-over
-		return paused.Load()
+		<-over // by is written before over closes
+		return by
 	}
+}
+
+// stoppedSession settles a session effect whose session the workspace
+// stopped, in one transaction: done, and for a pause a new session effect of
+// the same step, which runs when the workspace is resumed. The node keeps its
+// state and its run, the last stable ones, and the new effect starts its own
+// count of runs: a pause does not use up the retries of the step.
+func (s *Supervisor) stoppedSession(ctx context.Context, f store.Effect, by core.WorkspaceState) error {
+	now := s.d.Clock.Now()
+	var again []store.EffectSpec
+	if by == core.WorkspacePaused {
+		id, err := s.d.IDs.New(ids.Effect, now)
+		if err != nil {
+			return err
+		}
+		again = append(again, store.EffectSpec{ID: id, Kind: f.Kind, Key: "again", Payload: f.Payload})
+	}
+	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
+		if err := t.FollowEffect(f.ID, now, again...); err != nil {
+			return err
+		}
+		return completed(f)(t, now)
+	})
 }
 
 // checked runs the post-session check on the result of a session: a change

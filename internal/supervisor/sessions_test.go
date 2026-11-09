@@ -131,46 +131,69 @@ func TestMilestoneBudgetAlert(t *testing.T) {
 	}
 }
 
-// kluzo pause from another process while a session runs: the supervisor,
-// waiting for the session, reads the state again, cancels the session and
-// leaves the node where it was, with the session to run again; the resume
-// runs it, and the milestone goes on (state-machine.md, Q61).
-func TestPauseFromAnotherProcessCancelsTheSession(t *testing.T) {
-	e := newEnv(t, step{role: core.RoleImplementer, hang: true}, impl(implemented()), rev(reviewed(true, nil)))
-	started, waited := make(chan struct{}, 1), make(chan struct{}, 1)
+// pauseDuring steps the supervisor until it ran the scripted session, and
+// pauses the workspace from another process (kluzo pause opens the journal
+// on its own) once the session started. The step that ran the session
+// returns after the supervisor settled it.
+func (e *env) pauseDuring() {
+	e.t.Helper()
+	started := make(chan struct{}, 1)
 	e.runtime.announce = func() { signal(started) }
-	e.runtime.waited = func() { signal(waited) }
-	ctx, stop := context.WithCancel(context.Background())
-	defer stop()
 	done := make(chan error, 1)
-	go func() { done <- e.sup.Run(ctx) }()
-	receive(t, started, "the session to start")
-
-	// Another process: kluzo pause opens the journal on its own.
-	other := openDB(t, filepath.Join(e.dir, "state.db"))
+	go func() {
+		for len(e.runtime.Calls()) == 0 {
+			if _, err := e.sup.Step(context.Background()); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	receive(e.t, started, "the session to start")
+	other := openDB(e.t, filepath.Join(e.dir, "state.db"))
 	if err := supervisor.MoveWorkspace(context.Background(), other, ids.NewGenerator(rand.Reader), clock.NewManual(epoch), core.TriggerPause); err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
-	receive(t, waited, "the session to be cancelled")
-	stop()
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	select {
+	case err := <-done:
+		if err != nil {
+			e.t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		e.t.Fatal("timed out waiting for the session to be cancelled")
 	}
-	n, _ := e.nodeRow()
+	e.runtime.announce = nil
+}
+
+// pendingSessions counts the session effects still to run.
+func (e *env) pendingSessions() int {
+	e.t.Helper()
 	pending, err := e.db.PendingEffects(context.Background(), time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), 100)
 	if err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
-	sessions := 0
+	n := 0
 	for _, f := range pending {
 		if f.Kind == string(core.EffectSession) {
-			sessions++
+			n++
 		}
 	}
-	if n.State != core.NodeRunning || n.Attempt != 1 || sessions != 1 || len(e.runtime.Calls()) != 1 {
-		t.Fatalf("after the pause: node %s attempt %d, session effects pending %d, sessions %d; moves %v", n.State, n.Attempt, sessions, len(e.runtime.Calls()), e.moves())
+	return n
+}
+
+// kluzo pause from another process while a session runs: the supervisor,
+// waiting for the session, reads the state again, cancels the session and
+// leaves the node where it was, with the session queued again; the resume
+// runs it, as a new effect that did not use up the retries of the step, and
+// the milestone goes on (state-machine.md, Q61).
+func TestPauseFromAnotherProcessCancelsTheSession(t *testing.T) {
+	e := newEnv(t, step{role: core.RoleImplementer, hang: true}, impl(implemented()), rev(reviewed(true, nil)))
+	e.pauseDuring()
+	n, _ := e.nodeRow()
+	if n.State != core.NodeRunning || n.Attempt != 1 || e.pendingSessions() != 1 || len(e.runtime.Calls()) != 1 {
+		t.Fatalf("after the pause: node %s attempt %d, session effects pending %d, sessions %d; moves %v", n.State, n.Attempt, e.pendingSessions(), len(e.runtime.Calls()), e.moves())
 	}
-	if err := supervisor.MoveWorkspace(context.Background(), other, ids.NewGenerator(rand.Reader), clock.NewManual(epoch), core.TriggerResume); err != nil {
+	if err := supervisor.MoveWorkspace(context.Background(), e.db, ids.NewGenerator(rand.Reader), e.clock, core.TriggerResume); err != nil {
 		t.Fatal(err)
 	}
 	e.drain()
@@ -178,8 +201,18 @@ func TestPauseFromAnotherProcessCancelsTheSession(t *testing.T) {
 		t.Fatalf("after the resume: node %s attempt %d; moves %v", n.State, n.Attempt, e.moves())
 	}
 	calls := e.runtime.Calls()
-	if len(calls) != 3 || calls[1].role != core.RoleImplementer || calls[1].resume || calls[1].counter != 1 {
+	if len(calls) != 3 || calls[1].role != core.RoleImplementer || calls[1].resume || calls[1].counter != 0 {
 		t.Errorf("sessions %+v", calls)
+	}
+}
+
+// A session that tampered with the repository and is then stopped by the
+// pause still fails the node: the post-session check runs first.
+func TestPausedSessionStillChecksTampering(t *testing.T) {
+	e := newEnv(t, step{role: core.RoleImplementer, hang: true, tamper: true})
+	e.pauseDuring()
+	if n, _ := e.nodeRow(); n.State != core.NodeFailed || e.pendingSessions() != 0 {
+		t.Fatalf("node %s, session effects pending %d; moves %v", n.State, e.pendingSessions(), e.moves())
 	}
 }
 

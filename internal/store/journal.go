@@ -71,14 +71,19 @@ func (t *Tx) Append(e Event, effects ...EffectSpec) (int64, error) {
 		return 0, fmt.Errorf("project %s (%s): %w", e.Kind, e.ID, err)
 	}
 	for _, f := range effects {
-		_, err := t.tx.ExecContext(t.ctx,
-			`INSERT INTO effects (id, idem_key, event_seq, kind, payload, state, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-			f.ID, IdemKey(e.ID, f.Key), e.Seq, f.Kind, string(f.Payload), formatTS(e.TS))
-		if err != nil {
+		if err := t.queue(f, IdemKey(e.ID, f.Key), e.Seq, e.TS); err != nil {
 			return 0, fmt.Errorf("queue effect %s of %s: %w", f.Key, e.ID, err)
 		}
 	}
 	return e.Seq, nil
+}
+
+// queue inserts a pending effect on the event seq, with its idempotency key.
+func (t *Tx) queue(f EffectSpec, idemKey string, seq int64, at time.Time) error {
+	_, err := t.tx.ExecContext(t.ctx,
+		`INSERT INTO effects (id, idem_key, event_seq, kind, payload, state, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+		f.ID, idemKey, seq, f.Kind, string(f.Payload), formatTS(at))
+	return err
 }
 
 // queryEvents reads up to limit entries with seq greater than after, in order,

@@ -24,7 +24,12 @@ import (
 // (GitHub answers 200 with "errors") becomes an error; NOT_FOUND wraps
 // ports.ErrNotFound.
 func (a *Adapter) graphql(ctx context.Context, query string, vars map[string]any, out any) error {
-	req, err := a.gh.NewRequest(ctx, http.MethodPost, "graphql", map[string]any{"query": query, "variables": vars})
+	// GitHub Enterprise serves REST under /api/v3/ and GraphQL at /api/graphql.
+	endpoint := "graphql"
+	if strings.HasSuffix(a.gh.BaseURL(), "/api/v3/") {
+		endpoint = "../graphql"
+	}
+	req, err := a.gh.NewRequest(ctx, http.MethodPost, endpoint, map[string]any{"query": query, "variables": vars})
 	if err != nil {
 		return err
 	}
@@ -173,7 +178,7 @@ func (a *Adapter) listIssues(ctx context.Context, milestone string) ([]*gh.Issue
 
 const milestonesQuery = `query($owner: String!, $name: String!, $title: String!, $after: String) {
   repository(owner: $owner, name: $name) {
-    milestones(first: 100, after: $after, query: $title, states: [OPEN, CLOSED]) {
+    milestones(first: 100, after: $after, query: $title, states: [OPEN, CLOSED], orderBy: {field: NUMBER, direction: ASC}) {
       pageInfo { hasNextPage endCursor }
       nodes { number title description state url }
     }

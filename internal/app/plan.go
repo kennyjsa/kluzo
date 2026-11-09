@@ -129,8 +129,8 @@ func milestoneRef(ctx context.Context, tr ports.Tracker, title, ref string) (str
 	if ref != "" {
 		m, err := tr.Milestone(ctx, ref)
 		switch {
-		case errors.Is(err, ports.ErrNotFound):
-			return "", fmt.Errorf("%w: milestone %s is not in the tracker", ErrInvalid, ref)
+		case errors.Is(err, ports.ErrNotFound), errors.Is(err, ports.ErrInvalid):
+			return "", fmt.Errorf("%w: milestone %s is not in the tracker: %w", ErrInvalid, ref, err)
 		case err != nil:
 			return "", err
 		case m.Title != title:

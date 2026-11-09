@@ -534,9 +534,9 @@ func (s *Supervisor) execute(ctx context.Context, f store.Effect) error {
 		if err == nil {
 			return nil // the session stored its own outcome
 		}
-		if errors.Is(err, errPaused) {
-			log.Info("session cancelled by the pause: it runs again on resume")
-			return nil // the effect stays pending; a paused workspace starts no session
+		if st := new(stopped); errors.As(err, &st) {
+			log.Info("session cancelled", "workspace_state", st.state)
+			return s.stoppedSession(ctx, f, st.state)
 		}
 	case core.EffectGates:
 		err = s.gates(ctx, f, p)
