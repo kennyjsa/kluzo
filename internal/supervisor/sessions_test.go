@@ -87,8 +87,8 @@ func TestSessionCostSurvivesAStopBeforeTheDecision(t *testing.T) {
 	e.runtime.mu.Unlock()
 	e.drain()
 	n, _ := e.nodeRow()
-	if n.State != core.NodeQueued || n.CostUSDMicros != 30_000 {
-		t.Errorf("node %s, cost %d, want queued with 3 sessions paid", n.State, n.CostUSDMicros)
+	if n.State != core.NodeIntegrated || n.CostUSDMicros != 30_000 {
+		t.Errorf("node %s, cost %d, want integrated with 3 sessions paid", n.State, n.CostUSDMicros)
 	}
 	snap, _ := e.db.Snapshot(context.Background())
 	if len(snap.Sessions) != 2 || snap.Sessions[0].CostUSDMicros != 20_000 {

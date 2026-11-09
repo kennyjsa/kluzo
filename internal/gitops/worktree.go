@@ -3,7 +3,6 @@ package gitops
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -72,17 +71,8 @@ func (g *Git) AddWorktree(ctx context.Context, s WorktreeSpec) (string, error) {
 // Either may already be gone. A locked worktree is removed too: the lock may
 // have been set by the agent.
 func (g *Git) RemoveWorktree(ctx context.Context, repo, path, branch string) error {
-	if _, err := g.run(ctx, repo, "worktree", "prune"); err != nil {
+	if err := g.RemoveCheckout(ctx, repo, path); err != nil {
 		return err
-	}
-	wts, err := g.worktrees(ctx, repo)
-	if err != nil {
-		return err
-	}
-	if _, found := wts[canonical(path)]; found {
-		if _, err := g.run(ctx, repo, "worktree", "remove", "--force", "--force", "--end-of-options", path); err != nil {
-			return err
-		}
 	}
 	_, exists, err := g.resolve(ctx, repo, "refs/heads/"+branch)
 	if err != nil || !exists {
@@ -160,21 +150,9 @@ func (g *Git) ReadAt(ctx context.Context, repo, rev, path string) ([]byte, error
 // there, never in the worktree of the node, whose ignored files, index flags
 // and configuration the agent controls (ADR 0020).
 func (g *Git) Checkout(ctx context.Context, repo, path, commit string) error {
-	if _, err := g.run(ctx, repo, "worktree", "prune"); err != nil {
+	if err := g.RemoveCheckout(ctx, repo, path); err != nil {
 		return err
 	}
-	wts, err := g.worktrees(ctx, repo)
-	if err != nil {
-		return err
-	}
-	if _, found := wts[canonical(path)]; found {
-		if _, err := g.run(ctx, repo, "worktree", "remove", "--force", "--force", "--end-of-options", path); err != nil {
-			return err
-		}
-	}
-	if err := os.RemoveAll(path); err != nil {
-		return err
-	}
-	_, err = g.run(ctx, repo, "worktree", "add", "--detach", "--end-of-options", path, commit)
+	_, err := g.run(ctx, repo, "worktree", "add", "--detach", "--end-of-options", path, commit)
 	return err
 }

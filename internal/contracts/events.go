@@ -12,6 +12,12 @@ const (
 	EventNodeTransition      = "node.transition"
 	EventEdgeAdded           = "edge.added"
 	EventMergeDone           = "merge.done"
+	EventAreaDeviation       = "area.deviation"
+	EventGateStarted         = "gate.started"
+	EventGateFinished        = "gate.finished"
+	// EventPROpened records the PR milestone → main the closing opened, so
+	// the merge on main can be observed (provisional, docs/planning/questions.md).
+	EventPROpened = "pr.opened"
 	// EventNodeFlow records the progress of a node through its flow (step,
 	// findings, the session to resume), so a restart continues from the last
 	// role that finished.
@@ -20,8 +26,8 @@ const (
 
 // Journal-only kinds the supervisor writes.
 const (
-	EventGateStarted     = "gate.started"
-	EventGateFinished    = "gate.finished"
+	EventMergeRebased    = "merge.rebased"
+	EventMergeFreshness  = "merge.freshness"
 	EventEffectFailed    = "effect.failed"
 	EventBudgetAlert     = "budget.alert"
 	EventProposalCreated = "proposal.created"
@@ -128,6 +134,35 @@ type EdgeAdded struct {
 // MergeDone is the payload of merge.done; the node id is the event's node_id.
 type MergeDone struct {
 	MergeSHA string `json:"merge_sha"`
+}
+
+// MergeRebased is the payload of merge.rebased: the node branch rebased on
+// the milestone tip base_sha, now at head_sha.
+type MergeRebased struct {
+	BaseSHA string `json:"base_sha"`
+	HeadSHA string `json:"head_sha"`
+}
+
+// MergeFreshness is the payload of merge.freshness: the gates run again when
+// the milestone tip moved since the commit the review judged (ADR 0009).
+type MergeFreshness struct {
+	ReviewedSHA string `json:"reviewed_sha"`
+	TipSHA      string `json:"tip_sha"`
+	Rerun       bool   `json:"rerun"`
+}
+
+// AreaDeviation is the payload of area.deviation (ADR 0011): the node touched
+// areas it did not declare; they are added to the node.
+type AreaDeviation struct {
+	Declared []string `json:"declared"`
+	Touched  []string `json:"touched"`
+	Files    []string `json:"files"`
+}
+
+// PROpened is the payload of pr.opened.
+type PROpened struct {
+	Ref string `json:"ref"`
+	URL string `json:"url"`
 }
 
 // Session event kinds, normalized by the runtime adapters (docs/contracts/events.md).

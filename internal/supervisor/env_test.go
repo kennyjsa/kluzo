@@ -21,6 +21,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/gitops"
 	"github.com/kennyjsa/kluzo/internal/mcp"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
+	"github.com/kennyjsa/kluzo/internal/platform/docker"
 	"github.com/kennyjsa/kluzo/internal/platform/exec"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/ports"
@@ -43,6 +44,8 @@ type env struct {
 	gates    *fakes.Gates
 	notifier *fakes.Notifier
 	runtime  *script
+	scm      *repoSCM
+	docker   *fakeDocker
 	sup      *supervisor.Supervisor
 	node     string // id of the node
 	issue    string // its issue
@@ -70,9 +73,10 @@ func newEnvBudget(t *testing.T, budget int64, steps ...step) *env {
 
 // envOpts are the choices of newEnvWith.
 type envOpts struct {
-	budget int64                                   // of the node; 0: US$ 6
-	gates  func(repo, dir string) ports.Gates      // nil: the in-memory fake
-	host   func(context.Context) ([]string, error) // nil: a clean host
+	budget   int64                                   // of the node; 0: US$ 6
+	noDocker bool                                    // the machine has no docker
+	gates    func(repo, dir string) ports.Gates      // nil: the in-memory fake
+	host     func(context.Context) ([]string, error) // nil: a clean host
 	// prepare changes the repository before the supervisor loads it.
 	prepare func(repo string)
 }
@@ -88,6 +92,7 @@ func newEnvWith(t *testing.T, o envOpts, steps ...step) *env {
 	if o.prepare != nil {
 		o.prepare(repo)
 	}
+	scm := newRemote(t, dir)
 	budget := o.budget
 	db := openDB(t, filepath.Join(dir, "state.db"))
 	clk := clock.NewManual(epoch)
@@ -97,13 +102,17 @@ func newEnvWith(t *testing.T, o envOpts, steps ...step) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, dir: dir, repo: repo, db: db, clock: clk, tracker: tracker, gates: fakes.NewGates(), notifier: &fakes.Notifier{},
+	e := &env{t: t, dir: dir, repo: repo, db: db, clock: clk, tracker: tracker, gates: fakes.NewGates(), notifier: &fakes.Notifier{}, scm: scm, docker: newFakeDocker(t),
 		runtime: &script{t: t, repo: repo, steps: steps, refs: map[string]bool{}}, node: seed(t, db, gen, issue.Ref, budget), issue: issue.Ref}
+	if o.noDocker {
+		e.docker.bin = filepath.Join(dir, "no-docker")
+	}
 	var gates ports.Gates = e.gates
 	if o.gates != nil {
 		gates = o.gates(repo, dir)
 	}
-	e.sup = build(t, dir, deps{db: db, clock: clk, ids: gen, tracker: tracker, runtime: e.runtime, gates: gates, notifier: e.notifier, host: o.host}, issue.Ref)
+	e.sup = build(t, dir, deps{db: db, clock: clk, ids: gen, tracker: tracker, runtime: e.runtime, gates: gates, notifier: e.notifier, host: o.host,
+		scm: scm, docker: e.docker}, issue.Ref)
 	return e
 }
 
@@ -153,6 +162,8 @@ type deps struct {
 	gates    ports.Gates
 	notifier ports.Notifier
 	host     func(context.Context) ([]string, error) // nil: a clean host
+	scm      ports.SCM                               // nil: a repoSCM on dir/origin.git
+	docker   *fakeDocker                             // nil: a docker that records its calls
 }
 
 // build starts the MCP server and returns the supervisor of the workspace
@@ -178,6 +189,12 @@ func buildWith(t *testing.T, dir string, d deps, issue, model string) *superviso
 	if d.host == nil {
 		d.host = func(context.Context) ([]string, error) { return nil, nil }
 	}
+	if d.scm == nil {
+		d.scm = &repoSCM{SCM: fakes.NewSCM("main"), bare: filepath.Join(dir, "origin.git")}
+	}
+	if d.docker == nil {
+		d.docker = newFakeDocker(t)
+	}
 	srv := mcp.New(&supervisor.Recorder{DB: d.db, Clock: d.clock, IDs: d.ids}, rand.Reader, "test")
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
@@ -187,8 +204,9 @@ func buildWith(t *testing.T, dir string, d deps, issue, model string) *superviso
 		DB: d.db, Clock: d.clock, IDs: d.ids, Tracker: d.tracker, Runtime: d.runtime, MCP: srv,
 		Git: gitops.New(gitops.Config{ParentEnv: os.Environ()}), Gates: d.gates, Notifier: d.notifier,
 		Nonce: func() (string, error) { return "0123abcd", nil }, HostCredentials: d.host,
+		SCM: d.scm, Docker: docker.New(d.docker.bin, nil),
 	}, supervisor.Config{
-		Project: project, Workspace: "ws_1", Milestone: "v1", Repo: repo, Branch: "milestone/v1", Dir: filepath.Join(dir, "ws"),
+		Project: project, Workspace: "ws_1", Milestone: "v1", Repo: repo, Remote: filepath.Join(dir, "origin.git"), Branch: "milestone/v1", Dir: filepath.Join(dir, "ws"),
 		Downloads: filepath.Join(dir, "downloads"), Criteria: map[string][]core.Criterion{issue: {{ID: "AC1", Text: "The agenda lists appointments"}}},
 		Idle: 10 * time.Millisecond, Version: "test", ParentEnv: os.Environ(),
 	})
@@ -225,7 +243,13 @@ func seed(t *testing.T, db *store.DB, gen *ids.Generator, issue string, budget i
 		if _, err := x.Append(store.Event{Header: hdr(), Kind: contracts.EventWorkspaceCreated, Payload: body}); err != nil {
 			return err
 		}
-		for _, tr := range []core.WorkspaceTrigger{core.TriggerCreateWithPlan, core.TriggerPlanApproved, core.TriggerStart} {
+		// The creation creates or adopts the milestone branch (git.milestone).
+		ef, _ := gen.New(ids.Effect, epoch)
+		milestone := store.EffectSpec{ID: ef, Kind: string(core.EffectEnsureMilestone), Key: "milestone", Payload: json.RawMessage(`{"do":{"kind":"git.milestone","key":"milestone"}}`)}
+		if _, err := x.TransitionWorkspace(core.TriggerCreateWithPlan, hdr(), milestone); err != nil {
+			return err
+		}
+		for _, tr := range []core.WorkspaceTrigger{core.TriggerPlanApproved, core.TriggerStart} {
 			if _, err := x.TransitionWorkspace(tr, hdr()); err != nil {
 				return err
 			}

@@ -27,6 +27,9 @@ type Spec struct {
 	Env  []string // the complete environment; nothing is inherited
 }
 
+// ErrNotFound means the program is not in the PATH of Kluzo.
+var ErrNotFound = osexec.ErrNotFound
+
 // Status is how a process ended.
 type Status struct {
 	Code   int    // exit code; -1 when a signal ended it

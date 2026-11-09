@@ -72,3 +72,10 @@ func TestAllowCannotReplaceTheFixedPart(t *testing.T) {
 		t.Errorf("env = %v", env)
 	}
 }
+
+// compose refuses upper case in a project name; workspace ids are ULIDs.
+func TestComposeProjectIsLowerCase(t *testing.T) {
+	if got := Compose("ws_01JC8ZABC", "12")["COMPOSE_PROJECT_NAME"]; got != "kluzo-ws_01jc8zabc-12" {
+		t.Errorf("COMPOSE_PROJECT_NAME = %q", got)
+	}
+}

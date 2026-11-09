@@ -310,3 +310,38 @@ func shareArea(a, b []string) bool {
 	}
 	return false
 }
+
+// NextToIntegrate picks the queued node whose turn it is in the merge queue:
+// none while a node integrates; otherwise the smallest reference among the
+// queued nodes that share no area with a node still in work (ADR 0011: a node
+// that touched the area of a running node waits for it).
+func (g Graph) NextToIntegrate() (string, bool) {
+	var busy []string
+	for _, id := range g.ids() {
+		switch n := g.Nodes[id]; {
+		case n.State == NodeIntegrating:
+			return "", false
+		case active(n.State) && n.State != NodeQueued:
+			busy = append(busy, n.Areas...)
+		}
+	}
+	for _, id := range g.ids() {
+		if n := g.Nodes[id]; n.State == NodeQueued && !shareArea(n.Areas, busy) {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+// AreaDeviation lists, sorted, the areas a node's diff touched that it did
+// not declare (ADR 0011). The shared area never counts.
+func AreaDeviation(declared, touched []string) []string {
+	var out []string
+	for _, a := range touched {
+		if a != SharedArea && !slices.Contains(declared, a) && !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	slices.Sort(out)
+	return out
+}

@@ -1,7 +1,7 @@
 # F13 · Fila de merge
 
 - **Grupo:** D. Downstream
-- **Status:** planejada
+- **Status:** em andamento
 
 - **O quê:** a integração serial na branch da milestone.
 - **Comportamento:**

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -24,18 +25,18 @@ func TestApprovedInTheFirstRound(t *testing.T) {
 	e := newEnv(t, impl(implemented()), rev(reviewed(true, nil)))
 	e.drain()
 	n, r := e.nodeRow()
-	if n.State != core.NodeQueued || !r.Ready || r.Head == "" || r.Base == "" || r.Head == r.Base {
+	if n.State != core.NodeIntegrated || !r.Ready || r.Head == "" || r.Base == "" || r.Head == r.Base {
 		t.Fatalf("node %s, run %+v", n.State, r)
 	}
-	if want := []string{"ready", "running", "in_review", "gating", "queued"}; !slices.Equal(e.moves(), want) {
+	if want := []string{"ready", "running", "in_review", "gating", "queued", "integrating", "integrated"}; !slices.Equal(e.moves(), want) {
 		t.Errorf("moves = %v, want %v", e.moves(), want)
 	}
 	comments := e.comments()
-	if len(comments) != 5 || !strings.Contains(comments[2], "`running` → `in_review` · implementer delivered (attempt 1, round 0)") {
+	if len(comments) != 7 || !strings.Contains(comments[2], "`running` → `in_review` · implementer delivered (attempt 1, round 0)") {
 		t.Errorf("comments = %q", comments)
 	}
 	issue, _ := e.tracker.Issue(t.Context(), e.issue)
-	if !slices.Contains(issue.Labels, "orch/queued") {
+	if !slices.Contains(issue.Labels, "orch/integrated") {
 		t.Errorf("labels = %v", issue.Labels)
 	}
 	if runs := e.gates.Runs(); len(runs) != 2 || runs[0].Gate != "build" || !runs[0].Fast || runs[1].Gate != "test" || runs[1].SHA != r.Head {
@@ -59,7 +60,7 @@ func TestReturnedWithFindings(t *testing.T) {
 		impl(implemented(response("F1", "fixed"))), rev(reviewed(true, []map[string]any{previous("F1", "resolved")})))
 	e.drain()
 	n, r := e.nodeRow()
-	if n.State != core.NodeQueued || n.Round != 1 || r.Findings.List[0].Status != core.FindingResolved {
+	if n.State != core.NodeIntegrated || n.Round != 1 || r.Findings.List[0].Status != core.FindingResolved {
 		t.Fatalf("node %s round %d, findings %+v", n.State, n.Round, r.Findings)
 	}
 	calls := e.runtime.Calls()
@@ -80,7 +81,7 @@ func TestContestedFinding(t *testing.T) {
 	for _, tt := range []struct {
 		status string
 		want   core.NodeState
-	}{{"resolved", core.NodeQueued}, {"open", core.NodeBlocked}} {
+	}{{"resolved", core.NodeIntegrated}, {"open", core.NodeBlocked}} {
 		t.Run(tt.status, func(t *testing.T) {
 			e := newEnv(t,
 				impl(implemented()), rev(reviewed(true, nil, bug)),
@@ -116,14 +117,14 @@ func TestFastGateRed(t *testing.T) {
 	e.gates.Queue("build", ports.GateResult{State: ports.GateFailed, Summary: "undefined: Agenda", LogRef: "logs/gates/1.log"})
 	e.drain()
 	n, r := e.nodeRow()
-	if n.State != core.NodeQueued || n.Attempt != 1 || n.Round != 0 || r.FastGateFailures != 1 {
+	if n.State != core.NodeIntegrated || n.Attempt != 1 || n.Round != 0 || r.FastGateFailures != 1 {
 		t.Fatalf("node %+v, run %+v", n, r)
 	}
 	calls := e.runtime.Calls()
 	if len(calls) != 3 || !calls[1].resume || !strings.Contains(calls[1].prompt, "undefined: Agenda") {
 		t.Errorf("calls = %+v", calls)
 	}
-	if want := []string{"ready", "running", "in_review", "gating", "queued"}; !slices.Equal(e.moves(), want) {
+	if want := []string{"ready", "running", "in_review", "gating", "queued", "integrating", "integrated"}; !slices.Equal(e.moves(), want) {
 		t.Errorf("a red fast gate is not a transition: moves = %v", e.moves())
 	}
 }
@@ -134,7 +135,7 @@ func TestFullGateRedStartsANewAttempt(t *testing.T) {
 	e.drain()
 	n, _ := e.nodeRow()
 	calls := e.runtime.Calls()
-	if n.State != core.NodeQueued || n.Attempt != 2 || len(calls) != 4 || calls[2].resume || !strings.Contains(calls[2].prompt, "Previous attempt") {
+	if n.State != core.NodeIntegrated || n.Attempt != 2 || len(calls) != 4 || calls[2].resume || !strings.Contains(calls[2].prompt, "Previous attempt") {
 		t.Fatalf("node %+v, calls %+v", n, calls)
 	}
 	// The facts come from the journal of attempt 1.
@@ -191,7 +192,7 @@ func TestSingleCorrection(t *testing.T) {
 
 	e := newEnv(t, impl(broken, implemented()), rev(reviewed(true, nil)))
 	e.drain()
-	if n, _ := e.nodeRow(); n.State != core.NodeQueued {
+	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
 		t.Errorf("a schema error corrected once: %s", n.State)
 	}
 	// A schema error and then a coverage error use the one correction: the
@@ -213,6 +214,10 @@ func TestTamperingFailsTheNode(t *testing.T) {
 	}
 	if out, err := gitRun(e.repo, "branch", "--list", "stolen"); err != nil || strings.TrimSpace(out) != "" {
 		t.Errorf("the branch the session created is still there: %q %v", out, err)
+	}
+	// A failed node keeps its worktree for diagnosis (ADR 0025).
+	if _, err := os.Stat(filepath.Join(e.dir, "ws", "worktrees", e.issue)); err != nil || len(e.docker.Calls()) != 0 {
+		t.Errorf("worktree of the failed node: %v; docker calls %v", err, e.docker.Calls())
 	}
 }
 
@@ -255,7 +260,7 @@ func TestOutboxPolicy(t *testing.T) {
 			failed := e.events(contracts.EventEffectFailed)
 			// One label per transition fails; the node still moves on: its
 			// state does not depend on the label (state-machine.md).
-			if n, _ := e.nodeRow(); n.State != core.NodeQueued || len(failed) != 5 || ft.calls != 5*tt.runs {
+			if n, _ := e.nodeRow(); n.State != core.NodeIntegrated || len(failed) != 7 || ft.calls != 7*tt.runs {
 				t.Fatalf("node %s, effect.failed %d, label calls %d", n.State, len(failed), ft.calls)
 			}
 			var p contracts.EffectFailed
@@ -263,8 +268,8 @@ func TestOutboxPolicy(t *testing.T) {
 			if p.Kind != "tracker.set_label" || p.Attempts != tt.runs || !strings.Contains(p.LastError, tt.err.Error()) {
 				t.Errorf("effect.failed = %+v", p)
 			}
-			if n := len(e.notifier.Sent()); n != 5 {
-				t.Errorf("notifications = %d, want one per failed effect", n)
+			if n := len(e.notifier.Sent()); n != 8 {
+				t.Errorf("notifications = %d, want one per failed effect and the PR", n)
 			}
 		})
 	}
@@ -284,12 +289,12 @@ func TestRun(t *testing.T) {
 	go func() { done <- e.sup.Run(ctx) }()
 	deadline := time.After(30 * time.Second)
 	for {
-		if n, _ := e.nodeRow(); n.State == core.NodeQueued {
+		if n, _ := e.nodeRow(); n.State == core.NodeIntegrated {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatal("the node did not reach the queue")
+			t.Fatal("the node was not integrated")
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
@@ -336,10 +341,10 @@ func TestLabelsGoOutInOrder(t *testing.T) {
 	e.sup = rebuild(t, e, &flakyTracker{Tracker: e.tracker})
 	e.drain()
 	issue, _ := e.tracker.Issue(t.Context(), e.issue)
-	if !slices.Contains(issue.Labels, "orch/queued") || slices.Contains(issue.Labels, "orch/ready") {
-		t.Errorf("labels = %v, want orch/queued", issue.Labels)
+	if !slices.Contains(issue.Labels, "orch/integrated") || slices.Contains(issue.Labels, "orch/ready") {
+		t.Errorf("labels = %v, want orch/integrated", issue.Labels)
 	}
-	if c := e.comments(); len(c) != 5 || !strings.Contains(c[0], "dependencies integrated") || !strings.Contains(c[4], "gates passed") {
+	if c := e.comments(); len(c) != 7 || !strings.Contains(c[0], "dependencies integrated") || !strings.Contains(c[4], "gates passed") || !strings.Contains(c[6], "merged") {
 		t.Errorf("comments out of order: %q", c)
 	}
 }

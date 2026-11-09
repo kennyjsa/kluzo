@@ -54,7 +54,8 @@ func (a *Adapter) BranchHead(ctx context.Context, name string) (string, error) {
 }
 
 // OpenPR implements ports.SCM. The PR is looked up by head and base before
-// being created, so a repeat (even after the PR was merged) returns the same one.
+// being created, so a repeat (even after the PR was merged) returns the same
+// one: an open PR, or a closed one carrying the marker of idemKey.
 func (a *Adapter) OpenPR(ctx context.Context, in ports.NewPR, idemKey string) (ports.PR, error) {
 	if err := checkKey(idemKey); err != nil {
 		return ports.PR{}, a.fail("open PR", err)
@@ -65,7 +66,7 @@ func (a *Adapter) OpenPR(ctx context.Context, in ports.NewPR, idemKey string) (p
 	if err != nil {
 		return ports.PR{}, a.fail("look for the PR of "+in.Head, err)
 	}
-	if pr := pickPR(existing); pr != nil {
+	if pr := pickPR(existing, idemKey); pr != nil {
 		return toPR(pr), nil
 	}
 	pr, _, err := a.gh.PullRequests.Create(ctx, a.owner, a.repo, gh.CreatePullRequest{
@@ -77,15 +78,19 @@ func (a *Adapter) OpenPR(ctx context.Context, in ports.NewPR, idemKey string) (p
 	return toPR(pr), nil
 }
 
-// pickPR prefers an open PR; otherwise the newest (the list is newest first).
-func pickPR(prs []*gh.PullRequest) *gh.PullRequest {
+// pickPR prefers an open PR; otherwise the newest closed one this key opened
+// (the list is newest first). A closed PR of someone else, or of an earlier
+// use of the branch name, is not this one: a new PR is opened.
+func pickPR(prs []*gh.PullRequest, key string) *gh.PullRequest {
 	for _, p := range prs {
 		if p.GetState() == "open" {
 			return p
 		}
 	}
-	if len(prs) > 0 {
-		return prs[0]
+	for _, p := range prs {
+		if _, k := splitMarker(p.GetBody()); k == key {
+			return p
+		}
 	}
 	return nil
 }

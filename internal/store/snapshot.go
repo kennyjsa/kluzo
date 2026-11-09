@@ -20,7 +20,8 @@ type WorkspaceRow struct {
 	BaseSHA         string
 	HeadSHA         string
 	BudgetUSDMicros int64
-	CostUSDMicros   int64 // what the sessions of the workspace spent
+	CostUSDMicros   int64              // what the sessions of the workspace spent
+	PR              contracts.PROpened // the PR milestone → main, once opened
 	UpdatedAt       string
 }
 
@@ -61,19 +62,27 @@ type Snapshot struct {
 	Nodes     []NodeRow     // ordered by id
 	Edges     []EdgeRow     // ordered by from, to, kind
 	Sessions  []SessionRow  // ordered by id
+	GateRuns  []GateRunRow  // ordered by start
 }
 
 // Snapshot reads the projections.
 func (d *DB) Snapshot(ctx context.Context) (Snapshot, error) {
 	var s Snapshot
 	var w WorkspaceRow
-	var state string
+	var state, cursor string
 	err := d.sql.QueryRowContext(ctx,
-		`SELECT id, state, COALESCE(profile, ''), branch, base_sha, COALESCE(head_sha, ''), COALESCE(budget_usd_micros, 0), cost_usd_micros, updated_at FROM workspace`).
-		Scan(&w.ID, &state, &w.Profile, &w.Branch, &w.BaseSHA, &w.HeadSHA, &w.BudgetUSDMicros, &w.CostUSDMicros, &w.UpdatedAt)
+		`SELECT id, state, COALESCE(profile, ''), branch, base_sha, COALESCE(head_sha, ''), COALESCE(budget_usd_micros, 0), cost_usd_micros, COALESCE(flow_cursor, ''), updated_at FROM workspace`).
+		Scan(&w.ID, &state, &w.Profile, &w.Branch, &w.BaseSHA, &w.HeadSHA, &w.BudgetUSDMicros, &w.CostUSDMicros, &cursor, &w.UpdatedAt)
 	switch {
 	case err == nil:
 		w.State = core.WorkspaceState(state)
+		if cursor != "" {
+			var c closingCursor
+			if err := json.Unmarshal([]byte(cursor), &c); err != nil {
+				return s, fmt.Errorf("workspace: bad flow_cursor: %w", err)
+			}
+			w.PR = c.PR
+		}
 		s.Workspace = &w
 	case !errors.Is(err, sql.ErrNoRows):
 		return s, fmt.Errorf("read workspace: %w", err)
@@ -84,8 +93,35 @@ func (d *DB) Snapshot(ctx context.Context) (Snapshot, error) {
 	if s.Edges, err = d.edgeRows(ctx); err != nil {
 		return s, err
 	}
-	s.Sessions, err = d.sessionRows(ctx)
+	if s.Sessions, err = d.sessionRows(ctx); err != nil {
+		return s, err
+	}
+	s.GateRuns, err = d.gateRunRows(ctx)
 	return s, err
+}
+
+// GateRunRow is a gate run projection.
+type GateRunRow struct {
+	ID, NodeID, Gate, SHA, State, LogRef string
+	StartedAt, FinishedAt                string
+}
+
+func (d *DB) gateRunRows(ctx context.Context) ([]GateRunRow, error) {
+	var out []GateRunRow
+	err := each(ctx, d.sql,
+		`SELECT id, COALESCE(node_id, ''), gate, sha, state, COALESCE(log_ref, ''), started_at, COALESCE(finished_at, '') FROM gate_runs ORDER BY started_at, id`, nil,
+		func(rows *sql.Rows) error {
+			var r GateRunRow
+			if err := rows.Scan(&r.ID, &r.NodeID, &r.Gate, &r.SHA, &r.State, &r.LogRef, &r.StartedAt, &r.FinishedAt); err != nil {
+				return err
+			}
+			out = append(out, r)
+			return nil
+		})
+	if err != nil {
+		return nil, fmt.Errorf("read gate runs: %w", err)
+	}
+	return out, nil
 }
 
 func (d *DB) nodeRows(ctx context.Context) ([]NodeRow, error) {

@@ -171,3 +171,32 @@ func TestNextToDispatchTieBreaksNumerically(t *testing.T) {
 		t.Errorf("Ready() = %v, want %v", got, want)
 	}
 }
+
+func TestNextToIntegrate(t *testing.T) {
+	node := func(s NodeState, areas ...string) GraphNode { return GraphNode{State: s, Areas: areas} }
+	for _, tt := range []struct {
+		name  string
+		nodes map[string]GraphNode
+		want  string
+	}{
+		{"the smallest queued reference", map[string]GraphNode{"10": node(NodeQueued, "a"), "9": node(NodeQueued, "b")}, "9"},
+		{"one integrates at a time", map[string]GraphNode{"1": node(NodeIntegrating, "a"), "2": node(NodeQueued, "b")}, ""},
+		{"a queued node waits for a running node of its area", map[string]GraphNode{"1": node(NodeQueued, "a"), "2": node(NodeRunning, "a"), "3": node(NodeQueued, "b")}, "3"},
+		{"the shared area does not hold the queue", map[string]GraphNode{"1": node(NodeQueued, SharedArea), "2": node(NodeRunning, SharedArea)}, "1"},
+		{"nothing queued", map[string]GraphNode{"1": node(NodeIntegrated, "a")}, ""},
+	} {
+		got, ok := Graph{Nodes: tt.nodes}.NextToIntegrate()
+		if got != tt.want || ok != (tt.want != "") {
+			t.Errorf("%s: %q %v, want %q", tt.name, got, ok, tt.want)
+		}
+	}
+}
+
+func TestAreaDeviation(t *testing.T) {
+	if got := AreaDeviation([]string{"agenda"}, []string{"auth", SharedArea, "agenda", "billing", "auth"}); !slices.Equal(got, []string{"auth", "billing"}) {
+		t.Errorf("AreaDeviation = %v", got)
+	}
+	if got := AreaDeviation([]string{"agenda"}, []string{"agenda", SharedArea}); got != nil {
+		t.Errorf("AreaDeviation within the declared areas = %v", got)
+	}
+}

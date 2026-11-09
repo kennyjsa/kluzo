@@ -20,6 +20,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/gitops"
 	"github.com/kennyjsa/kluzo/internal/mcp"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
+	"github.com/kennyjsa/kluzo/internal/platform/docker"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/store"
@@ -36,7 +37,15 @@ type Deps struct {
 	Git      *gitops.Git
 	Gates    ports.Gates
 	Notifier ports.Notifier
-	Nonce    func() (string, error) // the envelope nonce of each prompt
+	// SCM creates the milestone branch on the remote, opens the PR
+	// milestone → main and observes its merge.
+	SCM ports.SCM
+	// GitToken is the token of the bot for git fetch and push; nil when the
+	// remote needs none (a local path).
+	GitToken func(context.Context) (string, error)
+	// Docker removes the Docker resources of nodes and workspaces (ADR 0025).
+	Docker *docker.Docker
+	Nonce  func() (string, error) // the envelope nonce of each prompt
 	// HostCredentials finds the credentials of the host visible to the
 	// sessions (hostcred.Check with gitops.HostCredentialHelpers).
 	HostCredentials func(context.Context) ([]string, error)
@@ -49,6 +58,7 @@ type Config struct {
 	Workspace string // ws_<ulid>
 	Milestone string // title of the milestone
 	Repo      string // the main checkout
+	Remote    string // the URL of the repository the bot pushes to
 	Branch    string // the milestone branch, milestone/<name>
 	Dir       string // the workspace directory: worktrees/, home/, cache/, logs/
 	Downloads string // the shared download cache of the project (ADR 0025)
@@ -68,6 +78,8 @@ type Supervisor struct {
 	d    Deps
 	cfg  Config
 	flow core.Flow
+	// polled is when the merge on main was last observed.
+	polled time.Time
 }
 
 // New checks the node flow and returns the supervisor.
@@ -75,6 +87,9 @@ func New(d Deps, cfg Config) (*Supervisor, error) {
 	flow, err := nodeFlow(cfg.Project)
 	if err != nil {
 		return nil, err
+	}
+	if d.SCM == nil || d.Docker == nil || cfg.Remote == "" {
+		return nil, errors.New("supervisor: the SCM, Docker and the remote are required")
 	}
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
@@ -146,21 +161,28 @@ func (s *Supervisor) Run(ctx context.Context) error {
 }
 
 // Step does one round of work: it marks ready the planned nodes whose
-// dependencies are integrated, dispatches a ready node when no node is
-// active (max_parallel is 1 in v0.1), and runs the next pending effect. A
-// workspace that is not running starts no session and no gate, but its
-// labels, comments and notifications still go out. It reports whether it did
-// anything.
+// dependencies are integrated, gives the merge queue to the next queued node,
+// closes the workspace when every node is integrated, dispatches a ready node
+// when no node is active (max_parallel is 1 in v0.1), observes the merge on
+// main of a workspace ready to merge, and runs the next pending effect. A
+// workspace that is not running starts no session, no gate and no
+// integration, but its labels, comments, notifications and cleanups still go
+// out. It reports whether it did anything.
 func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 	snap, err := s.d.DB.Snapshot(ctx)
 	if err != nil || snap.Workspace == nil {
 		return false, err
 	}
 	running := snap.Workspace.State == core.WorkspaceRunning
-	if running {
-		if busy, err := s.schedule(ctx, snap); busy || err != nil {
-			return busy, err
-		}
+	var busy bool
+	switch snap.Workspace.State {
+	case core.WorkspaceRunning:
+		busy, err = s.schedule(ctx, snap)
+	case core.WorkspaceReadyToMerge:
+		busy, err = s.watchMerge(ctx, snap.Workspace)
+	}
+	if busy || err != nil {
+		return busy, err
 	}
 	f, ok, err := s.next(ctx, running)
 	if err != nil || !ok {
@@ -188,7 +210,7 @@ func (s *Supervisor) next(ctx context.Context, running bool) (store.Effect, bool
 		switch {
 		case tracker && held[p.Issue]:
 			continue
-		case f.NextAt.After(now), !running && (k == core.EffectSession || k == core.EffectGates):
+		case f.NextAt.After(now), !running && workEffect(k):
 			held[p.Issue] = held[p.Issue] || tracker
 			continue
 		}
@@ -197,14 +219,26 @@ func (s *Supervisor) next(ctx context.Context, running bool) (store.Effect, bool
 	return store.Effect{}, false, nil
 }
 
+// workEffect reports whether an effect is work on a node that only a running
+// workspace does: sessions, gates and the integration.
+func workEffect(k core.EffectKind) bool {
+	switch k {
+	case core.EffectSession, core.EffectGates, core.EffectRebase, core.EffectMerge:
+		return true
+	}
+	return false
+}
+
 // farFuture lists every pending effect, due or not.
 var farFuture = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // pendingBatch is how many pending effects Step looks at to find one it may run.
 const pendingBatch = 200
 
-// schedule applies Ready to the planned nodes the graph says are ready, and
-// Dispatch to the next ready node when no node is active.
+// schedule applies Ready to the planned nodes the graph says are ready,
+// QueueTurn to the queued node whose turn it is, closes the workspace when
+// every node is integrated, and applies Dispatch to the next ready node when
+// no node is active.
 func (s *Supervisor) schedule(ctx context.Context, snap store.Snapshot) (bool, error) {
 	g := core.Graph{Nodes: map[string]core.GraphNode{}}
 	byRef := map[string]store.NodeRow{}
@@ -220,6 +254,16 @@ func (s *Supervisor) schedule(ctx context.Context, snap store.Snapshot) (bool, e
 		if n := byRef[ref]; n.State == core.NodePlanned {
 			return true, s.decide(ctx, n, core.Ready{}, nil)
 		}
+	}
+	if ref, ok := g.NextToIntegrate(); ok {
+		return true, s.decide(ctx, byRef[ref], core.QueueTurn{}, nil)
+	}
+	states := make([]core.NodeState, len(snap.Nodes))
+	for i, n := range snap.Nodes {
+		states[i] = n.State
+	}
+	if core.AllIntegrated(states) {
+		return true, s.moveWorkspace(ctx, core.TriggerAllIntegrated)
 	}
 	for _, n := range snap.Nodes {
 		if n.State == core.NodeRunning || n.State == core.NodeInReview || n.State == core.NodeGating {
@@ -305,6 +349,10 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 		}
 		extra = append(extra, p)
 	}
+	if f := d.Freshness; f != nil {
+		body, _ := json.Marshal(contracts.MergeFreshness{ReviewedSHA: f.Reviewed, TipSHA: f.Tip, Rerun: f.Rerun}) // plain data
+		extra = append(extra, store.Event{Kind: contracts.EventMergeFreshness, Payload: body})
+	}
 	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
 		for _, e := range extra {
 			h, err := s.header()
@@ -334,7 +382,7 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 			if err != nil {
 				return err
 			}
-			if _, err := t.TransitionWorkspace(d.Workspace, h); err != nil {
+			if err := s.transitionWorkspace(t, d.Workspace, h); err != nil {
 				return err
 			}
 		}
@@ -342,14 +390,9 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 		if err != nil {
 			return err
 		}
-		specs := make([]store.EffectSpec, len(d.Effects))
-		for i, e := range d.Effects {
-			id, err := s.d.IDs.New(ids.Effect, h.TS)
-			if err != nil {
-				return err
-			}
-			body, _ := json.Marshal(effectPayload{Node: n.ID, Issue: n.IssueRef, Do: e}) // plain data, cannot fail
-			specs[i] = store.EffectSpec{ID: id, Kind: string(e.Kind), Key: e.Key, Payload: body}
+		specs, err := s.effectSpecs(h, n.ID, n.IssueRef, d.Effects)
+		if err != nil {
+			return err
 		}
 		runJSON, _ := json.Marshal(d.Next.Run) // plain data, cannot fail
 		flow, _ := json.Marshal(contracts.NodeFlow{Step: d.Next.Run.Step, Run: runJSON})
@@ -361,6 +404,20 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 		}
 		return nil
 	})
+}
+
+// effectSpecs are the outbox rows of effects of a node ("" for the workspace).
+func (s *Supervisor) effectSpecs(h store.Header, node, issue string, effects []core.Effect) ([]store.EffectSpec, error) {
+	specs := make([]store.EffectSpec, len(effects))
+	for i, e := range effects {
+		id, err := s.d.IDs.New(ids.Effect, h.TS)
+		if err != nil {
+			return nil, err
+		}
+		body, _ := json.Marshal(effectPayload{Node: node, Issue: issue, Do: e}) // plain data, cannot fail
+		specs[i] = store.EffectSpec{ID: id, Kind: string(e.Kind), Key: e.Key, Payload: body}
+	}
+	return specs, nil
 }
 
 // proposal is the proposal.created of a decision that blocks the node for a
@@ -422,7 +479,11 @@ func (s *Supervisor) execute(ctx context.Context, f store.Effect) error {
 	case core.EffectComment:
 		_, err = s.d.Tracker.Comment(ctx, p.Issue, p.Do.Body, f.IdemKey)
 	case core.EffectNotify:
-		err = s.d.Notifier.Notify(ctx, ports.Notification{Title: p.Do.Title + " · #" + p.Issue, Body: p.Do.Body, Priority: p.Do.Priority, Group: s.cfg.Workspace})
+		title := p.Do.Title
+		if p.Issue != "" {
+			title += " · #" + p.Issue
+		}
+		err = s.d.Notifier.Notify(ctx, ports.Notification{Title: title, Body: p.Do.Body, Priority: p.Do.Priority, Group: s.cfg.Workspace})
 	case core.EffectSession:
 		err = s.session(ctx, f, n, p)
 		if err == nil {
@@ -433,6 +494,27 @@ func (s *Supervisor) execute(ctx context.Context, f store.Effect) error {
 		if err == nil {
 			return nil
 		}
+	case core.EffectRebase:
+		err = s.rebase(ctx, f, p)
+		if err == nil {
+			return nil
+		}
+	case core.EffectMerge:
+		err = s.merge(ctx, f, p)
+		if err == nil {
+			return nil
+		}
+	case core.EffectOpenPR:
+		err = s.openPR(ctx, f)
+		if err == nil {
+			return nil
+		}
+	case core.EffectCleanupNode:
+		err = s.cleanupNode(ctx, p)
+	case core.EffectEnsureMilestone:
+		err = s.ensureMilestone(ctx)
+	case core.EffectCleanupWorkspace:
+		err = s.cleanupWorkspace(ctx)
 	default:
 		err = fmt.Errorf("unknown effect kind %q: %w", f.Kind, ports.ErrPermanent)
 	}

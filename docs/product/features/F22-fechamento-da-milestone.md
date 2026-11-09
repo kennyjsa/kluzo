@@ -1,7 +1,7 @@
 # F22 · Fechamento da milestone
 
 - **Grupo:** F. Fechamento
-- **Status:** planejada
+- **Status:** em andamento
 
 - **O quê:** o gate E2E, o relatório e o MR para a `main`.
 - **Comportamento:**

@@ -73,6 +73,9 @@ func TestEventsMatchContract(t *testing.T) {
 		EventNodeTransition:      NodeTransition{},
 		EventEdgeAdded:           EdgeAdded{},
 		EventMergeDone:           MergeDone{},
+		EventMergeRebased:        MergeRebased{},
+		EventMergeFreshness:      MergeFreshness{},
+		EventAreaDeviation:       AreaDeviation{},
 		EventNodeFlow:            NodeFlow{},
 		EventEffectFailed:        EffectFailed{},
 	}
