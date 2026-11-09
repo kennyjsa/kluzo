@@ -113,7 +113,7 @@ func (s *session) play(ctx context.Context, spec ports.SessionSpec) {
 			}
 		}
 	}
-	s.events <- sessionEvent(contracts.EventSessionFinished, contracts.SessionFinished{State: res.State, Cause: string(res.Cause)})
+	s.events <- sessionEvent(contracts.EventSessionFinished, contracts.SessionFinished{State: res.State, Cause: string(res.Cause), CostUSDMicros: res.CostUSD, Result: res.Raw})
 	s.mu.Lock()
 	s.result = res
 	s.mu.Unlock()

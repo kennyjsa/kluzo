@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
@@ -29,6 +30,10 @@ func (t *Tx) project(e Event) error {
 		return t.projectMergeDone(e)
 	case contracts.EventNodeFlow:
 		return t.projectNodeFlow(e)
+	case contracts.EventSessionStarted:
+		return t.projectSessionStarted(e)
+	case contracts.EventSessionFinished:
+		return t.projectSessionFinished(e)
 	}
 	return nil
 }
@@ -119,6 +124,74 @@ func (t *Tx) projectNodeFlow(e Event) error {
 	return expectOne(res, err, fmt.Sprintf("node %s does not exist", e.NodeID))
 }
 
+// projectSessionStarted records a session. A Kluzo session runs again in a
+// new harness session (the retries of the outbox), so a later start of the
+// same id takes over the row.
+func (t *Tx) projectSessionStarted(e Event) error {
+	if e.SessionID == "" {
+		return fmt.Errorf("%s without a session", e.Kind)
+	}
+	var p contracts.SessionStarted
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	_, err := t.tx.ExecContext(t.ctx,
+		`INSERT INTO sessions (id, node_id, role, harness, model, harness_session_ref, attempt, round, state, started_at)
+		 VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, 'running', ?)
+		 ON CONFLICT (id) DO UPDATE SET harness = excluded.harness, model = excluded.model,
+		   harness_session_ref = excluded.harness_session_ref, state = 'running', finished_at = NULL`,
+		e.SessionID, e.NodeID, p.Role, p.Harness, p.Model, p.HarnessSessionRef, p.Attempt, p.Round, formatTS(e.TS))
+	return err
+}
+
+// projectSessionFinished closes a session and adds its cost to the session,
+// its node and the workspace: the cost is in the journal before the decision
+// on the session, so a crash between the two does not lose it.
+func (t *Tx) projectSessionFinished(e Event) error {
+	if e.SessionID == "" {
+		return fmt.Errorf("%s without a session", e.Kind)
+	}
+	var p contracts.SessionFinished
+	if err := decodePayload(e, &p); err != nil {
+		return err
+	}
+	ts := formatTS(e.TS)
+	// A harness that died before its init has no session.started: its row is
+	// missing, but its cost still counts.
+	if _, err := t.tx.ExecContext(t.ctx,
+		`UPDATE sessions SET state = ?, result = COALESCE(?, result), cost_usd_micros = cost_usd_micros + ?, finished_at = ? WHERE id = ?`,
+		p.State, nullJSON(p.Result), p.CostUSDMicros, ts, e.SessionID); err != nil {
+		return err
+	}
+	if e.NodeID != "" {
+		res, err := t.tx.ExecContext(t.ctx, `UPDATE nodes SET cost_usd_micros = cost_usd_micros + ?, updated_at = ? WHERE id = ?`, p.CostUSDMicros, ts, e.NodeID)
+		if err := expectOne(res, err, fmt.Sprintf("node %s does not exist", e.NodeID)); err != nil {
+			return err
+		}
+	}
+	_, err := t.tx.ExecContext(t.ctx, `UPDATE workspace SET cost_usd_micros = cost_usd_micros + ?, updated_at = ?`, p.CostUSDMicros, ts)
+	return err
+}
+
+// WorkspaceCost is what the sessions of the workspace spent and the budget
+// of the milestone (0 when the workspace has none of its own), in
+// micro-dollars.
+func (t *Tx) WorkspaceCost() (spent, budget int64, err error) {
+	err = t.tx.QueryRowContext(t.ctx, `SELECT cost_usd_micros, COALESCE(budget_usd_micros, 0) FROM workspace`).Scan(&spent, &budget)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = fmt.Errorf("%w: workspace", ErrNotFound)
+	}
+	return spent, budget, err
+}
+
+// nullJSON is a JSON column value: NULL when empty.
+func nullJSON(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	return string(raw)
+}
+
 // expectOne turns "no row updated" into ErrStateMismatch.
 func expectOne(res sql.Result, err error, msg string) error {
 	if err != nil {
@@ -142,13 +215,13 @@ const replayPage = 500
 // must equal the incrementally maintained state.
 func (d *DB) Rebuild(ctx context.Context) error {
 	return d.Tx(ctx, func(t *Tx) error {
-		for _, table := range []string{"edges", "nodes", "workspace"} {
+		for _, table := range []string{"sessions", "edges", "nodes", "workspace"} {
 			if _, err := t.tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 				return fmt.Errorf("clear %s: %w", table, err)
 			}
 		}
 		for after := int64(0); ; {
-			page, err := queryEvents(ctx, t.tx, after, replayPage)
+			page, err := queryEvents(ctx, t.tx, after, replayPage, "")
 			if err != nil {
 				return err
 			}

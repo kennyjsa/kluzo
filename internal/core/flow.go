@@ -118,8 +118,7 @@ type Run struct {
 	// Rejected says the implementer is back for review findings; it stays
 	// set until the reviewer judges them, through fast gate retries.
 	Rejected bool
-	CostUSD  int64 // micro-dollars spent by the sessions of the node
-	Ready    bool  // the node reached the merge queue
+	Ready    bool // the node reached the merge queue
 }
 
 // NodeFlow is a node and its progress through the flow.
@@ -146,7 +145,6 @@ type SessionDone struct {
 	// Raw is the accepted result, validated by schema and coverage.
 	Raw     json.RawMessage
 	Session *HarnessSession // the harness conversation, for a later resume
-	CostUSD int64
 	// Tampered means the session changed the refs, the git configuration or
 	// the hooks (ADR 0024, item 4): the node fails.
 	Tampered bool
@@ -158,10 +156,10 @@ type SessionDone struct {
 }
 
 // SessionRetry is a session that failed with a retryable cause and will run
-// again in a new session of the same attempt: only its cost counts now.
+// again in a new session of the same attempt. Its cost is already in the
+// journal (session.finished).
 type SessionRetry struct {
-	Step    int
-	CostUSD int64
+	Step int
 }
 
 // GatesDone is a gate step that ran every gate.
@@ -336,7 +334,6 @@ func (d *decider) session(in SessionDone) error {
 	if in.Step != r.Step || d.flow.Steps[r.Step].Kind != StepRole {
 		return fmt.Errorf("%w: session of step %d, node at step %d", ErrStaleInput, in.Step, r.Step)
 	}
-	r.CostUSD += in.CostUSD
 	st := d.flow.Steps[r.Step]
 	switch {
 	case in.Tampered:
@@ -355,7 +352,6 @@ func (d *decider) retry(in SessionRetry) error {
 	if in.Step != r.Step || d.flow.Steps[r.Step].Kind != StepRole {
 		return fmt.Errorf("%w: retry of step %d, node at step %d", ErrStaleInput, in.Step, r.Step)
 	}
-	r.CostUSD += in.CostUSD
 	// A failed session gets a new one, not another resume of the same
 	// conversation (prompt.md#sessões).
 	if d.flow.Steps[r.Step].Role == RoleImplementer {

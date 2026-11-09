@@ -35,6 +35,7 @@ var epoch = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 // tracker, gates and notifier, a scripted runtime and the real MCP server.
 type env struct {
 	t        *testing.T
+	dir      string // holds repo/ and the workspace directory ws/
 	repo     string
 	db       *store.DB
 	clock    *clock.Manual
@@ -75,7 +76,7 @@ func newEnvBudget(t *testing.T, budget int64, steps ...step) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, repo: repo, db: db, clock: clk, tracker: tracker, gates: fakes.NewGates(), notifier: &fakes.Notifier{},
+	e := &env{t: t, dir: dir, repo: repo, db: db, clock: clk, tracker: tracker, gates: fakes.NewGates(), notifier: &fakes.Notifier{},
 		runtime: &script{t: t, repo: repo, steps: steps, refs: map[string]bool{}}, node: seed(t, db, gen, issue.Ref, budget), issue: issue.Ref}
 	e.sup = build(t, dir, deps{db: db, clock: clk, ids: gen, tracker: tracker, runtime: e.runtime, gates: e.gates, notifier: e.notifier}, issue.Ref)
 	return e
@@ -160,7 +161,7 @@ func buildWith(t *testing.T, dir string, d deps, issue, model string) *superviso
 	}, supervisor.Config{
 		Project: project, Workspace: "ws_1", Milestone: "v1", Repo: repo, Branch: "milestone/v1", Dir: filepath.Join(dir, "ws"),
 		Downloads: filepath.Join(dir, "downloads"), Criteria: map[string][]core.Criterion{issue: {{ID: "AC1", Text: "The agenda lists appointments"}}},
-		Idle: 10 * time.Millisecond,
+		Idle: 10 * time.Millisecond, Version: "test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -327,8 +328,11 @@ type script struct {
 	// announce, when set, is told each session start (the crash test kills
 	// the process there).
 	announce func()
-	calls    []call
-	refs     map[string]bool
+	// waited, when set, is told when the supervisor collects the result of a
+	// session: its events, session.finished included, are in the journal.
+	waited func()
+	calls  []call
+	refs   map[string]bool
 }
 
 func (*script) Name() string { return "script" }
@@ -370,7 +374,7 @@ func (s *script) begin(ctx context.Context, spec ports.SessionSpec, ref string, 
 		s.t.Errorf("session of %s, the script expected %s", spec.Role.Name, st.role)
 	}
 	s.refs[ref] = true
-	sess := &played{ref: ref, events: make(chan ports.Event, 4), done: make(chan struct{})}
+	sess := &played{ref: ref, events: make(chan ports.Event, 4), done: make(chan struct{}), waited: s.waited}
 	go sess.play(ctx, s.t, s.repo, spec, st)
 	return sess, nil
 }
@@ -386,6 +390,7 @@ type played struct {
 	events chan ports.Event
 	done   chan struct{}
 	result ports.Result
+	waited func()
 }
 
 func (p *played) play(ctx context.Context, t *testing.T, repo string, spec ports.SessionSpec, st step) {
@@ -394,6 +399,8 @@ func (p *played) play(ctx context.Context, t *testing.T, repo string, spec ports
 	started, _ := json.Marshal(contracts.SessionStarted{Role: spec.Role.Name, Harness: "script"})
 	p.events <- ports.Event{Kind: contracts.EventSessionStarted, Payload: started}
 	for name, content := range st.files {
+		edited, _ := json.Marshal(contracts.FileEdited{Path: name, Added: 1})
+		p.events <- ports.Event{Kind: contracts.EventFileEdited, Payload: edited}
 		path := filepath.Join(spec.Workdir, name)
 		_ = os.MkdirAll(filepath.Dir(path), 0o755)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -423,7 +430,7 @@ func (p *played) play(ctx context.Context, t *testing.T, repo string, spec ports
 			p.result = ports.Result{State: ports.StateFailed, Cause: ports.CauseNoResult, CostUSD: 10_000, Cumulative: usage}
 		}
 	}
-	finished, _ := json.Marshal(contracts.SessionFinished{State: p.result.State, Cause: string(p.result.Cause)})
+	finished, _ := json.Marshal(contracts.SessionFinished{State: p.result.State, Cause: string(p.result.Cause), CostUSDMicros: p.result.CostUSD, Result: p.result.Raw})
 	p.events <- ports.Event{Kind: contracts.EventSessionFinished, Payload: finished}
 }
 
@@ -457,6 +464,9 @@ func (p *played) Send(context.Context, string) error { return nil }
 func (p *played) Cancel() error                      { return nil }
 func (p *played) Wait() (ports.Result, error) {
 	<-p.done
+	if p.waited != nil {
+		p.waited()
+	}
 	return p.result, nil
 }
 

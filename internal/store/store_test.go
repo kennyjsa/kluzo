@@ -38,8 +38,8 @@ func TestMigrations(t *testing.T) {
 	}
 	var n int
 	must(t, d.sql.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n))
-	if n != 2 {
-		t.Errorf("migrations applied = %d, want 2", n)
+	if n != 3 {
+		t.Errorf("migrations applied = %d, want 3", n)
 	}
 
 	// A database from a newer binary is refused rather than misread.

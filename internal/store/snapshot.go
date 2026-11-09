@@ -20,6 +20,7 @@ type WorkspaceRow struct {
 	BaseSHA         string
 	HeadSHA         string
 	BudgetUSDMicros int64
+	CostUSDMicros   int64 // what the sessions of the workspace spent
 	UpdatedAt       string
 }
 
@@ -36,6 +37,7 @@ type NodeRow struct {
 	Round         int
 	Budget        contracts.NodeBudget
 	MergedSHA     string
+	CostUSDMicros int64           // what the sessions of the node spent
 	Flow          json.RawMessage // the run of the node flow (node.flow); nil before dispatch
 	UpdatedAt     string
 }
@@ -43,11 +45,22 @@ type NodeRow struct {
 // EdgeRow is an edge projection.
 type EdgeRow struct{ From, To, Kind, Source string }
 
+// SessionRow is a session projection.
+type SessionRow struct {
+	ID, NodeID, Role, Harness, Model, HarnessRef string
+	Attempt, Round                               int
+	State                                        string
+	Result                                       json.RawMessage // nil until a result was accepted
+	CostUSDMicros                                int64
+	StartedAt, FinishedAt                        string
+}
+
 // Snapshot is the state held in the projection tables.
 type Snapshot struct {
 	Workspace *WorkspaceRow // nil before workspace.created
 	Nodes     []NodeRow     // ordered by id
 	Edges     []EdgeRow     // ordered by from, to, kind
+	Sessions  []SessionRow  // ordered by id
 }
 
 // Snapshot reads the projections.
@@ -56,8 +69,8 @@ func (d *DB) Snapshot(ctx context.Context) (Snapshot, error) {
 	var w WorkspaceRow
 	var state string
 	err := d.sql.QueryRowContext(ctx,
-		`SELECT id, state, COALESCE(profile, ''), branch, base_sha, COALESCE(head_sha, ''), COALESCE(budget_usd_micros, 0), updated_at FROM workspace`).
-		Scan(&w.ID, &state, &w.Profile, &w.Branch, &w.BaseSHA, &w.HeadSHA, &w.BudgetUSDMicros, &w.UpdatedAt)
+		`SELECT id, state, COALESCE(profile, ''), branch, base_sha, COALESCE(head_sha, ''), COALESCE(budget_usd_micros, 0), cost_usd_micros, updated_at FROM workspace`).
+		Scan(&w.ID, &state, &w.Profile, &w.Branch, &w.BaseSHA, &w.HeadSHA, &w.BudgetUSDMicros, &w.CostUSDMicros, &w.UpdatedAt)
 	switch {
 	case err == nil:
 		w.State = core.WorkspaceState(state)
@@ -68,19 +81,22 @@ func (d *DB) Snapshot(ctx context.Context) (Snapshot, error) {
 	if s.Nodes, err = d.nodeRows(ctx); err != nil {
 		return s, err
 	}
-	s.Edges, err = d.edgeRows(ctx)
+	if s.Edges, err = d.edgeRows(ctx); err != nil {
+		return s, err
+	}
+	s.Sessions, err = d.sessionRows(ctx)
 	return s, err
 }
 
 func (d *DB) nodeRows(ctx context.Context) ([]NodeRow, error) {
 	var out []NodeRow
 	err := each(ctx, d.sql,
-		`SELECT id, issue_ref, title, state, COALESCE(prev_state, ''), COALESCE(blocked_reason, ''), areas, attempt, round, budget, COALESCE(merged_sha, ''), COALESCE(flow, ''), updated_at
+		`SELECT id, issue_ref, title, state, COALESCE(prev_state, ''), COALESCE(blocked_reason, ''), areas, attempt, round, budget, COALESCE(merged_sha, ''), cost_usd_micros, COALESCE(flow, ''), updated_at
 		   FROM nodes ORDER BY id`, nil,
 		func(rows *sql.Rows) error {
 			var n NodeRow
 			var state, prev, reason, areas, budget, flow string
-			if err := rows.Scan(&n.ID, &n.IssueRef, &n.Title, &state, &prev, &reason, &areas, &n.Attempt, &n.Round, &budget, &n.MergedSHA, &flow, &n.UpdatedAt); err != nil {
+			if err := rows.Scan(&n.ID, &n.IssueRef, &n.Title, &state, &prev, &reason, &areas, &n.Attempt, &n.Round, &budget, &n.MergedSHA, &n.CostUSDMicros, &flow, &n.UpdatedAt); err != nil {
 				return err
 			}
 			if flow != "" {
@@ -115,6 +131,31 @@ func (d *DB) edgeRows(ctx context.Context) ([]EdgeRow, error) {
 		})
 	if err != nil {
 		return nil, fmt.Errorf("read edges: %w", err)
+	}
+	return out, nil
+}
+
+func (d *DB) sessionRows(ctx context.Context) ([]SessionRow, error) {
+	var out []SessionRow
+	err := each(ctx, d.sql,
+		`SELECT id, COALESCE(node_id, ''), role, harness, model, COALESCE(harness_session_ref, ''), COALESCE(attempt, 0), COALESCE(round, 0),
+		        state, COALESCE(result, ''), cost_usd_micros, started_at, COALESCE(finished_at, '')
+		   FROM sessions ORDER BY id`, nil,
+		func(rows *sql.Rows) error {
+			var r SessionRow
+			var result string
+			if err := rows.Scan(&r.ID, &r.NodeID, &r.Role, &r.Harness, &r.Model, &r.HarnessRef, &r.Attempt, &r.Round,
+				&r.State, &result, &r.CostUSDMicros, &r.StartedAt, &r.FinishedAt); err != nil {
+				return err
+			}
+			if result != "" {
+				r.Result = json.RawMessage(result)
+			}
+			out = append(out, r)
+			return nil
+		})
+	if err != nil {
+		return nil, fmt.Errorf("read sessions: %w", err)
 	}
 	return out, nil
 }
