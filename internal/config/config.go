@@ -135,9 +135,10 @@ type MilestoneBudget struct {
 
 // Worktree prepares each worktree before the first session of a node.
 type Worktree struct {
-	Setup   string        `yaml:"setup"`   // command read from the milestone tip
-	Include []string      `yaml:"include"` // ignored files copied from the main checkout
-	Timeout time.Duration `yaml:"timeout"`
+	Setup    string        `yaml:"setup"`     // command read from the milestone tip
+	Include  []string      `yaml:"include"`   // ignored files copied from the main checkout
+	EnvAllow []string      `yaml:"env_allow"` // variables of Kluzo passed to the setup, besides caches and COMPOSE_PROJECT_NAME
+	Timeout  time.Duration `yaml:"timeout"`
 }
 
 // Retention limits what the workspace keeps (ADR 0025).
@@ -201,6 +202,7 @@ func (c *Config) validate(r report) {
 		if rt.MinVersion != "" && !versionPattern.MatchString(rt.MinVersion) {
 			r.add(join(p, "min_version"), fmt.Sprintf("%q is not a version like 2.1.186", rt.MinVersion))
 		}
+		validateEnvAllow(r, join(p, "env_allow"), rt.EnvAllow)
 	}
 	if d := c.Defaults; d.Harness != "" && d.Model != "" {
 		if msg := checkPair(d.Harness, d.Model); msg != "" {
@@ -291,6 +293,7 @@ func (c *Config) validateWorkspaceResources(r report) {
 	if c.Worktree.Timeout < 0 {
 		r.add("worktree.timeout", "must not be negative")
 	}
+	validateEnvAllow(r, "worktree.env_allow", c.Worktree.EnvAllow)
 	for i, f := range c.Worktree.Include {
 		if f == "" || path.IsAbs(f) || path.Clean(f) != f || strings.HasPrefix(f, "../") {
 			r.add(idx("worktree.include", i), fmt.Sprintf("%q must be a clean path relative to the repository", f))
@@ -352,5 +355,20 @@ func validateGates(r report, path string, gates []Gate) {
 		if g.Timeout < 0 {
 			r.add(join(p, "timeout"), "must not be negative")
 		}
+		validateEnvAllow(r, join(p, "env_allow"), g.EnvAllow)
+	}
+}
+
+// validateEnvAllow checks an env_allow list: environment variable names, each once.
+func validateEnvAllow(r report, path string, names []string) {
+	seen := map[string]bool{}
+	for i, n := range names {
+		switch {
+		case !envName.MatchString(n):
+			r.add(idx(path, i), fmt.Sprintf("%q is not an environment variable name", n))
+		case seen[n]:
+			r.add(idx(path, i), fmt.Sprintf("duplicate variable %q", n))
+		}
+		seen[n] = true
 	}
 }

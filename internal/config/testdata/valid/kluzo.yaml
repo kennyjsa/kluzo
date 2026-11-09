@@ -82,6 +82,7 @@ worktree:
   setup: "bash tools/prepare-worktree.sh"
   include: [".env"]
   timeout: 15m
+  env_allow: [NPM_TOKEN]
 
 caches: [go, node]
 
