@@ -25,7 +25,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | `awaiting_approval` | `approved` | humano aprova o plano | nenhum item pendente; grafo válido | cria issues e links aprovados; commit de `plans/<milestone>.yaml` |
 | `approved` | `running` | imediato | — | scheduler começa a despachar nós |
 | `running` | `paused` | humano pausa | — | sessões ativas recebem `Cancel`; nós voltam para o último estado estável |
-| `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
+| `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024), ou credenciais do host visíveis às sessões sem `security.allow_host_credentials` (ADR 0020) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
 | `paused` | `running` | humano retoma | — | scheduler volta a despachar |
 | `running` | `closing` | último nó vira `integrated` | todos os nós `integrated` ou `cancelled` | inicia o flow `closing` |
 | `closing` | `ready_to_merge` | flow `closing` termina | gate E2E verde | abre o PR/MR `milestone → main` com o relatório |
@@ -96,7 +96,7 @@ Uma **tentativa** (`attempt`) começa a cada entrada em `running` vinda de `read
 | `blocked_reason` | Quando | Como resolve |
 |---|---|---|
 | `question` | `kluzo_ask` | resposta humana |
-| `proposal` | `kluzo_propose_node` com `blocking: true` | proposta aprovada (e o nó novo integrado) ou recusada |
+| `proposal` | `kluzo_propose_node` com `blocking: true`; ou a conferência depois de uma rodada do implementer encontra mudança em `protected_paths`, teste apagado ou teste desativado (ADR 0020), com `proposal.created` (`kind: change`) | proposta aprovada (e o nó novo integrado) ou recusada |
 | `budget` | orçamento do nó estourou | humano aumenta o orçamento, troca o modelo ou cancela |
 | `triage` | triagem decide `escalate` | ação humana indicada no item da Inbox |
 | `dependency_failed` | uma dependência virou `failed` ou `cancelled` | dependência resolvida, ou o nó é replanejado |
