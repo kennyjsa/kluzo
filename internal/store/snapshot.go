@@ -22,7 +22,10 @@ type WorkspaceRow struct {
 	BudgetUSDMicros int64
 	CostUSDMicros   int64              // what the sessions of the workspace spent
 	PR              contracts.PROpened // the PR milestone → main, once opened
-	UpdatedAt       string
+	// Milestone is the state of the last git.milestone effect: pending until
+	// one is done.
+	Milestone core.MilestoneState
+	UpdatedAt string
 }
 
 // NodeRow is a node projection.
@@ -70,12 +73,13 @@ func (d *DB) Snapshot(ctx context.Context) (Snapshot, error) {
 	var s Snapshot
 	var w WorkspaceRow
 	var state, cursor string
+	var milestone string
 	err := d.sql.QueryRowContext(ctx,
-		`SELECT id, state, COALESCE(profile, ''), branch, base_sha, COALESCE(head_sha, ''), COALESCE(budget_usd_micros, 0), cost_usd_micros, COALESCE(flow_cursor, ''), updated_at FROM workspace`).
-		Scan(&w.ID, &state, &w.Profile, &w.Branch, &w.BaseSHA, &w.HeadSHA, &w.BudgetUSDMicros, &w.CostUSDMicros, &cursor, &w.UpdatedAt)
+		`SELECT id, state, COALESCE(profile, ''), branch, base_sha, COALESCE(head_sha, ''), COALESCE(budget_usd_micros, 0), cost_usd_micros, COALESCE(flow_cursor, ''), updated_at, (`+milestoneQuery+`) FROM workspace`).
+		Scan(&w.ID, &state, &w.Profile, &w.Branch, &w.BaseSHA, &w.HeadSHA, &w.BudgetUSDMicros, &w.CostUSDMicros, &cursor, &w.UpdatedAt, &milestone)
 	switch {
 	case err == nil:
-		w.State = core.WorkspaceState(state)
+		w.State, w.Milestone = core.WorkspaceState(state), core.MilestoneState(milestone)
 		if cursor != "" {
 			var c closingCursor
 			if err := json.Unmarshal([]byte(cursor), &c); err != nil {

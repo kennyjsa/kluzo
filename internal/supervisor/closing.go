@@ -10,6 +10,8 @@ import (
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
+	"github.com/kennyjsa/kluzo/internal/platform/clock"
+	"github.com/kennyjsa/kluzo/internal/platform/ids"
 	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/store"
 )
@@ -41,7 +43,11 @@ func (s *Supervisor) transitionWorkspace(t *store.Tx, trigger core.WorkspaceTrig
 	if err != nil {
 		return fmt.Errorf("workspace: %w", err)
 	}
-	specs, err := s.effectSpecs(h, "", "", core.WorkspaceEffects(from, to))
+	m, err := t.MilestoneState()
+	if err != nil {
+		return err
+	}
+	specs, err := s.effectSpecs(h, "", "", core.WorkspaceEffects(core.WorkspaceMove{From: from, To: to, Trigger: trigger, Milestone: m}))
 	if err != nil {
 		return err
 	}
@@ -56,6 +62,14 @@ func (s *Supervisor) moveWorkspace(ctx context.Context, trigger core.WorkspaceTr
 		return err
 	}
 	return s.d.DB.Tx(ctx, func(t *store.Tx) error { return s.transitionWorkspace(t, trigger, h) })
+}
+
+// MoveWorkspace applies a workspace trigger from outside the loop of the
+// supervisor (the pause and the resume of a person), with the effects of the
+// move, in one transaction.
+func MoveWorkspace(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock.Clock, trigger core.WorkspaceTrigger) error {
+	s := &Supervisor{d: Deps{DB: db, IDs: gen, Clock: clk}}
+	return s.moveWorkspace(ctx, trigger)
 }
 
 // ensureMilestone creates or adopts the milestone branch, locally and on the

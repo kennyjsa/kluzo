@@ -221,3 +221,30 @@ func TestRemoveCheckout(t *testing.T) {
 		t.Error("still registered")
 	}
 }
+
+// RemoteBranches lists which branches the remote has; DeleteRemoteBranches
+// deletes them, and a branch already absent counts as deleted.
+func TestDeleteRemoteBranches(t *testing.T) {
+	ctx := context.Background()
+	g := newGit()
+	repo, r := withRemote(t, g)
+	git(t, g, repo, "branch", "issue/1-a", "main")
+	if err := g.Push(ctx, repo, r, "+refs/heads/issue/1-a:refs/heads/issue/1-a"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := g.RemoteBranches(ctx, repo, r, "issue/2-b", "issue/1-a", "milestone/v1"); err != nil || !slices.Equal(got, []string{"issue/1-a", "milestone/v1"}) {
+		t.Fatalf("RemoteBranches = %v, %v", got, err)
+	}
+	if err := g.DeleteRemoteBranches(ctx, repo, r, "issue/1-a", "issue/2-b"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := g.RemoteBranches(ctx, repo, r, "issue/1-a", "milestone/v1"); err != nil || !slices.Equal(got, []string{"milestone/v1"}) {
+		t.Fatalf("after the delete: %v, %v", got, err)
+	}
+	if err := g.DeleteRemoteBranches(ctx, repo, r, "issue/1-a"); err != nil {
+		t.Errorf("absent: %v", err)
+	}
+	if got, err := g.RemoteBranches(ctx, repo, r); err != nil || got != nil {
+		t.Errorf("none asked: %v, %v", got, err)
+	}
+}

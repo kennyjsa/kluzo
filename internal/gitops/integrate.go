@@ -91,6 +91,49 @@ func (g *Git) SyncBranch(ctx context.Context, repo string, r Remote, branch stri
 	return "", fmt.Errorf("branch %s (local %s, remote %s): %w: %w", branch, local, remote, ErrDiverged, ports.ErrPermanent)
 }
 
+// RemoteBranches returns which of the branches exist on the remote, in the
+// order given.
+func (g *Git) RemoteBranches(ctx context.Context, repo string, r Remote, branches ...string) ([]string, error) {
+	if len(branches) == 0 {
+		return nil, nil
+	}
+	refs := make([]string, len(branches))
+	for i, b := range branches {
+		refs[i] = "refs/heads/" + b
+	}
+	ls, err := g.remoteRun(ctx, repo, r, append([]string{"ls-remote", "--end-of-options", r.URL}, refs...)...)
+	if err != nil {
+		return nil, err
+	}
+	found := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(ls), "\n") {
+		if _, ref, ok := strings.Cut(line, "\t"); ok {
+			found[ref] = true
+		}
+	}
+	var out []string
+	for i, b := range branches {
+		if found[refs[i]] {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+// DeleteRemoteBranches deletes the branches from the remote; a branch already
+// absent counts as deleted.
+func (g *Git) DeleteRemoteBranches(ctx context.Context, repo string, r Remote, branches ...string) error {
+	there, err := g.RemoteBranches(ctx, repo, r, branches...)
+	if err != nil || len(there) == 0 {
+		return err
+	}
+	refspecs := make([]string, len(there))
+	for i, b := range there {
+		refspecs[i] = ":refs/heads/" + b
+	}
+	return g.Push(ctx, repo, r, refspecs...)
+}
+
 // HasBranch reports whether the local branch exists.
 func (g *Git) HasBranch(ctx context.Context, repo, branch string) (bool, error) {
 	_, ok, err := g.resolve(ctx, repo, "refs/heads/"+branch+"^{commit}")

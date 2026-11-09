@@ -93,3 +93,17 @@ func (t *Tx) WorkspaceState() (core.WorkspaceState, error) {
 	}
 	return core.WorkspaceState(state), err
 }
+
+// milestoneQuery reads the state of the last git.milestone effect, pending
+// when there is none yet.
+const milestoneQuery = `SELECT COALESCE((SELECT state FROM effects WHERE kind = '` + string(core.EffectEnsureMilestone) + `' ORDER BY event_seq DESC, id DESC LIMIT 1), '` + string(core.MilestonePending) + `')`
+
+// MilestoneState is the state of the last git.milestone effect of the
+// workspace.
+func (t *Tx) MilestoneState() (core.MilestoneState, error) {
+	var m string
+	if err := t.tx.QueryRowContext(t.ctx, milestoneQuery).Scan(&m); err != nil {
+		return "", fmt.Errorf("read the milestone effect: %w", err)
+	}
+	return core.MilestoneState(m), nil
+}

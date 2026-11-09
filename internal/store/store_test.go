@@ -350,3 +350,47 @@ func TestMergeQueueProjections(t *testing.T) {
 	must(t, d.Rebuild(context.Background()))
 	check("rebuilt")
 }
+
+// A crash cuts a gate run: the gate.started of the next run turns the run
+// still running of the same gate of the same node into interrupted, finished
+// at the new start; other gates and nodes keep their rows; Rebuild agrees.
+func TestGateRunInterruptedByCrash(t *testing.T) {
+	d := openTemp(t)
+	createWorkspace(t, d, 1)
+	addNode(t, d, 3, "nd_1", "1")
+	addNode(t, d, 4, "nd_2", "2")
+	gate := func(node, name, sha string) Event {
+		return Event{Kind: contracts.EventGateStarted, NodeID: node, Payload: payload(contracts.GateRun{Gate: name, SHA: sha})}
+	}
+	tx(t, d, func(x *Tx) error {
+		for i, e := range []Event{
+			gate("nd_1", "test", "a1"), // cut by the crash
+			gate("nd_1", "lint", "a1"), // another gate: stays running
+			gate("nd_2", "test", "b1"), // another node: stays running
+			gate("nd_1", "test", "a2"), // the run after the restart, on a new commit
+		} {
+			e.Header = hdr(10 + i)
+			if _, err := x.Append(e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	check := func(when string) {
+		got := map[string]GateRunRow{}
+		for _, r := range snapshot(t, d).GateRuns {
+			got[r.ID] = r
+		}
+		if r := got["ev_0010"]; r.State != "interrupted" || r.FinishedAt != formatTS(hdr(13).TS) {
+			t.Errorf("%s: cut run %+v", when, r)
+		}
+		for _, id := range []string{"ev_0011", "ev_0012", "ev_0013"} {
+			if r := got[id]; r.State != "running" || r.FinishedAt != "" {
+				t.Errorf("%s: run %s %+v", when, id, r)
+			}
+		}
+	}
+	check("appended")
+	must(t, d.Rebuild(context.Background()))
+	check("rebuilt")
+}

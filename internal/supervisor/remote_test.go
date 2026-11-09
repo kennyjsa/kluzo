@@ -80,11 +80,21 @@ func newFakeDocker(t *testing.T) *fakeDocker {
 	t.Helper()
 	dir := t.TempDir()
 	d := &fakeDocker{bin: filepath.Join(dir, "docker"), calls: filepath.Join(dir, "calls"), ps: filepath.Join(dir, "ps")}
-	script := "#!/bin/sh\necho \"$*\" >> " + d.calls + "\nif [ \"$1\" = ps ] && [ -f " + d.ps + " ]; then cat " + d.ps + "; fi\n"
+	script := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 27.3.1; exit 0; fi\necho \"$*\" >> " + d.calls + "\nif [ \"$1\" = ps ] && [ -f " + d.ps + " ]; then cat " + d.ps + "; fi\n"
 	if err := os.WriteFile(d.bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// down makes the daemon unreachable: every call is recorded, and docker
+// version answers without the server part.
+func (d *fakeDocker) down(t *testing.T) {
+	t.Helper()
+	script := "#!/bin/sh\necho \"$*\" >> " + d.calls + "\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n"
+	if err := os.WriteFile(d.bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // Calls returns the docker command lines run so far.

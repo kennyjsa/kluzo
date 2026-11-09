@@ -160,26 +160,32 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	}
 }
 
-// Step does one round of work: it marks ready the planned nodes whose
-// dependencies are integrated, gives the merge queue to the next queued node,
-// closes the workspace when every node is integrated, dispatches a ready node
-// when no node is active (max_parallel is 1 in v0.1), observes the merge on
-// main of a workspace ready to merge, and runs the next pending effect. A
-// workspace that is not running starts no session, no gate and no
-// integration, but its labels, comments, notifications and cleanups still go
-// out. It reports whether it did anything.
+// Step does one round of work: it starts an approved workspace once its
+// milestone branch is ready (or pauses it when the branch failed for good),
+// marks ready the planned nodes whose dependencies are integrated, gives the
+// merge queue to the next queued node, closes the workspace when every node
+// is integrated, dispatches a ready node when no node is active
+// (max_parallel is 1 in v0.1), observes the merge on main of a workspace
+// ready to merge, and runs the next pending effect. A workspace that is not
+// running, or whose milestone branch is not ready, starts no session, no gate
+// and no integration, but its labels, comments, notifications and cleanups
+// still go out. It reports whether it did anything.
 func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 	snap, err := s.d.DB.Snapshot(ctx)
 	if err != nil || snap.Workspace == nil {
 		return false, err
 	}
-	running := snap.Workspace.State == core.WorkspaceRunning
+	w := snap.Workspace
+	if trigger, ok := core.MilestoneTrigger(w.State, w.Milestone); ok {
+		return true, s.moveWorkspace(ctx, trigger)
+	}
+	running := core.Dispatching(w.State, w.Milestone)
 	var busy bool
-	switch snap.Workspace.State {
-	case core.WorkspaceRunning:
+	switch {
+	case running:
 		busy, err = s.schedule(ctx, snap)
-	case core.WorkspaceReadyToMerge:
-		busy, err = s.watchMerge(ctx, snap.Workspace)
+	case w.State == core.WorkspaceReadyToMerge:
+		busy, err = s.watchMerge(ctx, w)
 	}
 	if busy || err != nil {
 		return busy, err

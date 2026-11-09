@@ -89,3 +89,32 @@ func TestUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// Probe: a daemon that answers is available; docker version without the
+// server part (the daemon is unreachable) is ErrUnavailable, like a missing
+// CLI.
+func TestProbe(t *testing.T) {
+	ctx := context.Background()
+	script := func(body string) string {
+		bin := filepath.Join(t.TempDir(), "docker")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return bin
+	}
+	up := script("[ \"$1 $2 $3\" = 'version --format {{.Server.Version}}' ] && echo 27.3.1\n")
+	if err := New(up, nil).Probe(ctx); err != nil {
+		t.Errorf("daemon up: %v", err)
+	}
+	down := script("echo 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?' >&2\nexit 1\n")
+	if err := New(down, nil).Probe(ctx); !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "Cannot connect") {
+		t.Errorf("daemon down: %v", err)
+	}
+	empty := script("exit 0\n") // a client that prints no server version
+	if err := New(empty, nil).Probe(ctx); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("no server part: %v", err)
+	}
+	if err := New(filepath.Join(t.TempDir(), "docker"), nil).Probe(ctx); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("no CLI: %v", err)
+	}
+}
