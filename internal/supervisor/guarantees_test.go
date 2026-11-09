@@ -172,6 +172,16 @@ func TestGuaranteesAfterTheRound(t *testing.T) {
 		{"a deleted test becomes a proposal", []step{withFiles(work, "agenda_test.go")}, proposal("agenda_test.go is a test file and was deleted")},
 		{"a disabled test becomes a proposal", []step{withFiles(map[string]string{"agenda.go": "package agenda\n",
 			"agenda_test.go": strings.Replace(test, "{}", "{\n\tt.Skip(\"later\")\n}", 1)})}, proposal("a test was disabled with t.Skip(")},
+		{"a build constraint added to an existing test file becomes a proposal", []step{withFiles(map[string]string{"agenda.go": "package agenda\n",
+			"agenda_test.go": "//go:build ignore\n\n" + test})}, proposal("a test was disabled with //go:build")},
+		{"a build constraint in a new test file is no proposal", []step{
+			withFiles(map[string]string{"agenda.go": "package agenda\n", "store_test.go": "//go:build integration\n\npackage agenda\n"}),
+			rev(reviewed(true, nil)),
+		}, func(t *testing.T, e *env) {
+			if n, _ := e.nodeRow(); n.State != core.NodeQueued || len(e.events(contracts.EventProposalCreated)) != 0 {
+				t.Errorf("node %s, moves %v", n.State, e.moves())
+			}
+		}},
 		{"a new suppression is an automatic blocking finding, fixed in the next round", []step{
 			withFiles(map[string]string{"agenda.go": "package agenda\n\nvar x = 1 //nolint:unused\n"}),
 			rev(reviewed(true, nil)),

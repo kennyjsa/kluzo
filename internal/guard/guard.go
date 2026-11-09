@@ -55,6 +55,7 @@ type Decision struct {
 type Change struct {
 	Path    string // relative to the repository root, slash-separated
 	Deleted bool
+	Created bool   // the file did not exist before the round
 	Added   []Line // the lines the change added
 	Removed []Line // the lines the change removed, numbered on the old side
 }

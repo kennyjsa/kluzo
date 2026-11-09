@@ -65,18 +65,18 @@ func TestDiff(t *testing.T) {
 		byPath[f.Path] = f
 	}
 	a := byPath["a.go"]
-	if a.Added != 3 || a.Removed != 2 || !slices.Equal(a.Lines, [][2]int{{2, 2}, {5, 6}}) || a.Deleted ||
+	if a.Added != 3 || a.Removed != 2 || !slices.Equal(a.Lines, [][2]int{{2, 2}, {5, 6}}) || a.Deleted || a.Created ||
 		!slices.Equal(a.AddedText, []AddedLine{{2, "TWO"}, {5, "6"}, {6, "7"}}) || !slices.Equal(a.RemovedText, []AddedLine{{2, "2"}, {4, "4"}}) {
 		t.Errorf("a.go = %+v", a)
 	}
-	if f := byPath["dir/new file.go"]; f.Added != 1 || !slices.Equal(f.Lines, [][2]int{{1, 1}}) {
+	if f := byPath["dir/new file.go"]; f.Added != 1 || !slices.Equal(f.Lines, [][2]int{{1, 1}}) || !f.Created {
 		t.Errorf("new file = %+v", f)
 	}
 	// Added lines that look like headers are content.
 	if f := byPath["tricky.txt"]; !slices.Equal(f.AddedText, []AddedLine{{1, "++ b/a.go"}, {2, "-- a/gone.txt"}}) || f.Deleted {
 		t.Errorf("tricky file = %+v", f)
 	}
-	if f := byPath["gone.txt"]; f.Removed != 1 || len(f.Lines) != 0 || !f.Deleted {
+	if f := byPath["gone.txt"]; f.Removed != 1 || len(f.Lines) != 0 || !f.Deleted || f.Created {
 		t.Errorf("deleted file = %+v", f)
 	}
 	if f := byPath["bin.dat"]; !f.Binary || len(f.Lines) != 0 {
@@ -86,7 +86,7 @@ func TestDiff(t *testing.T) {
 	if f := byPath["q\"x_test.go"]; !f.Deleted || !slices.Equal(f.RemovedText, []AddedLine{{1, "func TestQ"}}) {
 		t.Errorf("quoted deleted file = %+v", f)
 	}
-	if f := byPath["n\"y.go"]; !slices.Equal(f.AddedText, []AddedLine{{1, "x //nolint"}}) {
+	if f := byPath["n\"y.go"]; !slices.Equal(f.AddedText, []AddedLine{{1, "x //nolint"}}) || !f.Created {
 		t.Errorf("quoted new file = %+v", f)
 	}
 	if len(files) != 7 {

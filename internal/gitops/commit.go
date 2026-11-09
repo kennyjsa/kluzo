@@ -71,6 +71,7 @@ type DiffFile struct {
 	Added, Removed int // lines; zero for a binary file
 	Binary         bool
 	Deleted        bool // the file is gone on the new side
+	Created        bool // the file is new: absent on the old side
 	// Lines are the ranges of the new side the diff added or changed, both
 	// ends included; what a finding of the round may point at.
 	Lines [][2]int
@@ -113,8 +114,9 @@ func (g *Git) Diff(ctx context.Context, repo, from, to string) ([]DiffFile, erro
 	}
 	recs := strings.Split(strings.TrimSuffix(status, "\x00"), "\x00")
 	for k := 0; k+1 < len(recs); k += 2 {
-		if i, ok := index[recs[k+1]]; ok && recs[k] == "D" {
-			files[i].Deleted = true
+		if i, ok := index[recs[k+1]]; ok {
+			files[i].Deleted = recs[k] == "D"
+			files[i].Created = recs[k] == "A"
 		}
 	}
 	patch, err := g.run(ctx, repo, append(base, "--unified=0", "--end-of-options", from, to)...)

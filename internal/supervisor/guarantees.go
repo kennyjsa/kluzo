@@ -46,7 +46,7 @@ func (s *Supervisor) checkWork(ctx context.Context, base, head string) ([]string
 	}
 	changes := make([]guard.Change, len(files))
 	for i, f := range files {
-		changes[i] = guard.Change{Path: f.Path, Deleted: f.Deleted}
+		changes[i] = guard.Change{Path: f.Path, Deleted: f.Deleted, Created: f.Created}
 		for _, l := range f.AddedText {
 			changes[i].Added = append(changes[i].Added, guard.Line{N: l.N, Text: l.Text})
 		}
