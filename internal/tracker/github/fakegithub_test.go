@@ -100,7 +100,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		writeJSON(w, http.StatusOK, map[string]string{"login": f.actor})
 	})
 	mux.HandleFunc("GET "+base+"/milestones/{n}", f.getMilestone)
-	mux.HandleFunc("GET "+base+"/issues", f.listIssues)
+	mux.HandleFunc("POST /graphql", f.graphql)
 	mux.HandleFunc("POST "+base+"/issues", f.createIssue)
 	mux.HandleFunc("GET "+base+"/issues/events", f.listEvents)
 	mux.HandleFunc("GET "+base+"/issues/{n}", f.getIssue)
@@ -286,19 +286,82 @@ func (f *fakeGitHub) getMilestone(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"number": m.Number, "title": m.Title, "state": m.State, "description": "about " + m.Title, "html_url": fmt.Sprintf("https://example.test/milestone/%d", n)})
 }
 
-func (f *fakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+// graphql answers the three queries of the adapter: the issues of a
+// milestone, the issues of the repository and the milestones by title, with
+// the page size of the REST lists. It tells them apart by their variables.
+func (f *fakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Query     string
+		Variables struct {
+			Milestone *int
+			Title     *string
+			After     *string
+		}
+	}
+	if err := decode(r, &in); err != nil {
+		invalid(w, err.Error())
+		return
+	}
+	from := 0
+	if in.Variables.After != nil {
+		from, _ = strconv.Atoi(*in.Variables.After)
+	}
+	conn := func(total int, emit func(i int) any) map[string]any {
+		nodes := []any{}
+		for i := from; i < min(from+f.pageSz, total); i++ {
+			nodes = append(nodes, emit(i))
+		}
+		next := from+f.pageSz < total
+		return map[string]any{"pageInfo": map[string]any{"hasNextPage": next, "endCursor": strconv.Itoa(from + f.pageSz)}, "nodes": nodes}
+	}
+	var repo map[string]any
+	switch v := in.Variables; {
+	case v.Title != nil:
+		var ms []*ghMilestone
+		for n := 1; n <= len(f.milestones); n++ {
+			if m := f.milestones[n]; strings.Contains(m.Title, *v.Title) {
+				ms = append(ms, m)
+			}
+		}
+		repo = map[string]any{"milestones": conn(len(ms), func(i int) any {
+			m := ms[i]
+			return map[string]any{"number": m.Number, "title": m.Title, "description": "about " + m.Title, "state": strings.ToUpper(m.State),
+				"url": fmt.Sprintf("https://example.test/milestone/%d", m.Number)}
+		})}
+	case v.Milestone != nil:
+		if f.milestones[*v.Milestone] == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{"milestone": nil}}})
+			return
+		}
+		repo = map[string]any{"milestone": map[string]any{"issues": f.issueConnection(*v.Milestone, conn)}}
+	default:
+		repo = map[string]any{"issues": f.issueConnection(0, conn)}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": repo}})
+}
+
+// issueConnection is the GraphQL page of the issues (never PRs) of a
+// milestone, or of the repository when milestone is 0, oldest first.
+func (f *fakeGitHub) issueConnection(milestone int, conn func(int, func(int) any) map[string]any) map[string]any {
 	var matching []*ghIssue
 	for _, is := range f.issues { // created order == ascending
-		if m := q.Get("milestone"); m != "" && m != strconv.Itoa(is.Milestone) {
-			continue
+		if !is.PR && (milestone == 0 || is.Milestone == milestone) {
+			matching = append(matching, is)
 		}
-		if s := q.Get("state"); s != "" && s != "all" && s != is.State {
-			continue
-		}
-		matching = append(matching, is)
 	}
-	f.paginate(w, r, len(matching), func(i int) any { return f.issueJSON(matching[i]) })
+	return conn(len(matching), func(i int) any {
+		is := matching[i]
+		labels := []map[string]string{}
+		for _, l := range is.Labels {
+			labels = append(labels, map[string]string{"name": l})
+		}
+		out := map[string]any{"number": is.Number, "title": is.Title, "body": is.Body, "state": strings.ToUpper(is.State),
+			"url": fmt.Sprintf("https://example.test/issues/%d", is.Number), "labels": map[string]any{"nodes": labels}, "milestone": nil}
+		if m := f.milestones[is.Milestone]; m != nil {
+			out["milestone"] = map[string]any{"number": m.Number}
+		}
+		return out
+	})
 }
 
 func (f *fakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {

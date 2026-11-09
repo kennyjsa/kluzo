@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"path"
@@ -247,4 +248,36 @@ func (n PlanNode) validate(r report, key string) {
 	if b := n.Budget; b.Attempts < 0 || b.Minutes < 0 || b.USD < 0 {
 		r.add(join(key, "budget"), "limits must not be negative")
 	}
+}
+
+// approvalKeys are the top-level keys StampPlan writes.
+var approvalKeys = []string{"approved_by:", "approved_at:"}
+
+// StampPlan returns the content of a plan with approved_by and approved_at
+// set to by and at (plan.md): the lines of those keys are replaced, or added
+// after the milestone key, and the rest of the file is kept as it was. The
+// check of the plan ignores both keys.
+func StampPlan(content []byte, by string, at time.Time) []byte {
+	quoted, _ := json.Marshal(by) // a JSON string is a YAML string
+	stamp := []string{"approved_by: " + string(quoted), "approved_at: " + at.UTC().Format("2006-01-02T15:04:05.000Z")}
+	lines := strings.SplitAfter(string(content), "\n")
+	var out []string
+	inserted := false
+	for _, l := range lines {
+		if slices.ContainsFunc(approvalKeys, func(k string) bool { return strings.HasPrefix(l, k) }) {
+			continue
+		}
+		out = append(out, l)
+		if !inserted && strings.HasPrefix(l, "milestone:") {
+			if !strings.HasSuffix(l, "\n") {
+				out[len(out)-1] += "\n"
+			}
+			out = append(out, stamp[0]+"\n", stamp[1]+"\n")
+			inserted = true
+		}
+	}
+	if !inserted {
+		out = append([]string{stamp[0] + "\n", stamp[1] + "\n"}, out...)
+	}
+	return []byte(strings.Join(out, ""))
 }

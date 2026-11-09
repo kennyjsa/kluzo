@@ -51,7 +51,7 @@ func newWorkspaceEnv(t *testing.T) workspaceEnv {
 func TestWorkspaceCommands(t *testing.T) {
 	ctx := context.Background()
 	e := newWorkspaceEnv(t)
-	out, err := PlanWorkspace{Host: e.host}.Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, MilestoneRef: e.milestone})
+	out, err := PlanWorkspace{Host: e.host}.Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, Milestone: "v0.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestWorkspaceCommands(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out.Dir, "state.db")); err != nil {
 		t.Error(err)
 	}
-	if _, err := (PlanWorkspace{Host: e.host}).Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, MilestoneRef: e.milestone}); !errors.Is(err, ErrWorkspaceExists) {
+	if _, err := (PlanWorkspace{Host: e.host}).Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, Milestone: "v0.1"}); !errors.Is(err, ErrWorkspaceExists) {
 		t.Errorf("second plan: %v", err)
 	}
 	st, err := Status{Host: e.host}.Execute(ctx, StatusInput{ConfigDir: e.dir, Milestone: "v0.1"})
@@ -126,6 +126,51 @@ func TestWorkspaceCommands(t *testing.T) {
 	}
 }
 
+// kluzo plan finds the milestone by its title; a title missing or repeated
+// is invalid configuration, and --ref picks one of the repeated (Q62). The
+// workspace starts from main on the remote, not from the local main.
+func TestPlanFindsTheMilestoneByTitle(t *testing.T) {
+	ctx := context.Background()
+	e := newWorkspaceEnv(t)
+	plan := func(title, ref string) error {
+		_, err := PlanWorkspace{Host: e.host}.Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, Milestone: title, Ref: ref})
+		return err
+	}
+	if err := plan("v9", ""); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "no milestone titled") {
+		t.Errorf("unknown title: %v", err)
+	}
+	again := e.tracker.AddMilestone("v0.1", "a second one")
+	other := e.tracker.AddMilestone("v0.2", "")
+	if err := plan("v0.1", ""); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "--ref") {
+		t.Errorf("repeated title: %v", err)
+	}
+	if err := plan("v0.1", other); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "titled") {
+		t.Errorf("--ref of another title: %v", err)
+	}
+	if err := plan("v0.1", "99"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("--ref of no milestone: %v", err)
+	}
+	if again == e.milestone {
+		t.Fatal("the second milestone has the ref of the first")
+	}
+	if err := plan("v0.1", e.milestone); err != nil {
+		t.Fatalf("--ref: %v", err)
+	}
+	o, err := open(ctx, e.host.fill(), e.dir, "v0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.db.Close() }()
+	created, err := o.created(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, _ := fakes.NewSCM("main").BranchHead(ctx, "main")
+	if created.BaseSHA != remote || created.MilestoneRef != e.milestone || created.Branch != "milestone/v0.1" {
+		t.Errorf("workspace.created = %+v, want the base %s of the remote main", created, remote)
+	}
+}
+
 // A plan the tracker contradicts is invalid configuration, and creates
 // nothing.
 func TestPlanInvalid(t *testing.T) {
@@ -133,7 +178,7 @@ func TestPlanInvalid(t *testing.T) {
 	if err := os.WriteFile(config.PlanPath(e.dir, "v0.1"), []byte("version: 1\nplan_version: 1\nmilestone: v0.1\nnodes:\n  - issue: 1\n    areas: [nope]\n    acceptance: [x]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := PlanWorkspace{Host: e.host}.Execute(context.Background(), PlanWorkspaceInput{ConfigDir: e.dir, MilestoneRef: e.milestone})
+	_, err := PlanWorkspace{Host: e.host}.Execute(context.Background(), PlanWorkspaceInput{ConfigDir: e.dir, Milestone: "v0.1"})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("plan = %v", err)
 	}
@@ -147,7 +192,7 @@ func TestPlanInvalid(t *testing.T) {
 func TestProductionAssembly(t *testing.T) {
 	ctx := context.Background()
 	e := newWorkspaceEnv(t)
-	if _, err := (PlanWorkspace{Host: e.host}).Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, MilestoneRef: e.milestone}); err != nil {
+	if _, err := (PlanWorkspace{Host: e.host}).Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, Milestone: "v0.1"}); err != nil {
 		t.Fatal(err)
 	}
 	h := e.host.fill()

@@ -62,7 +62,7 @@ A referência visual está no [protótipo](../design/prototype/), e o sistema vi
 kluzo init                       gera .kluzo/ com papéis e flows padrão
 kluzo roles check                valida os papéis contra o protocolo do binário
 kluzo doctor                     verifica CLIs, tokens e configuração
-kluzo plan <número>              cria o workspace a partir de um plano (v0.1: o número da milestone no tracker)
+kluzo plan <milestone> [--ref n] cria o workspace a partir de um plano (v0.1: escrito à mão)
 kluzo approve <milestone>        aprova o plano (ou uma proposta)
 kluzo run <milestone>            executa (ou retoma) o downstream
 kluzo status [<milestone>]       estado da milestone e dos nós

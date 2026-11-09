@@ -4,16 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
-	"github.com/kennyjsa/kluzo/internal/gitops"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
+	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/store"
 	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
@@ -21,20 +21,19 @@ import (
 // ErrWorkspaceExists means the milestone already has a workspace here.
 var ErrWorkspaceExists = errors.New("the milestone already has a workspace")
 
-// micros converts dollars to micro-dollars.
-func micros(usd float64) int64 { return int64(math.Round(usd * 1e6)) }
-
 // PlanWorkspace creates the workspace of a milestone from its hand-written
 // plan (kluzo plan, v0.1): the plan is checked against the project and the
 // tracker, and the workspace waits for approval while the milestone branch
 // is created or adopted.
 type PlanWorkspace struct{ Host Host }
 
-// PlanWorkspaceInput names the configuration and the milestone in the
-// tracker (its number on GitHub).
+// PlanWorkspaceInput names the configuration and the milestone: its title,
+// and its reference in the tracker (the number on GitHub) when the title is
+// not enough to find it.
 type PlanWorkspaceInput struct {
-	ConfigDir    string
-	MilestoneRef string
+	ConfigDir string
+	Milestone string // the title
+	Ref       string // optional
 }
 
 // PlanWorkspaceOutput is the workspace created.
@@ -56,7 +55,11 @@ func (u PlanWorkspace) Execute(ctx context.Context, in PlanWorkspaceInput) (Plan
 	if err != nil {
 		return PlanWorkspaceOutput{}, err
 	}
-	g, err := checkedGraph(ctx, integ, in.ConfigDir, in.MilestoneRef)
+	ref, err := milestoneRef(ctx, integ.Tracker, in.Milestone, in.Ref)
+	if err != nil {
+		return PlanWorkspaceOutput{}, err
+	}
+	g, err := checkedGraph(ctx, integ, in.ConfigDir, ref)
 	if err != nil {
 		return PlanWorkspaceOutput{}, err
 	}
@@ -67,10 +70,11 @@ func (u PlanWorkspace) Execute(ctx context.Context, in PlanWorkspaceInput) (Plan
 	if _, err := os.Stat(pl.DB()); err == nil {
 		return PlanWorkspaceOutput{}, fmt.Errorf("%w: %s", ErrWorkspaceExists, pl.Dir)
 	}
-	git := gitops.New(gitops.Config{ParentEnv: h.Env})
-	base, err := git.Head(ctx, pl.Repo, mainBranch(p))
+	// The base is main on the remote, where the milestone branch is created
+	// from: the local main may be behind it.
+	base, err := integ.SCM.BranchHead(ctx, p.Config.Branches.MainBranch())
 	if err != nil {
-		return PlanWorkspaceOutput{}, err
+		return PlanWorkspaceOutput{}, fmt.Errorf("read the head of %s on the remote: %w", p.Config.Branches.MainBranch(), err)
 	}
 	now := h.Clock.Now()
 	wsID, err := h.IDs.New(ids.Workspace, now)
@@ -82,7 +86,7 @@ func (u PlanWorkspace) Execute(ctx context.Context, in PlanWorkspaceInput) (Plan
 		budget = p.Config.Budgets.Milestone.USD
 	}
 	w := supervisor.NewWorkspace{
-		Created: contracts.WorkspaceCreated{ID: wsID, Branch: milestoneBranch(p, g.Plan.Milestone), BaseSHA: base, Profile: g.Plan.Profile, BudgetUSDMicros: micros(budget), MilestoneRef: in.MilestoneRef},
+		Created: contracts.WorkspaceCreated{ID: wsID, Branch: p.Config.Branches.MilestoneBranch(g.Plan.Milestone), BaseSHA: base, Profile: g.Plan.Profile, BudgetUSDMicros: config.USDMicros(budget), MilestoneRef: ref},
 		Edges:   g.Graph.Edges,
 	}
 	for _, n := range g.Plan.Nodes {
@@ -105,7 +109,7 @@ func (u PlanWorkspace) Execute(ctx context.Context, in PlanWorkspaceInput) (Plan
 			b.USD = n.Budget.USD
 		}
 		w.Nodes = append(w.Nodes, supervisor.NewNode{ID: id, Added: contracts.NodeAdded{IssueRef: ref, Title: n.Title, Areas: n.Areas,
-			Budget: contracts.NodeBudget{Attempts: b.Attempts, Minutes: b.Minutes, USDMicros: micros(b.USD)}}})
+			Budget: contracts.NodeBudget{Attempts: b.Attempts, Minutes: b.Minutes, USDMicros: config.USDMicros(b.USD)}}})
 	}
 	db, err := store.Open(ctx, pl.DB())
 	if err != nil {
@@ -118,6 +122,39 @@ func (u PlanWorkspace) Execute(ctx context.Context, in PlanWorkspaceInput) (Plan
 	return PlanWorkspaceOutput{Milestone: g.Plan.Milestone, Dir: pl.Dir, Nodes: len(w.Nodes)}, nil
 }
 
+// milestoneRef finds the milestone titled title in the tracker. Without ref,
+// exactly one milestone must have the title; with it, the milestone ref must
+// have the title. Anything else is a configuration error (interfaces.md).
+func milestoneRef(ctx context.Context, tr ports.Tracker, title, ref string) (string, error) {
+	if ref != "" {
+		m, err := tr.Milestone(ctx, ref)
+		switch {
+		case errors.Is(err, ports.ErrNotFound), errors.Is(err, ports.ErrInvalid):
+			return "", fmt.Errorf("%w: milestone %s is not in the tracker: %w", ErrInvalid, ref, err)
+		case err != nil:
+			return "", err
+		case m.Title != title:
+			return "", fmt.Errorf("%w: milestone %s is titled %q, not %q", ErrInvalid, ref, m.Title, title)
+		}
+		return ref, nil
+	}
+	ms, err := tr.MilestonesByTitle(ctx, title)
+	if err != nil {
+		return "", err
+	}
+	switch len(ms) {
+	case 0:
+		return "", fmt.Errorf("%w: no milestone titled %q in the tracker", ErrInvalid, title)
+	case 1:
+		return ms[0].Ref, nil
+	}
+	refs := make([]string, len(ms))
+	for i, m := range ms {
+		refs[i] = m.Ref
+	}
+	return "", fmt.Errorf("%w: %d milestones are titled %q (%s): choose one with --ref", ErrInvalid, len(ms), title, strings.Join(refs, ", "))
+}
+
 // checkedGraph loads the plan and its graph; problems wrap ErrInvalid.
 func checkedGraph(ctx context.Context, integ Integrations, configDir, ref string) (LoadGraphOutput, error) {
 	g, err := LoadGraph{Tracker: integ.Tracker}.Execute(ctx, LoadGraphInput{ConfigDir: configDir, MilestoneRef: ref})
@@ -128,24 +165,6 @@ func checkedGraph(ctx context.Context, integ Integrations, configDir, ref string
 		return g, fmt.Errorf("%w:\n%w", ErrInvalid, config.Errors(g.Problems))
 	}
 	return g, nil
-}
-
-// mainBranch is branches.main, or main.
-func mainBranch(p *config.Project) string {
-	if b := p.Config.Branches.Main; b != "" {
-		return b
-	}
-	return "main"
-}
-
-// milestoneBranch is the branch of the milestone: branches.milestone_prefix
-// (milestone/ by default) and its title.
-func milestoneBranch(p *config.Project, title string) string {
-	prefix := p.Config.Branches.MilestonePrefix
-	if prefix == "" {
-		prefix = "milestone/"
-	}
-	return prefix + title
 }
 
 // ApprovePlan approves the plan of a workspace awaiting approval (kluzo

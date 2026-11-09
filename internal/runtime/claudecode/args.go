@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
 
@@ -103,7 +104,7 @@ func argv(spec ports.SessionSpec, ts toolSet, id string, resume bool, f files) [
 	// with the total of the conversation (verified on 2.1.319): a resume
 	// gets what the node has left, like a start.
 	if b := spec.MaxBudgetUSDMicros; b > 0 {
-		args = append(args, "--max-budget-usd", fmt.Sprintf("%.6f", float64(b)/1e6))
+		args = append(args, "--max-budget-usd", fmt.Sprintf("%.6f", config.USD(b)))
 	}
 	return append(args,
 		"--append-system-prompt-file", f.system, "--exclude-dynamic-system-prompt-sections",

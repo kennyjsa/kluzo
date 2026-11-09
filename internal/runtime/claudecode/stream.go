@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/platform/text"
 	"github.com/kennyjsa/kluzo/internal/ports"
@@ -318,7 +319,7 @@ func (t *tracker) result(l line) []ports.Event {
 	if len(l.ModelUsage) == 0 {
 		cost = l.TotalCostUSD
 	}
-	total.CostUSD = int64(cost*1e6 + 0.5)
+	total.CostUSD = config.USDMicros(cost)
 	if total.CostUSD < t.prior.CostUSD || total.InputTokens < t.prior.InputTokens || total.OutputTokens < t.prior.OutputTokens {
 		t.unknown["usage/prior-exceeds-total"]++ // a wrong prior: the session counts zero, and the log says why
 	}

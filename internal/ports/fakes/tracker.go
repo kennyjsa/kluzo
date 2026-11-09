@@ -82,6 +82,19 @@ func (t *Tracker) Milestone(_ context.Context, ref string) (ports.Milestone, err
 	return m, nil
 }
 
+// MilestonesByTitle implements ports.Tracker.
+func (t *Tracker) MilestonesByTitle(_ context.Context, title string) ([]ports.Milestone, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := []ports.Milestone{}
+	for i := 1; i <= len(t.milestones); i++ {
+		if m := t.milestones[strconv.Itoa(i)]; m.Title == title {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 // MilestoneIssues implements ports.Tracker.
 func (t *Tracker) MilestoneIssues(_ context.Context, ref string) ([]ports.Issue, error) {
 	t.mu.Lock()

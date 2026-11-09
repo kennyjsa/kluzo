@@ -157,3 +157,29 @@ func TestPlanCheckProject(t *testing.T) {
 		})
 	}
 }
+
+// The approval stamps who and when into the committed plan; the rest of the
+// file stays as written, and the stamped plan loads with those values (Q64).
+func TestStampPlan(t *testing.T) {
+	at := time.Date(2026, 11, 9, 14, 2, 11, 500_000_000, time.FixedZone("BRT", -3*3600))
+	written := []string{"# hand-written", "version: 1", "plan_version: 1", "milestone: v2.0", "approved_by: someone", "nodes:", "  - issue: 1", "    acceptance: [x] # kept"}
+	got := string(StampPlan([]byte(strings.Join(written, "\n")+"\n"), `ke"nny`, at))
+	want := strings.Join([]string{"# hand-written", "version: 1", "plan_version: 1", "milestone: v2.0", `approved_by: "ke\"nny"`, "approved_at: 2026-11-09T17:02:11.500Z", "nodes:", "  - issue: 1", "    acceptance: [x] # kept"}, "\n") + "\n"
+	if got != want {
+		t.Fatalf("stamped =\n%s\nwant\n%s", got, want)
+	}
+	dir := planDir(t, strings.Split(strings.TrimSuffix(got, "\n"), "\n")...)
+	p, err := LoadPlan(dir, "v2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ApprovedBy != `ke"nny` || !p.ApprovedAt.Equal(at) {
+		t.Errorf("loaded approved_by %q approved_at %v", p.ApprovedBy, p.ApprovedAt)
+	}
+	if again := string(StampPlan([]byte(got), `ke"nny`, at)); again != got {
+		t.Errorf("stamping twice changed the plan:\n%s", again)
+	}
+	if top := string(StampPlan([]byte("version: 1"), "k", at)); !strings.HasPrefix(top, "approved_by: \"k\"\napproved_at: ") || !strings.HasSuffix(top, "version: 1") {
+		t.Errorf("without a milestone key = %q", top)
+	}
+}

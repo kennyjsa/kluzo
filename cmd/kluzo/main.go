@@ -154,17 +154,19 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 		},
 	})
 
-	root.AddCommand(&cobra.Command{
-		Use: "plan <milestone-number>", Short: "create the workspace of a milestone from .kluzo/plans/<title>.yaml", Args: args(1),
-		RunE: func(cmd *cobra.Command, a []string) error {
-			out, err := app.PlanWorkspace{Host: host()}.Execute(cmd.Context(), app.PlanWorkspaceInput{ConfigDir: *dir, MilestoneRef: a[0]})
-			if err != nil {
-				return err
-			}
-			printf(stdout, "workspace of %s created with %d node(s) in %s\nReview the plan, then run `kluzo approve %s`.\n", out.Milestone, out.Nodes, out.Dir, out.Milestone)
-			return nil
-		},
-	})
+	planCmd := &cobra.Command{
+		Use: "plan <milestone>", Short: "create the workspace of a milestone from .kluzo/plans/<milestone>.yaml", Args: args(1),
+	}
+	ref := planCmd.Flags().String("ref", "", "the number of the milestone in the tracker, when more than one has its title")
+	planCmd.RunE = func(cmd *cobra.Command, a []string) error {
+		out, err := app.PlanWorkspace{Host: host()}.Execute(cmd.Context(), app.PlanWorkspaceInput{ConfigDir: *dir, Milestone: a[0], Ref: *ref})
+		if err != nil {
+			return err
+		}
+		printf(stdout, "workspace of %s created with %d node(s) in %s\nReview the plan, then run `kluzo approve %s`.\n", out.Milestone, out.Nodes, out.Dir, out.Milestone)
+		return nil
+	}
+	root.AddCommand(planCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use: "approve <milestone>", Short: "approve the plan: it is committed on the milestone branch", Args: args(1),

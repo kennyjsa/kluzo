@@ -30,6 +30,8 @@ A credencial do bot (`tracker.auth`) precisa, no repositório do projeto:
 
 **Checks** só existe para GitHub App: o token fine-grained não oferece essa permissão, e a leitura de check runs devolve 403. Com token, use um token clássico com o escopo `repo`, ou um projeto cujos gates não leiam check runs. O recomendado é o GitHub App (`tracker.auth.kind: github_app`).
 
+As listas de issues e milestones (`MilestoneIssues`, a busca do marcador de idempotência do `CreateIssue`, `MilestonesByTitle`) usam a API GraphQL do GitHub, com as mesmas permissões. As listas da API REST (`GET /repos/{dono}/{repo}/issues` e `/milestones`, com ou sem filtro) ficam cerca de um segundo atrás das escritas: uma issue recém-criada não aparece nelas, e o `CreateIssue` repetido criava outra. A GraphQL e o `GET` de uma issue refletem a escrita na hora.
+
 O GitHub vem antes do GitLab no roadmap; o motivo está no [roadmap](../planning/roadmap.md#por-que-o-github-vem-antes-do-gitlab).
 
 ### Sincronização

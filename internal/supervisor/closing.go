@@ -24,12 +24,7 @@ import (
 const defaultPollInterval = 30 * time.Second
 
 // mainBranch is the main branch of the project.
-func (s *Supervisor) mainBranch() string {
-	if b := s.cfg.Project.Config.Branches.Main; b != "" {
-		return b
-	}
-	return "main"
-}
+func (s *Supervisor) mainBranch() string { return s.cfg.Project.Config.Branches.MainBranch() }
 
 // transitionWorkspace moves the workspace in t with the effects of the move.
 func (s *Supervisor) transitionWorkspace(t *store.Tx, trigger core.WorkspaceTrigger, h store.Header) error {

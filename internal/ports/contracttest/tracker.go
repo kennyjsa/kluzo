@@ -58,6 +58,15 @@ func RunTracker(t *testing.T, env Env) {
 				t.Errorf("MilestoneIssues[%s] = %+v, want %+v", want.Ref, got, want)
 			}
 		}
+		byTitle, err := tr.MilestonesByTitle(ctx, m.Title)
+		if err != nil || len(byTitle) != 1 || byTitle[0].Ref != env.Milestone || byTitle[0].Title != m.Title || byTitle[0].State != "open" {
+			t.Errorf("MilestonesByTitle(%q) = %+v, %v; want the milestone %s only", m.Title, byTitle, err, env.Milestone)
+		}
+		for _, title := range []string{m.Title[:len(m.Title)-1], env.Prefix + " no such milestone"} {
+			if none, err := tr.MilestonesByTitle(ctx, title); err != nil || len(none) != 0 {
+				t.Errorf("MilestonesByTitle(%q) = %+v, %v; want none (only exact titles match)", title, none, err)
+			}
+		}
 		one, err := tr.Issue(ctx, a.Ref)
 		if err != nil || one.Ref != a.Ref || one.Body != "body of read-a" {
 			t.Errorf("Issue = %+v, %v", one, err)

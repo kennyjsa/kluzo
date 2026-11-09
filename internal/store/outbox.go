@@ -93,6 +93,27 @@ func (t *Tx) CompleteEffect(id string, at time.Time) error {
 	return updateEffect(t.ctx, t.tx, id, `UPDATE effects SET state = 'done', done_at = ?, next_at = NULL WHERE id = ? AND state = 'pending'`, formatTS(at))
 }
 
+// FollowEffect queues effects that the run of the effect id caused, in the
+// transaction that completes it: they hang on the event of that effect, and
+// their idempotency keys derive from its own.
+func (t *Tx) FollowEffect(id string, at time.Time, effects ...EffectSpec) error {
+	var seq int64
+	var key string
+	err := t.tx.QueryRowContext(t.ctx, `SELECT event_seq, idem_key FROM effects WHERE id = ?`, id).Scan(&seq, &key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: effect %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return fmt.Errorf("read effect %s: %w", id, err)
+	}
+	for _, f := range effects {
+		if err := t.queue(f, IdemKey(key, f.Key), seq, at); err != nil {
+			return fmt.Errorf("queue effect %s after %s: %w", f.Key, id, err)
+		}
+	}
+	return nil
+}
+
 // FailEffect gives up on an effect, in the transaction that journals
 // effect.failed.
 func (t *Tx) FailEffect(id, lastError string) error {

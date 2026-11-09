@@ -393,6 +393,7 @@ type step struct {
 	cause   ports.Cause       // the session fails with this cause, without a result
 	tamper  bool              // the session creates a branch outside its own
 	lock    bool              // the session leaves the index of its worktree locked: the commit fails
+	hang    bool              // the session runs until it is cancelled
 }
 
 // call is what the scripted runtime was asked.
@@ -462,7 +463,7 @@ func (s *script) begin(ctx context.Context, spec ports.SessionSpec, ref string, 
 		s.t.Errorf("session of %s, the script expected %s", spec.Role.Name, st.role)
 	}
 	s.refs[ref] = true
-	sess := &played{ref: ref, events: make(chan ports.Event, 4), done: make(chan struct{}), waited: s.waited}
+	sess := &played{ref: ref, events: make(chan ports.Event, 4), done: make(chan struct{}), cancel: make(chan struct{}), waited: s.waited}
 	go sess.play(ctx, s.t, s.repo, spec, st)
 	return sess, nil
 }
@@ -477,6 +478,8 @@ type played struct {
 	ref    string
 	events chan ports.Event
 	done   chan struct{}
+	cancel chan struct{}
+	once   sync.Once
 	result ports.Result
 	waited func()
 }
@@ -513,9 +516,16 @@ func (p *played) play(ctx context.Context, t *testing.T, repo string, spec ports
 	}
 	usage := ports.Usage{CostUSD: 10_000 + spec.PriorUsage.CostUSD}
 	p.result = ports.Result{State: ports.StateFinished, CostUSD: 10_000, Cumulative: usage}
-	if st.cause != "" {
+	switch {
+	case st.hang:
+		select {
+		case <-p.cancel:
+		case <-ctx.Done():
+		}
+		p.result = ports.Result{State: ports.StateCancelled, CostUSD: 10_000, Cumulative: usage}
+	case st.cause != "":
 		p.result = ports.Result{State: ports.StateFailed, Cause: st.cause, Detail: "scripted " + string(st.cause), CostUSD: 10_000, Cumulative: usage}
-	} else {
+	default:
 		deliver(ctx, t, spec, st.results)
 		if raw, ok := spec.Accepted(); ok {
 			p.result.Raw = raw
@@ -554,7 +564,7 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 func (p *played) HarnessRef() string                 { return p.ref }
 func (p *played) Events() <-chan ports.Event         { return p.events }
 func (p *played) Send(context.Context, string) error { return nil }
-func (p *played) Cancel() error                      { return nil }
+func (p *played) Cancel() error                      { p.once.Do(func() { close(p.cancel) }); return nil }
 func (p *played) Wait() (ports.Result, error) {
 	<-p.done
 	if p.waited != nil {
