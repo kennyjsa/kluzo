@@ -146,6 +146,10 @@ const (
 	CauseRefusal   Cause = "refusal"    // the model refused; triage
 	CauseNoResult  Cause = "no_result"  // the session ended without an accepted kluzo_result
 	CauseGuard     Cause = "guard"      // the safety checks of the session failed (tools, MCP, hook canary)
+	// CauseHostCredentials: credentials of the host are visible to the
+	// sessions and security.allow_host_credentials is off; no session starts
+	// (ADR 0020, item 6): pause the workspace and notify.
+	CauseHostCredentials Cause = "host_credentials"
 )
 
 // Retryable reports whether a new session in the same attempt may help

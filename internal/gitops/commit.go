@@ -70,9 +70,19 @@ type DiffFile struct {
 	Path           string
 	Added, Removed int // lines; zero for a binary file
 	Binary         bool
+	Deleted        bool // the file is gone on the new side
 	// Lines are the ranges of the new side the diff added or changed, both
 	// ends included; what a finding of the round may point at.
 	Lines [][2]int
+	// AddedText are the lines the diff added, with their numbers on the new
+	// side, for the check after the round.
+	AddedText []AddedLine
+}
+
+// AddedLine is a line a diff added.
+type AddedLine struct {
+	N    int
+	Text string
 }
 
 // Diff returns what changed between two commits of the repository, file by
@@ -100,22 +110,38 @@ func (g *Git) Diff(ctx context.Context, repo, from, to string) ([]DiffFile, erro
 	if err != nil {
 		return nil, err
 	}
-	cur := -1
+	// Inside a hunk, its lines are read by count, so an added line that looks
+	// like a header ("+++ b/x") is still content.
+	cur, old := -1, ""
+	var next, left int // the number of the next new line, and how many are left
 	sc := bufio.NewScanner(strings.NewReader(patch))
 	sc.Buffer(make([]byte, 64*1024), 16<<20)
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
+		case left > 0 && strings.HasPrefix(line, "+"):
+			files[cur].AddedText = append(files[cur].AddedText, AddedLine{N: next, Text: line[1:]})
+			next++
+			left--
+		case left > 0 && (strings.HasPrefix(line, "-") || strings.HasPrefix(line, "\\")):
 		case strings.HasPrefix(line, "diff --git "):
-			cur = -1
+			cur, old, left = -1, "", 0
+		case strings.HasPrefix(line, "--- a/"):
+			old = strings.TrimSuffix(strings.TrimPrefix(line, "--- a/"), "\t")
+		case line == "+++ /dev/null":
+			if i, ok := index[old]; ok {
+				files[i].Deleted = true
+			}
 		case strings.HasPrefix(line, "+++ b/"):
 			// git ends the name with a tab when it has a space
 			if i, ok := index[strings.TrimSuffix(strings.TrimPrefix(line, "+++ b/"), "\t")]; ok {
 				cur = i
 			}
 		case strings.HasPrefix(line, "@@ ") && cur >= 0:
-			if r, ok := newRange(line); ok {
+			r, ok := newRange(line)
+			if ok {
 				files[cur].Lines = append(files[cur].Lines, r)
+				next, left = r[0], r[1]-r[0]+1
 			}
 		}
 	}

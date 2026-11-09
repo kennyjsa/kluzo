@@ -65,9 +65,30 @@ func newEnv(t *testing.T, steps ...step) *env { return newEnvBudget(t, 6_000_000
 
 func newEnvBudget(t *testing.T, budget int64, steps ...step) *env {
 	t.Helper()
+	return newEnvWith(t, envOpts{budget: budget}, steps...)
+}
+
+// envOpts are the choices of newEnvWith.
+type envOpts struct {
+	budget int64                                   // of the node; 0: US$ 6
+	gates  func(repo, dir string) ports.Gates      // nil: the in-memory fake
+	host   func(context.Context) ([]string, error) // nil: a clean host
+	// prepare changes the repository before the supervisor loads it.
+	prepare func(repo string)
+}
+
+func newEnvWith(t *testing.T, o envOpts, steps ...step) *env {
+	t.Helper()
+	if o.budget == 0 {
+		o.budget = 6_000_000
+	}
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
 	makeRepo(t, repo)
+	if o.prepare != nil {
+		o.prepare(repo)
+	}
+	budget := o.budget
 	db := openDB(t, filepath.Join(dir, "state.db"))
 	clk := clock.NewManual(epoch)
 	gen := ids.NewGenerator(rand.Reader)
@@ -78,7 +99,11 @@ func newEnvBudget(t *testing.T, budget int64, steps ...step) *env {
 	}
 	e := &env{t: t, dir: dir, repo: repo, db: db, clock: clk, tracker: tracker, gates: fakes.NewGates(), notifier: &fakes.Notifier{},
 		runtime: &script{t: t, repo: repo, steps: steps, refs: map[string]bool{}}, node: seed(t, db, gen, issue.Ref, budget), issue: issue.Ref}
-	e.sup = build(t, dir, deps{db: db, clock: clk, ids: gen, tracker: tracker, runtime: e.runtime, gates: e.gates, notifier: e.notifier}, issue.Ref)
+	var gates ports.Gates = e.gates
+	if o.gates != nil {
+		gates = o.gates(repo, dir)
+	}
+	e.sup = build(t, dir, deps{db: db, clock: clk, ids: gen, tracker: tracker, runtime: e.runtime, gates: gates, notifier: e.notifier, host: o.host}, issue.Ref)
 	return e
 }
 
@@ -127,6 +152,7 @@ type deps struct {
 	runtime  ports.Runtime
 	gates    ports.Gates
 	notifier ports.Notifier
+	host     func(context.Context) ([]string, error) // nil: a clean host
 }
 
 // build starts the MCP server and returns the supervisor of the workspace
@@ -149,6 +175,9 @@ func buildWith(t *testing.T, dir string, d deps, issue, model string) *superviso
 			r.Model = model
 		}
 	}
+	if d.host == nil {
+		d.host = func(context.Context) ([]string, error) { return nil, nil }
+	}
 	srv := mcp.New(&supervisor.Recorder{DB: d.db, Clock: d.clock, IDs: d.ids}, rand.Reader, "test")
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
@@ -157,11 +186,11 @@ func buildWith(t *testing.T, dir string, d deps, issue, model string) *superviso
 	sup, err := supervisor.New(supervisor.Deps{
 		DB: d.db, Clock: d.clock, IDs: d.ids, Tracker: d.tracker, Runtime: d.runtime, MCP: srv,
 		Git: gitops.New(gitops.Config{ParentEnv: os.Environ()}), Gates: d.gates, Notifier: d.notifier,
-		Nonce: func() (string, error) { return "0123abcd", nil },
+		Nonce: func() (string, error) { return "0123abcd", nil }, HostCredentials: d.host,
 	}, supervisor.Config{
 		Project: project, Workspace: "ws_1", Milestone: "v1", Repo: repo, Branch: "milestone/v1", Dir: filepath.Join(dir, "ws"),
 		Downloads: filepath.Join(dir, "downloads"), Criteria: map[string][]core.Criterion{issue: {{ID: "AC1", Text: "The agenda lists appointments"}}},
-		Idle: 10 * time.Millisecond, Version: "test",
+		Idle: 10 * time.Millisecond, Version: "test", ParentEnv: os.Environ(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -302,6 +331,7 @@ type step struct {
 	role    string
 	results []any             // delivered through kluzo_result, in order (the second is a correction)
 	files   map[string]string // written in the worktree first
+	remove  []string          // deleted from the worktree
 	cause   ports.Cause       // the session fails with this cause, without a result
 	tamper  bool              // the session creates a branch outside its own
 	lock    bool              // the session leaves the index of its worktree locked: the commit fails
@@ -398,6 +428,11 @@ func (p *played) play(ctx context.Context, t *testing.T, repo string, spec ports
 	defer close(p.events)
 	started, _ := json.Marshal(contracts.SessionStarted{Role: spec.Role.Name, Harness: "script"})
 	p.events <- ports.Event{Kind: contracts.EventSessionStarted, Payload: started}
+	for _, name := range st.remove {
+		if err := os.Remove(filepath.Join(spec.Workdir, name)); err != nil {
+			t.Error(err)
+		}
+	}
 	for name, content := range st.files {
 		edited, _ := json.Marshal(contracts.FileEdited{Path: name, Added: 1})
 		p.events <- ports.Event{Kind: contracts.EventFileEdited, Payload: edited}

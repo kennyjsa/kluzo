@@ -53,7 +53,7 @@ func TestDiff(t *testing.T) {
 	if err := os.Remove(filepath.Join(repo, "gone.txt")); err != nil {
 		t.Fatal(err)
 	}
-	to := commit(t, g, repo, map[string]string{"a.go": "1\nTWO\n3\n5\n6\n7\n", "dir/new file.go": "x\n"})
+	to := commit(t, g, repo, map[string]string{"a.go": "1\nTWO\n3\n5\n6\n7\n", "dir/new file.go": "x\n", "tricky.txt": "++ b/a.go\n-- a/gone.txt\n"})
 	files, err := g.Diff(ctx, repo, from, to)
 	if err != nil {
 		t.Fatal(err)
@@ -63,19 +63,24 @@ func TestDiff(t *testing.T) {
 		byPath[f.Path] = f
 	}
 	a := byPath["a.go"]
-	if a.Added != 3 || a.Removed != 2 || !slices.Equal(a.Lines, [][2]int{{2, 2}, {5, 6}}) {
+	if a.Added != 3 || a.Removed != 2 || !slices.Equal(a.Lines, [][2]int{{2, 2}, {5, 6}}) || a.Deleted ||
+		!slices.Equal(a.AddedText, []AddedLine{{2, "TWO"}, {5, "6"}, {6, "7"}}) {
 		t.Errorf("a.go = %+v", a)
 	}
 	if f := byPath["dir/new file.go"]; f.Added != 1 || !slices.Equal(f.Lines, [][2]int{{1, 1}}) {
 		t.Errorf("new file = %+v", f)
 	}
-	if f := byPath["gone.txt"]; f.Removed != 1 || len(f.Lines) != 0 {
+	// Added lines that look like headers are content.
+	if f := byPath["tricky.txt"]; !slices.Equal(f.AddedText, []AddedLine{{1, "++ b/a.go"}, {2, "-- a/gone.txt"}}) || f.Deleted {
+		t.Errorf("tricky file = %+v", f)
+	}
+	if f := byPath["gone.txt"]; f.Removed != 1 || len(f.Lines) != 0 || !f.Deleted {
 		t.Errorf("deleted file = %+v", f)
 	}
 	if f := byPath["bin.dat"]; !f.Binary || len(f.Lines) != 0 {
 		t.Errorf("binary file = %+v", f)
 	}
-	if len(files) != 4 {
+	if len(files) != 5 {
 		t.Errorf("files = %+v", files)
 	}
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -96,6 +97,9 @@ type Gate struct {
 	Fast           bool          `yaml:"fast"`
 	Timeout        time.Duration `yaml:"timeout"`
 	EnvAllow       []string      `yaml:"env_allow"`
+	// Report is a JUnit XML report the command writes, relative to the
+	// worktree: its failures reach the prompt structured.
+	Report string `yaml:"report"`
 }
 
 // Scheduler configures node dispatch.
@@ -355,6 +359,12 @@ func validateGates(r report, path string, gates []Gate, secrets []string) {
 		}
 		if g.Timeout < 0 {
 			r.add(join(p, "timeout"), "must not be negative")
+		}
+		switch {
+		case g.Report != "" && !hasRun:
+			r.add(join(p, "report"), "only valid with run")
+		case g.Report != "" && !filepath.IsLocal(g.Report):
+			r.add(join(p, "report"), fmt.Sprintf("%q must be a path inside the worktree", g.Report))
 		}
 		validateEnvAllow(r, join(p, "env_allow"), g.EnvAllow, secrets)
 	}

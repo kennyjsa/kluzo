@@ -37,6 +37,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runInit(args[1:], stdout, stderr)
 	case "roles":
 		return runRoles(args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctor(args[1:], stdout, stderr)
 	default:
 		printf(stderr, "kluzo: unknown command %q\n\n", args[0])
 		usage(stderr)
@@ -48,6 +50,7 @@ const (
 	exitOK            = 0
 	exitUsage         = 1
 	exitInvalidConfig = 2
+	exitIntegration   = 3
 )
 
 // newFlags returns a flag set for a command with the shared --dir flag.
@@ -100,6 +103,36 @@ func runRoles(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+func runDoctor(args []string, stdout, stderr io.Writer) int {
+	fs, dir := newFlags("doctor", stderr)
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	out, err := app.Doctor{}.Execute(context.Background(), app.DoctorInput{Dir: *dir})
+	switch {
+	case err != nil:
+		printf(stderr, "kluzo doctor: %v\n", err)
+		return exitIntegration
+	case len(out.Invalid) > 0:
+		for _, p := range out.Invalid {
+			printf(stderr, "%s\n", p)
+		}
+		return exitInvalidConfig
+	}
+	for _, w := range out.Warnings {
+		printf(stdout, "warning: %s\n", w)
+	}
+	if len(out.Refused) > 0 {
+		for _, r := range out.Refused {
+			printf(stderr, "refused: %s\n", r)
+		}
+		printf(stderr, "\nKluzo will not start sessions while credentials of the host are visible to them (ADR 0020).\nRun Kluzo as a dedicated user, in a container or a VM, or set security.allow_host_credentials: true.\n")
+		return exitIntegration
+	}
+	printf(stdout, "host credentials: none visible\n")
+	return exitOK
+}
+
 // printf writes to a terminal stream. A failed write to stdout/stderr cannot
 // be reported anywhere useful, so the error is deliberately discarded.
 func printf(w io.Writer, format string, a ...any) {
@@ -112,6 +145,7 @@ func usage(w io.Writer) {
 Commands:
   init         create the default .kluzo/ configuration
   roles check  validate the roles against the protocol of this binary
+  doctor       check that this machine may run the agents
   version      print the kluzo version
   help         show this help
 `)

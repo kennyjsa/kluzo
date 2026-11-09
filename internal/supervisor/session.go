@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -99,6 +100,14 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 	}
 	st := s.flow.Steps[r.Step]
 	done := core.SessionDone{Step: r.Step}
+	found, err := s.hostCredentials(ctx)
+	if err != nil {
+		return err
+	}
+	if len(found) > 0 {
+		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseHostCredentials,
+			Detail: "credentials of the host are visible to the sessions (" + strings.Join(found, "; ") + "); remove them, or set security.allow_host_credentials with an isolation of your own"})
+	}
 	left := s.budget(n) - n.CostUSDMicros
 	if left <= 0 {
 		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseBudget, Detail: "the node has no budget left"})
@@ -130,7 +139,7 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 	}
 	done.Session = hs
 	if res.State == ports.StateFinished && len(res.Raw) > 0 && !done.Tampered {
-		if err := s.afterSession(ctx, n, st, round, &done); err != nil {
+		if err := s.afterSession(ctx, n, st, cmp.Or(done.Base, r.Base), round, &done); err != nil {
 			res = ports.Result{State: ports.StateFailed, Cause: ports.CauseRuntime, Detail: "after the session: " + err.Error(), CostUSD: res.CostUSD, Cumulative: res.Cumulative}
 		}
 	}
@@ -179,11 +188,16 @@ func (s *Supervisor) budget(n store.NodeRow) int64 {
 }
 
 // afterSession records what an accepted session produced: the implementer's
-// work as a commit, and for a review from round 2 the lines the round changed.
-func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, st core.FlowStep, round []gitops.DiffFile, done *core.SessionDone) error {
+// work as a commit, checked against the guarantees of ADR 0020 from the base
+// of the attempt, and for a review from round 2 the lines the round changed.
+func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, st core.FlowStep, base string, round []gitops.DiffFile, done *core.SessionDone) error {
 	if st.Role == core.RoleImplementer {
 		head, err := s.d.Git.Commit(ctx, s.cfg.Repo, s.worktree(n), fmt.Sprintf("kluzo: #%s attempt %d round %d", n.IssueRef, n.Attempt, n.Round))
+		if err != nil {
+			return err
+		}
 		done.Head = head
+		done.Proposal, done.Auto, err = s.checkWork(ctx, base, head)
 		return err
 	}
 	if round == nil {
@@ -212,7 +226,7 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 	if !ok {
 		return ports.Result{}, nil, fmt.Errorf("output schema %s of role %s: %w", role.Output, role.Name, ports.ErrPermanent)
 	}
-	in, err := s.promptInput(ctx, n, r, st, role, schema, round)
+	in, err := s.promptInput(ctx, n, r, cmp.Or(done.Base, r.Base), st, role, schema, round)
 	if err != nil {
 		return ports.Result{}, nil, err
 	}
@@ -491,9 +505,9 @@ func verify(cmds []prompt.Command) []string {
 }
 
 // promptInput gathers what the prompt of a role session needs: the issue, the
-// project rules and the gate commands read from the milestone tip, the
-// criteria, and the cause of the round.
-func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Run, st core.FlowStep, role *config.Role, schema []byte, round []gitops.DiffFile) (prompt.Input, error) {
+// project rules read from the milestone tip, the gate commands frozen at the
+// base of the attempt, the criteria, and the cause of the round.
+func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Run, base string, st core.FlowStep, role *config.Role, schema []byte, round []gitops.DiffFile) (prompt.Input, error) {
 	issue, err := s.d.Tracker.Issue(ctx, n.IssueRef)
 	if err != nil {
 		return prompt.Input{}, err
@@ -506,16 +520,12 @@ func (s *Supervisor) promptInput(ctx context.Context, n store.NodeRow, r core.Ru
 		}
 		rules = append(rules, prompt.ProjectFile{Name: name, Content: b})
 	}
-	tip, err := s.d.Git.ReadAt(ctx, s.cfg.Repo, "refs/heads/"+s.cfg.Branch, ".kluzo/kluzo.yaml")
+	frozen, err := s.frozen(ctx, base)
 	if err != nil {
 		return prompt.Input{}, err
 	}
-	tipCfg, err := config.ParseConfig("kluzo.yaml at the milestone tip", tip)
-	if err != nil {
-		return prompt.Input{}, fmt.Errorf("%w: %w", err, ports.ErrPermanent)
-	}
 	var cmds []prompt.Command
-	for _, g := range tipCfg.Gates {
+	for _, g := range frozen.Gates {
 		if g.Run != "" {
 			cmds = append(cmds, prompt.Command{Name: g.Name, Command: g.Run})
 		}
@@ -574,7 +584,7 @@ func reviewStep(f core.Flow) int {
 func gateFailures(results []ports.GateResult, cmds []prompt.Command) []prompt.GateFailure {
 	out := make([]prompt.GateFailure, len(results))
 	for i, g := range results {
-		out[i] = prompt.GateFailure{Name: g.Gate, Log: g.Summary, LogPath: g.LogRef}
+		out[i] = prompt.GateFailure{Name: g.Gate, ExitCode: g.ExitCode, Failures: g.Failures, Log: g.Summary, LogPath: g.LogRef, Report: g.Report}
 		for _, c := range cmds {
 			if c.Name == g.Gate {
 				out[i].Command = c.Command

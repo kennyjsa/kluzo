@@ -11,6 +11,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/text"
+	"github.com/kennyjsa/kluzo/internal/ports"
 )
 
 // Task is the data of segment 3 (docs/contracts/prompt.md#segmento-3--tarefa).
@@ -111,11 +112,7 @@ type GateFailure struct {
 }
 
 // TestFailure is a structured test failure.
-type TestFailure struct {
-	Test, File string
-	Line       int
-	Message    string
-}
+type TestFailure = ports.TestFailure
 
 // IntegrationCause is a rebase conflict or a freshness failure.
 type IntegrationCause struct {

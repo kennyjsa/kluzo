@@ -37,7 +37,10 @@ type Deps struct {
 	Gates    ports.Gates
 	Notifier ports.Notifier
 	Nonce    func() (string, error) // the envelope nonce of each prompt
-	Log      *slog.Logger
+	// HostCredentials finds the credentials of the host visible to the
+	// sessions (hostcred.Check with gitops.HostCredentialHelpers).
+	HostCredentials func(context.Context) ([]string, error)
+	Log             *slog.Logger
 }
 
 // Config is the workspace the supervisor runs.
@@ -296,6 +299,12 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 	if err != nil {
 		return fmt.Errorf("node %s: %w", n.ID, err)
 	}
+	if p, ok, err := s.proposal(d); err != nil || ok {
+		if err != nil {
+			return err
+		}
+		extra = append(extra, p)
+	}
 	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
 		for _, e := range extra {
 			h, err := s.header()
@@ -352,6 +361,20 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 		}
 		return nil
 	})
+}
+
+// proposal is the proposal.created of a decision that blocks the node for a
+// proposal: the change waits for a human (ADR 0020).
+func (s *Supervisor) proposal(d core.Decision) (store.Event, bool, error) {
+	if !slices.ContainsFunc(d.Moves, func(m core.Move) bool { return m.Event.Reason == core.BlockedProposal }) {
+		return store.Event{}, false, nil
+	}
+	id, err := s.d.IDs.New(ids.Proposal, s.d.Clock.Now())
+	if err != nil {
+		return store.Event{}, false, err
+	}
+	body, _ := json.Marshal(contracts.ProposalCreated{ProposalID: id, Kind: contracts.ProposalChange, State: contracts.ProposalPending}) // plain data
+	return store.Event{Kind: contracts.EventProposalCreated, Payload: body}, true, nil
 }
 
 // node reads the current row of a node.

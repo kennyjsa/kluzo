@@ -200,6 +200,7 @@ func TestFlowSessionCauses(t *testing.T) {
 		workspace WorkspaceTrigger
 	}{
 		{ports.CauseAuth, BlockedPaused, TriggerPause},
+		{ports.CauseHostCredentials, BlockedPaused, TriggerPause},
 		{ports.CauseBudget, BlockedBudget, ""},
 		{ports.CauseRateLimit, BlockedTriage, ""}, // the new sessions of the attempt ran out
 		{ports.CauseRuntime, BlockedTriage, ""},
@@ -319,4 +320,91 @@ func nodeTriggerSet() map[NodeTrigger]bool {
 		set[e.trigger] = true
 	}
 	return set
+}
+
+// The check after an implementer round (ADR 0020): a change that needs a
+// human blocks the node as a proposal; a new suppression is an automatic
+// blocking finding that only the check resolves.
+func TestFlowGuaranteesAfterTheRound(t *testing.T) {
+	suppression := Finding{Category: "style", File: "a.go", Line: 3, Message: "new lint suppression `//nolint`", Check: "golangci-lint run"}
+	withAuto := func(step int, auto ...Finding) SessionDone {
+		d := implDone(step)
+		d.Auto = auto
+		return d
+	}
+	for _, tt := range []struct {
+		name   string
+		inputs []Input
+		check  func(t *testing.T, s NodeFlow, ds []Decision)
+	}{
+		{"a protected path blocks as a proposal", []Input{Dispatch{}, func() SessionDone {
+			d := implDone(0)
+			d.Proposal = []string{".kluzo/kluzo.yaml is a protected path", "a_test.go is a test file and was deleted"}
+			return d
+		}()}, func(t *testing.T, s NodeFlow, ds []Decision) {
+			if s.Node.State != NodeBlocked || s.Node.BlockedReason != BlockedProposal || s.Run.Step != 0 || s.Run.Head != "c1" {
+				t.Errorf("node %+v, run %+v", s.Node, s.Run)
+			}
+			if !slices.Contains(kindsOf(ds[1]), EffectNotify) || slices.Contains(kindsOf(ds[1]), EffectGates) {
+				t.Errorf("effects = %v", kindsOf(ds[1]))
+			}
+		}},
+		{"a suppression is an automatic blocking finding", []Input{Dispatch{}, withAuto(0, suppression), gates(1, ports.GatePassed), review(2, true)},
+			func(t *testing.T, s NodeFlow, _ []Decision) {
+				open := s.Run.Findings.Open()
+				if len(open) != 1 || !open[0].Auto || open[0].Severity != SeverityBlocking || open[0].ID != "F1" || s.Node.State != NodeRunning || !s.Run.Rejected {
+					t.Errorf("findings %+v, node %+v", open, s.Node)
+				}
+			}},
+		{"the reviewer cannot resolve it, the check does", []Input{Dispatch{}, withAuto(0, suppression), gates(1, ports.GatePassed), review(2, true),
+			withAuto(0, suppression), gates(1, ports.GatePassed), reviewPrev(2, "F1")},
+			func(t *testing.T, s NodeFlow, _ []Decision) {
+				if open := s.Run.Findings.Open(); len(open) != 1 || s.Node.State != NodeBlocked || s.Node.BlockedReason != BlockedTriage {
+					t.Errorf("open %+v, node %+v (max_rounds 2: the rounds are over)", open, s.Node)
+				}
+			}},
+		{"fixed in the next round", []Input{Dispatch{}, withAuto(0, suppression), gates(1, ports.GatePassed), review(2, true),
+			withAuto(0), gates(1, ports.GatePassed), reviewPrev(2, "F1"), gates(3, ports.GatePassed)},
+			func(t *testing.T, s NodeFlow, _ []Decision) {
+				if len(s.Run.Findings.Open()) != 0 || s.Run.Findings.List[0].Status != FindingResolved || s.Node.State != NodeQueued {
+					t.Errorf("findings %+v, node %+v", s.Run.Findings, s.Node)
+				}
+			}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, ds := play(t, tt.inputs...)
+			tt.check(t, s, ds)
+		})
+	}
+}
+
+// reviewPrev approves, marking the previous findings resolved.
+func reviewPrev(step int, ids ...string) SessionDone {
+	prev := make([]map[string]any, len(ids))
+	for i, id := range ids {
+		prev[i] = map[string]any{"id": id, "status": "resolved", "note": "n"}
+	}
+	raw, _ := json.Marshal(map[string]any{"criteria": []map[string]any{{"id": "AC1", "met": true}}, "findings": []any{}, "previous": prev})
+	return SessionDone{Step: step, State: ports.StateFinished, Raw: raw}
+}
+
+func TestSyncAuto(t *testing.T) {
+	a := Finding{File: "a.go", Line: 3, Message: "m1"}
+	b := Finding{File: "b.go", Line: 1, Message: "m2"}
+	manual := Finding{File: "a.go", Line: 3, Message: "m1", Severity: SeverityMajor}
+	fs, _ := Findings{}.Add(1, 1, manual)
+	fs = fs.SyncAuto(1, 1, []Finding{a, a, b})
+	if len(fs.List) != 3 || fs.List[1].ID != "F2" || !fs.List[1].Auto || fs.List[0].Auto || fs.List[2].Message != "m2" {
+		t.Fatalf("first sync = %+v", fs.List)
+	}
+	moved := a
+	moved.Line = 9
+	fs = fs.SyncAuto(1, 2, []Finding{moved})
+	if fs.List[1].Status != FindingOpen || fs.List[1].Line != 9 || fs.List[2].Status != FindingResolved || fs.List[0].Status != FindingOpen || len(fs.List) != 3 {
+		t.Errorf("second sync = %+v", fs.List)
+	}
+	fs = fs.SyncAuto(2, 1, []Finding{b})
+	if fs.List[1].Status != FindingResolved || fs.List[2].Status != FindingOpen || len(fs.List) != 3 {
+		t.Errorf("third sync (b again) = %+v", fs.List)
+	}
 }

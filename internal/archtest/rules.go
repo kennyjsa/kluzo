@@ -73,7 +73,7 @@ var rules = []rule{
 		name: "adapters do not import core, app, supervisor or store",
 		applies: func(pkg string) bool {
 			return under(internal("tracker"))(pkg) || under(internal("runtime"))(pkg) ||
-				under(internal("notify"))(pkg) || under(internal("gitops"))(pkg)
+				under(internal("notify"))(pkg) || under(internal("gitops"))(pkg) || under(internal("gates"))(pkg)
 		},
 		forbidden: func(_, imp string) bool {
 			return under(internal("core"))(imp) || under(internal("app"))(imp) ||
