@@ -635,6 +635,11 @@ func TestResume(t *testing.T) {
 	if i < 0 || got.Argv[i+1] != harnessUUID(spec.SessionID, 0) || slices.Contains(got.Argv, "--session-id") {
 		t.Errorf("argv = %v", got.Argv)
 	}
+	// The CLI checks the limit against the invocation, not the conversation
+	// (Q40): the resume gets what the node has left, without the prior cost.
+	if b := slices.Index(got.Argv, "--max-budget-usd"); b < 0 || got.Argv[b+1] != "0.700000" {
+		t.Errorf("budget of the resume = %v", got.Argv)
+	}
 	if rs.HarnessRef() != ref {
 		t.Errorf("ref changed: %s", rs.HarnessRef())
 	}

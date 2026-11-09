@@ -139,9 +139,10 @@ Rodadas na máquina do Kenny, com haiku e orçamento baixo. Todas confirmaram o 
 | `HOME` sintético | Sem variável de token: não logado. Caminho com `CLAUDE_CODE_OAUTH_TOKEN` **ainda não verificado** (`claude setup-token` é interativo) |
 | Prompt grande e `stream-json` | 238 KB pelo stdin ok. **Cada mensagem gera `init` e `result` próprios no mesmo processo**, com custo acumulado: `result` não marca o fim do processo |
 | Recusa | `success`, `is_error: true`, `stop_reason: refusal` |
+| `--max-budget-usd` na retomada (08/11/2026, item 7c, Q40) | **O limite vale para a invocação, não para o total acumulado da conversa.** Numa conversa com US$ 0,0041 acumulados, uma retomada de uma volta com limite de US$ 0,002 terminou em `success`; outra, com limite de US$ 0,003, passou da primeira volta (invocação de ~US$ 0,0006, acumulado já acima do limite), rodou as ferramentas e só parou (`error_max_budget_usd`, `terminal_reason: budget_exhausted`, saída 1) depois da segunda volta, cuja invocação custou ~US$ 0,23. O adaptador passa à retomada o que resta ao nó, como no início. **A segunda volta criou 231 mil tokens de cache numa conversa de 17 mil**, sem causa visível no transcript: o estouro de uma volta pode ser grande, e o orçamento do nó é conferido pelo Kluzo depois de cada sessão |
 | `--append-system-prompt-file` (08/11/2026, item 6e) | Funciona (o texto do arquivo entra no system prompt), mas **não aparece no `--help`**, como `--max-turns`. Arquivo inexistente: `Append system prompt file not found`, saída 1, antes de qualquer chamada; flag desconhecida: `unknown option`. O `Check` sonda a flag assim |
 
-Consequências no adaptador: custo calculado como diferença entre retomadas; system prompt por `--append-system-prompt-file`; formato real dos eventos de hook nos fixtures; alias `Task`/`Agent` quando subagentes forem mapeados.
+Consequências no adaptador: custo calculado como diferença entre retomadas; `--max-budget-usd` da retomada é o que resta ao nó; system prompt por `--append-system-prompt-file`; formato real dos eventos de hook nos fixtures; alias `Task`/`Agent` quando subagentes forem mapeados.
 
 ## Verificações obrigatórias numa máquina autenticada (aceite do item 6)
 

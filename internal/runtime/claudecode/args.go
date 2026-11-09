@@ -99,6 +99,9 @@ func argv(spec ports.SessionSpec, ts toolSet, id string, resume bool, f files) [
 	if n := spec.Role.MaxTurns; n > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(n))
 	}
+	// The CLI compares --max-budget-usd with what this invocation spent, not
+	// with the total of the conversation (verified on 2.1.319): a resume
+	// gets what the node has left, like a start.
 	if b := spec.MaxBudgetUSDMicros; b > 0 {
 		args = append(args, "--max-budget-usd", fmt.Sprintf("%.6f", float64(b)/1e6))
 	}
