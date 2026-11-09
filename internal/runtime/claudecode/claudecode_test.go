@@ -797,18 +797,6 @@ func TestCheck(t *testing.T) {
 	}
 }
 
-func TestCompareVersions(t *testing.T) {
-	for _, c := range []struct {
-		a, b string
-		sign int
-	}{{"2.1.295", "2.1.295", 0}, {"2.1.319", "2.1.295", 1}, {"2.1.99", "2.1.295", -1}, {"2.2.0", "2.1.999", 1}, {"3.0", "2.9.9", 1}} {
-		got := compareVersions(c.a, c.b)
-		if (got > 0) != (c.sign > 0) || (got < 0) != (c.sign < 0) {
-			t.Errorf("compareVersions(%s, %s) = %d, want sign %d", c.a, c.b, got, c.sign)
-		}
-	}
-}
-
 func TestFrozenArgvHidesThePromptAndTheFiles(t *testing.T) {
 	e := newEnv(t)
 	res, evs := e.play(e.spec("success", nil))

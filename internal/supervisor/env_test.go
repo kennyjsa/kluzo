@@ -77,8 +77,10 @@ type envOpts struct {
 	noDocker bool  // the machine has no docker
 	// dockerDown: the docker CLI is there, its daemon does not answer.
 	dockerDown bool
-	gates      func(repo, dir string) ports.Gates      // nil: the in-memory fake
-	host       func(context.Context) ([]string, error) // nil: a clean host
+	// fromPlan creates the workspace as kluzo plan does, awaiting approval.
+	fromPlan bool
+	gates    func(repo, dir string) ports.Gates      // nil: the in-memory fake
+	host     func(context.Context) ([]string, error) // nil: a clean host
 	// prepare changes the repository before the supervisor loads it.
 	prepare func(repo string)
 }
@@ -105,7 +107,12 @@ func newEnvWith(t *testing.T, o envOpts, steps ...step) *env {
 		t.Fatal(err)
 	}
 	e := &env{t: t, dir: dir, repo: repo, db: db, clock: clk, tracker: tracker, gates: fakes.NewGates(), notifier: &fakes.Notifier{}, scm: scm, docker: newFakeDocker(t),
-		runtime: &script{t: t, repo: repo, steps: steps, refs: map[string]bool{}}, node: seed(t, db, gen, issue.Ref, budget), issue: issue.Ref}
+		runtime: &script{t: t, repo: repo, steps: steps, refs: map[string]bool{}}, issue: issue.Ref}
+	if o.fromPlan {
+		e.node = seedPlan(t, db, gen, clk, issue.Ref, budget)
+	} else {
+		e.node = seed(t, db, gen, issue.Ref, budget)
+	}
 	if o.noDocker {
 		e.docker.bin = filepath.Join(dir, "no-docker")
 	}
@@ -181,6 +188,17 @@ func build(t *testing.T, dir string, d deps, issue string) *supervisor.Superviso
 // buildWith is build with every role on model (empty: the roles' own).
 func buildWith(t *testing.T, dir string, d deps, issue, model string) *supervisor.Supervisor {
 	t.Helper()
+	sup, err := supervisor.New(assemble(t, dir, d, issue, model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sup
+}
+
+// assemble returns the dependencies and the configuration of the supervisor
+// of build.
+func assemble(t *testing.T, dir string, d deps, issue, model string) (supervisor.Deps, supervisor.Config) {
+	t.Helper()
 	repo := filepath.Join(dir, "repo")
 	project, err := config.Load(filepath.Join(repo, ".kluzo"))
 	if err != nil {
@@ -205,7 +223,7 @@ func buildWith(t *testing.T, dir string, d deps, issue, model string) *superviso
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
-	sup, err := supervisor.New(supervisor.Deps{
+	return supervisor.Deps{
 		DB: d.db, Clock: d.clock, IDs: d.ids, Tracker: d.tracker, Runtime: d.runtime, MCP: srv,
 		Git: gitops.New(gitops.Config{ParentEnv: os.Environ()}), Gates: d.gates, Notifier: d.notifier,
 		Nonce: func() (string, error) { return "0123abcd", nil }, HostCredentials: d.host,
@@ -214,11 +232,7 @@ func buildWith(t *testing.T, dir string, d deps, issue, model string) *superviso
 		Project: project, Workspace: "ws_1", Milestone: "v1", Repo: repo, Remote: filepath.Join(dir, "origin.git"), Branch: "milestone/v1", Dir: filepath.Join(dir, "ws"),
 		Downloads: filepath.Join(dir, "downloads"), Criteria: map[string][]core.Criterion{issue: {{ID: "AC1", Text: "The agenda lists appointments"}}},
 		Idle: 10 * time.Millisecond, Version: "test", ParentEnv: os.Environ(),
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	return sup
 }
 
 // testGit returns a runner of plain git for the setup of the repository.
@@ -262,6 +276,22 @@ func seed(t *testing.T, db *store.DB, gen *ids.Generator, issue string, budget i
 			Budget: contracts.NodeBudget{Attempts: 2, Minutes: 60, USDMicros: budget}})
 		_, err := x.Append(store.Event{Header: hdr(), Kind: contracts.EventNodeAdded, NodeID: node, Payload: body})
 		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return node
+}
+
+// seedPlan creates the workspace with one node as kluzo plan does, through
+// supervisor.CreateWorkspace, and returns the node id.
+func seedPlan(t *testing.T, db *store.DB, gen *ids.Generator, clk clock.Clock, issue string, budget int64) string {
+	t.Helper()
+	node, _ := gen.New(ids.Node, epoch)
+	err := supervisor.CreateWorkspace(context.Background(), db, gen, clk, supervisor.NewWorkspace{
+		Created: contracts.WorkspaceCreated{ID: "ws_1", Branch: "milestone/v1", BaseSHA: "x"},
+		Nodes: []supervisor.NewNode{{ID: node, Added: contracts.NodeAdded{IssueRef: issue, Title: "Agenda API", Areas: []string{"agenda"},
+			Budget: contracts.NodeBudget{Attempts: 2, Minutes: 60, USDMicros: budget}}}},
 	})
 	if err != nil {
 		t.Fatal(err)

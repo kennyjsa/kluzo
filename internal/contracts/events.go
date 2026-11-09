@@ -31,7 +31,15 @@ const (
 	EventEffectFailed    = "effect.failed"
 	EventBudgetAlert     = "budget.alert"
 	EventProposalCreated = "proposal.created"
+	EventPlanApproved    = "plan.approved"
 )
+
+// PlanApproved is the payload of plan.approved.
+type PlanApproved struct {
+	PlanVersion   int    `json:"plan_version"`
+	CreatedIssues []int  `json:"created_issues"`
+	By            string `json:"by"`
+}
 
 // Proposal kinds and states used so far.
 const (
@@ -64,6 +72,9 @@ type WorkspaceCreated struct {
 	BaseSHA         string `json:"base_sha"`
 	Profile         string `json:"profile,omitempty"`
 	BudgetUSDMicros int64  `json:"budget_usd_micros,omitempty"`
+	// MilestoneRef is the milestone in the tracker (its number on GitHub),
+	// which the approval reads the plan's graph from again.
+	MilestoneRef string `json:"milestone_ref,omitempty"`
 }
 
 // WorkspaceTransition is the payload of workspace.transition.

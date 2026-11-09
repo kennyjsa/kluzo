@@ -18,10 +18,14 @@ func TestRun(t *testing.T) {
 	}{
 		{name: "version", args: []string{"--version"}, wantCode: 0, wantStdout: "kluzo dev"},
 		{name: "version subcommand", args: []string{"version"}, wantCode: 0, wantStdout: "kluzo dev"},
-		{name: "help", args: []string{"help"}, wantCode: 0, wantStdout: "Usage: kluzo"},
-		{name: "no args", args: nil, wantCode: 1, wantStderr: "Usage: kluzo"},
+		{name: "help", args: []string{"help"}, wantCode: 0, wantStdout: "Usage:"},
+		{name: "no args", args: nil, wantCode: 1, wantStderr: "Usage:"},
 		{name: "unknown", args: []string{"nope"}, wantCode: 1, wantStderr: `unknown command "nope"`},
 		{name: "doctor without configuration", args: []string{"doctor", "--dir", "/does/not/exist"}, wantCode: 2},
+		{name: "every command of F29", args: []string{"help"}, wantCode: 0, wantStdout: "approve"},
+		{name: "plan without its milestone", args: []string{"plan"}, wantCode: 1, wantStderr: "plan takes 1 argument"},
+		{name: "bad flag", args: []string{"status", "--nope", "v1"}, wantCode: 1, wantStderr: "unknown flag"},
+		{name: "status without workspace", args: []string{"status", "v1", "--dir", "testdata/none"}, wantCode: 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,11 +91,11 @@ func TestRolesCheckUsage(t *testing.T) {
 		wantCode int
 		wantErr  string
 	}{
-		{"no subcommand", []string{"roles"}, 1, "Usage: kluzo roles check"},
-		{"unknown subcommand", []string{"roles", "list"}, 1, "Usage: kluzo roles check"},
-		{"bad flag", []string{"roles", "check", "--nope"}, 1, "flag provided but not defined"},
+		{"no subcommand", []string{"roles"}, 1, "Available Commands:\n  check"},
+		{"unknown subcommand", []string{"roles", "list"}, 1, `unknown command "list"`},
+		{"bad flag", []string{"roles", "check", "--nope"}, 1, "unknown flag: --nope"},
 		{"missing config", []string{"roles", "check", "--dir", filepath.Join(t.TempDir(), "absent")}, 2, "kluzo init"},
-		{"init bad flag", []string{"init", "--nope"}, 1, "flag provided but not defined"},
+		{"init bad flag", []string{"init", "--nope"}, 1, "unknown flag: --nope"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

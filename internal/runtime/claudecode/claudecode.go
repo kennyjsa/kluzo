@@ -11,14 +11,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/platform/exec"
 	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
+	"github.com/kennyjsa/kluzo/internal/platform/version"
 	"github.com/kennyjsa/kluzo/internal/ports"
 )
 
@@ -114,8 +113,6 @@ func (rt *Runtime) env(spec ports.SessionSpec, home string) []string {
 	return sessionenv.Build(sessionenv.Spec{Parent: rt.cfg.ParentEnv, Home: home, Allow: rt.cfg.EnvAllow, Extra: extra})
 }
 
-var versionRE = regexp.MustCompile(`\d+\.\d+\.\d+`)
-
 // Check implements ports.Runtime: it reads the version, the flags and the
 // credential. Every problem found is reported, joined.
 func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
@@ -135,12 +132,12 @@ func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
 	if err != nil || st.Code != 0 {
 		return info, fmt.Errorf("%w: %s --version: %w", ports.ErrRuntimeMissing, rt.cfg.Bin, errors.Join(err, exitErr(st)))
 	}
-	info.Version = versionRE.FindString(out)
+	info.Version = version.Find(out)
 	var problems []error
 	switch {
 	case info.Version == "":
 		problems = append(problems, fmt.Errorf("%w: cannot read a version from %q", ports.ErrRuntimeVersion, strings.TrimSpace(out)))
-	case compareVersions(info.Version, rt.cfg.MinVersion) < 0:
+	case version.Compare(info.Version, rt.cfg.MinVersion) < 0:
 		problems = append(problems, fmt.Errorf("%w: claude %s is installed, kluzo needs %s or newer (update with `claude update`)", ports.ErrRuntimeVersion, info.Version, rt.cfg.MinVersion))
 	}
 
@@ -197,24 +194,6 @@ func exitErr(st exec.Status) error {
 		return nil
 	}
 	return fmt.Errorf("exit code %d", st.Code)
-}
-
-// compareVersions compares dotted numeric versions.
-func compareVersions(a, b string) int {
-	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
-	for i := 0; i < max(len(pa), len(pb)); i++ {
-		var x, y int
-		if i < len(pa) {
-			x, _ = strconv.Atoi(pa[i])
-		}
-		if i < len(pb) {
-			y, _ = strconv.Atoi(pb[i])
-		}
-		if x != y {
-			return x - y
-		}
-	}
-	return 0
 }
 
 // refPrefix starts every harness ref this adapter hands out.

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kennyjsa/kluzo/internal/platform/exec"
+	"github.com/kennyjsa/kluzo/internal/platform/version"
 )
 
 // Config configures the git runner.
@@ -109,4 +110,22 @@ func tail(s string, n int) string {
 		s = s[1:]
 	}
 	return s
+}
+
+// MinVersion is the oldest git Kluzo runs on (worktrees and merge-tree
+// --write-tree, docs/development.md).
+const MinVersion = "2.38"
+
+// Version returns the version of git, and an error when it is older than
+// MinVersion or does not run.
+func (g *Git) Version(ctx context.Context) (string, error) {
+	out, err := g.run(ctx, "", "--version")
+	if err != nil {
+		return "", err
+	}
+	v := version.Find(out)
+	if v == "" || version.Compare(v, MinVersion) < 0 {
+		return v, fmt.Errorf("git %s is installed, kluzo needs %s or newer", v, MinVersion)
+	}
+	return v, nil
 }

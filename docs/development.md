@@ -8,7 +8,18 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 - `git` 2.38 ou mais novo (worktrees e `merge --no-ff`).
 - Node LTS, só para desenvolver a web (`web/`).
 - `golangci-lint`.
-- Para os testes de integração: `claude` e `opencode` instalados e autenticados, e um token de teste do GitHub.
+- Para os testes de integração: `claude` e `opencode` instalados e autenticados, e um token de teste do GitHub (abaixo).
+
+### Testes de integração
+
+Nunca use as credenciais do host: cada teste lê só as variáveis abaixo e pula, com o motivo, quando faltam.
+
+| Teste | Variáveis | Como rodar |
+|---|---|---|
+| Contrato do adaptador do GitHub | `KLUZO_IT_GITHUB_REPO` (`dono/nome` de um repositório sandbox, nunca o do Kluzo) e `KLUZO_IT_GITHUB_TOKEN` | `go test -tags integration -run TestIntegrationContract ./internal/tracker/github/` |
+| Nó de verdade com Claude Code | `KLUZO_IT_NODE=1` e `CLAUDE_CODE_OAUTH_TOKEN` (ou `ANTHROPIC_API_KEY`) | `go test -tags integration -run TestIntegrationNode -v ./internal/supervisor/` |
+
+O token da sandbox precisa das permissões do bot ([integrations.md](architecture/integrations.md#permissões-no-github)), mais **Commit statuses: escrita** (o teste grava statuses) e o merge de PR na sandbox. Um token fine-grained não tem **Checks**: os casos de check runs da suíte de CI falham com 403. Para a suíte inteira, use um token clássico com o escopo `repo` (ou `public_repo` + `repo:status` numa sandbox pública).
 
 ## Comandos
 
@@ -23,6 +34,21 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 | `make vuln` | `govulncheck ./...` (e `npm audit` na web); roda no CI |
 | `make dist` | Binários para Linux e macOS (amd64 e arm64) em `dist/` |
 | `make check` | `lint` + `arch` + `test`; o CI roda isso, mais `vuln` e `dist` |
+
+## Usar o Kluzo num projeto (v0.1)
+
+```
+kluzo init                       # cria .kluzo/; edite os TODO
+kluzo doctor                     # 0 ok, 2 configuração inválida, 3 integração (CLIs, token, credenciais do host)
+# escreva .kluzo/plans/<título>.yaml (docs/contracts/plan.md)
+kluzo plan <número da milestone> # cria o workspace, aguardando aprovação
+kluzo approve <título>           # aprova; o plano vai em commit na branch da milestone
+kluzo run <título>               # executa até o PR milestone → main ser mergeado (por você)
+kluzo status <título> [--json]
+kluzo pause|resume <título>
+```
+
+Variáveis lidas pelo Kluzo (nunca de `.kluzo/`): o token do bot (`KLUZO_GH_TOKEN`, ou `tracker.auth.token_env`; ou o GitHub App em `KLUZO_GH_APP_ID` e `KLUZO_GH_APP_KEY`), com as permissões de [integrations.md](architecture/integrations.md#permissões-no-github), e a credencial do modelo das sessões (`CLAUDE_CODE_OAUTH_TOKEN` ou `ANTHROPIC_API_KEY`, ADR 0024). Na v0.1 as notificações saem no log do `kluzo run`.
 
 ## Testes
 

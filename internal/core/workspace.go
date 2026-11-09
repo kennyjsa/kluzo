@@ -113,7 +113,10 @@ func NextWorkspace(from WorkspaceState, t WorkspaceTrigger) (WorkspaceState, err
 
 // Effects of the workspace (docs/contracts/state-machine.md#workspace).
 const (
-	EffectEnsureMilestone  EffectKind = "git.milestone"
+	EffectEnsureMilestone EffectKind = "git.milestone"
+	// EffectCommitPlan commits the approved plan on the milestone branch;
+	// it waits for the branch, like the work on nodes.
+	EffectCommitPlan       EffectKind = "git.plan"
 	EffectOpenPR           EffectKind = "scm.open_pr"
 	EffectCleanupWorkspace EffectKind = "cleanup.workspace"
 )

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -235,14 +236,8 @@ func (g *Git) Merge(ctx context.Context, s MergeSpec) (string, error) {
 	if cur != s.Tip {
 		return "", fmt.Errorf("branch %s is at %s, not at %s the node was rebased on: %w", s.Branch, cur, s.Tip, ports.ErrPermanent)
 	}
-	wts, err := g.worktrees(ctx, s.Repo)
-	if err != nil {
+	if err := g.notCheckedOut(ctx, s.Repo, s.Branch); err != nil {
 		return "", err
-	}
-	for path, b := range wts {
-		if b == ref {
-			return "", fmt.Errorf("%s is checked out in %s; check out another branch there: %w", s.Branch, path, ports.ErrPermanent)
-		}
 	}
 	tree, err := g.run(ctx, s.Repo, "merge-tree", "--write-tree", "--no-messages", "--end-of-options", s.Tip, s.Head)
 	if err != nil {
@@ -258,6 +253,84 @@ func (g *Git) Merge(ctx context.Context, s MergeSpec) (string, error) {
 		return "", err
 	}
 	return sha, nil
+}
+
+// notCheckedOut refuses a branch checked out in a worktree: Kluzo moves it
+// without a checkout, which would leave that worktree behind its branch.
+func (g *Git) notCheckedOut(ctx context.Context, repo, branch string) error {
+	wts, err := g.worktrees(ctx, repo)
+	if err != nil {
+		return err
+	}
+	for path, b := range wts {
+		if b == "refs/heads/"+branch {
+			return fmt.Errorf("%s is checked out in %s; check out another branch there: %w", branch, path, ports.ErrPermanent)
+		}
+	}
+	return nil
+}
+
+// CommitFile commits content at path on the branch, without a checkout, and
+// returns the new tip. A branch whose tip already has that content is left
+// as it is, so running it again commits nothing.
+func (g *Git) CommitFile(ctx context.Context, repo, branch, path string, content []byte, message string) (string, error) {
+	ref := "refs/heads/" + branch
+	tip, ok, err := g.resolve(ctx, repo, ref+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("branch %s: %w", branch, ports.ErrNotFound)
+	}
+	if cur, err := g.ReadAt(ctx, repo, tip, path); err == nil && string(cur) == string(content) {
+		return tip, nil
+	}
+	if err := g.notCheckedOut(ctx, repo, branch); err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp("", "kluzo-commit-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	file := filepath.Join(tmp, "content")
+	if err := os.WriteFile(file, content, 0o600); err != nil {
+		return "", err
+	}
+	blob, err := g.run(ctx, repo, "hash-object", "-w", "--no-filters", "--end-of-options", file)
+	if err != nil {
+		return "", err
+	}
+	// A private index: the index of the main checkout is not touched.
+	ig := &Git{bin: g.bin, env: append(append([]string(nil), g.env...), "GIT_INDEX_FILE="+filepath.Join(tmp, "index"))}
+	if _, err := ig.run(ctx, repo, "read-tree", "--end-of-options", tip); err != nil {
+		return "", err
+	}
+	if _, err := ig.run(ctx, repo, "update-index", "--add", "--cacheinfo", "100644,"+strings.TrimSpace(blob)+","+path); err != nil {
+		return "", err
+	}
+	tree, err := ig.run(ctx, repo, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	sha, err := g.run(ctx, repo, append(append([]string(nil), identity...), "commit-tree", "-p", tip, "-m", message, "--end-of-options", strings.TrimSpace(tree))...)
+	if err != nil {
+		return "", err
+	}
+	sha = strings.TrimSpace(sha)
+	if _, err := g.run(ctx, repo, "update-ref", "-m", "kluzo: "+message, "--end-of-options", ref, sha, tip); err != nil {
+		return "", err
+	}
+	return sha, nil
+}
+
+// Head returns the commit a local branch points at.
+func (g *Git) Head(ctx context.Context, repo, branch string) (string, error) {
+	sha, ok, err := g.resolve(ctx, repo, "refs/heads/"+branch+"^{commit}")
+	if err == nil && !ok {
+		err = fmt.Errorf("branch %s: %w", branch, ports.ErrNotFound)
+	}
+	return sha, err
 }
 
 // ResetBranch moves the local branch from cur back to to, by

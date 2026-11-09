@@ -248,3 +248,37 @@ func TestDeleteRemoteBranches(t *testing.T) {
 		t.Errorf("none asked: %v, %v", got, err)
 	}
 }
+
+// CommitFile commits a file on a branch without a checkout, leaves the index
+// of the main checkout alone and commits nothing when the content is there.
+func TestCommitFile(t *testing.T) {
+	ctx := context.Background()
+	g := newGit()
+	repo, _ := withRemote(t, g)
+	before, err := g.Head(ctx, repo, "milestone/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sha, err := g.CommitFile(ctx, repo, "milestone/v1", ".kluzo/plans/v1.yaml", []byte("version: 1\n"), "docs(plan): approve v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := g.ReadAt(ctx, repo, sha, ".kluzo/plans/v1.yaml"); string(got) != "version: 1\n" {
+		t.Errorf("content %q", got)
+	}
+	if parent := git(t, g, repo, "rev-parse", sha+"^"); parent != before {
+		t.Errorf("parent %s, want %s", parent, before)
+	}
+	if st := git(t, g, repo, "status", "--porcelain"); st != "" {
+		t.Errorf("the main checkout changed: %q", st)
+	}
+	if again, err := g.CommitFile(ctx, repo, "milestone/v1", ".kluzo/plans/v1.yaml", []byte("version: 1\n"), "x"); err != nil || again != sha {
+		t.Errorf("again: %s, %v", again, err)
+	}
+	if _, err := g.CommitFile(ctx, repo, "main", "a.txt", []byte("x"), "x"); !ports.IsPermanent(err) {
+		t.Errorf("checked-out branch: %v", err)
+	}
+	if _, err := g.Head(ctx, repo, "nope"); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("Head of a missing branch: %v", err)
+	}
+}

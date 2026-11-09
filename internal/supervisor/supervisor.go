@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kennyjsa/kluzo/internal/config"
@@ -52,6 +53,26 @@ type Deps struct {
 	Log             *slog.Logger
 }
 
+// missing names the required dependencies left out: all of them but
+// GitToken (a remote that needs none) and Log (discarded when nil).
+func (d Deps) missing() []string {
+	var out []string
+	for _, dep := range []struct {
+		name string
+		set  bool
+	}{
+		{"DB", d.DB != nil}, {"Clock", d.Clock != nil}, {"IDs", d.IDs != nil}, {"Tracker", d.Tracker != nil},
+		{"Runtime", d.Runtime != nil}, {"MCP", d.MCP != nil}, {"Git", d.Git != nil}, {"Gates", d.Gates != nil},
+		{"Notifier", d.Notifier != nil}, {"SCM", d.SCM != nil}, {"Docker", d.Docker != nil}, {"Nonce", d.Nonce != nil},
+		{"HostCredentials", d.HostCredentials != nil},
+	} {
+		if !dep.set {
+			out = append(out, dep.name)
+		}
+	}
+	return out
+}
+
 // Config is the workspace the supervisor runs.
 type Config struct {
 	Project   *config.Project
@@ -88,8 +109,11 @@ func New(d Deps, cfg Config) (*Supervisor, error) {
 	if err != nil {
 		return nil, err
 	}
-	if d.SCM == nil || d.Docker == nil || cfg.Remote == "" {
-		return nil, errors.New("supervisor: the SCM, Docker and the remote are required")
+	if missing := d.missing(); len(missing) > 0 || cfg.Remote == "" {
+		if cfg.Remote == "" {
+			missing = append(missing, "the remote")
+		}
+		return nil, fmt.Errorf("supervisor: missing %s", strings.Join(missing, ", "))
 	}
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
@@ -152,12 +176,26 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		if busy {
 			continue
 		}
+		if done, err := s.over(ctx); err != nil || done {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-time.After(s.cfg.Idle):
 		}
 	}
+}
+
+// over reports whether the workspace is over (merged, cancelled, failed
+// or archived) with nothing left in the outbox: Run then returns.
+func (s *Supervisor) over(ctx context.Context) (bool, error) {
+	snap, err := s.d.DB.Snapshot(ctx)
+	if err != nil || snap.Workspace == nil || snap.Workspace.State.Active() {
+		return false, err
+	}
+	pending, err := s.d.DB.PendingEffects(ctx, farFuture, 1)
+	return len(pending) == 0, err
 }
 
 // Step does one round of work: it starts an approved workspace once its
@@ -190,7 +228,7 @@ func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 	if busy || err != nil {
 		return busy, err
 	}
-	f, ok, err := s.next(ctx, running)
+	f, ok, err := s.next(ctx, running, w.Milestone == core.MilestoneDone)
 	if err != nil || !ok {
 		return false, err
 	}
@@ -199,9 +237,10 @@ func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 
 // next picks the effect to run: the oldest that is due, except that the
 // labels and comments of an issue go out in order (an older one waiting for
-// its backoff holds the newer ones, so a stale label never wins), and a
-// workspace that is not running starts no session and no gate.
-func (s *Supervisor) next(ctx context.Context, running bool) (store.Effect, bool, error) {
+// its backoff holds the newer ones, so a stale label never wins), a
+// workspace that is not running starts no session and no gate, and the plan
+// is committed only once the milestone branch is ready.
+func (s *Supervisor) next(ctx context.Context, running, milestone bool) (store.Effect, bool, error) {
 	now := s.d.Clock.Now()
 	pending, err := s.d.DB.PendingEffects(ctx, farFuture, pendingBatch)
 	if err != nil {
@@ -216,7 +255,7 @@ func (s *Supervisor) next(ctx context.Context, running bool) (store.Effect, bool
 		switch {
 		case tracker && held[p.Issue]:
 			continue
-		case f.NextAt.After(now), !running && workEffect(k):
+		case f.NextAt.After(now), !running && workEffect(k), !milestone && k == core.EffectCommitPlan:
 			held[p.Issue] = held[p.Issue] || tracker
 			continue
 		}
@@ -521,6 +560,8 @@ func (s *Supervisor) execute(ctx context.Context, f store.Effect) error {
 		err = s.ensureMilestone(ctx)
 	case core.EffectCleanupWorkspace:
 		err = s.cleanupWorkspace(ctx)
+	case core.EffectCommitPlan:
+		err = s.commitPlan(ctx, p)
 	default:
 		err = fmt.Errorf("unknown effect kind %q: %w", f.Kind, ports.ErrPermanent)
 	}

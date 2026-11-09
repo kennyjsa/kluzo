@@ -148,3 +148,16 @@ func TestErrorNamesCommandAndStderr(t *testing.T) {
 		t.Errorf("missing binary: err = %v", err)
 	}
 }
+
+func TestVersion(t *testing.T) {
+	if v, err := newGit().Version(context.Background()); err != nil || v == "" {
+		t.Errorf("Version = %q, %v", v, err)
+	}
+	old := filepath.Join(t.TempDir(), "git")
+	if err := os.WriteFile(old, []byte("#!/bin/sh\necho git version 2.30.1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := New(Config{Bin: old}).Version(context.Background()); err == nil || v != "2.30.1" {
+		t.Errorf("old git: %q, %v", v, err)
+	}
+}
