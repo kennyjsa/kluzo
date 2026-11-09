@@ -27,7 +27,7 @@ Um único formato de evento serve para três coisas:
 
 | `kind` | Payload |
 |---|---|
-| `workspace.created` | `{id, branch, base_sha, profile?, budget_usd_micros?}` (dados iniciais; o estado nasce vazio e a transição `create` o leva a `refining`) |
+| `workspace.created` | `{id, branch, base_sha, profile?, budget_usd_micros?, milestone_ref?}` (dados iniciais; o estado nasce vazio e a transição `create` o leva a `refining`) |
 | `workspace.transition` | `{from, to, reason}` |
 | `node.added` | `{issue_ref, title, areas, budget}` (o nó nasce `planned`; o id vai no `node` do envelope) |
 | `node.transition` | `{from, to, reason, attempt, round, blocked_reason?}` |

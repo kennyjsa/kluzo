@@ -258,6 +258,8 @@ type Effect struct {
 	Body     string `json:"body,omitempty"`
 	Title    string `json:"title,omitempty"`
 	Priority string `json:"priority,omitempty"`
+	// Path is the file a git effect writes, relative to the repository.
+	Path string `json:"path,omitempty"`
 	// Freshness asks the gates effect for the full gates again, on the
 	// rebased branch of an integrating node.
 	Freshness bool `json:"freshness,omitempty"`

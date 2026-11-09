@@ -83,6 +83,7 @@ Catálogo de efeitos (`kind`). Um tipo novo entra aqui no mesmo PR que o cria:
 | `gate.run` | nó | gates de etapa; com `freshness`, os gates completos de novo no rebase |
 | `tracker.set_label` / `tracker.comment` | nó | espelho no tracker |
 | `notify` | nó ou workspace | notificação |
+| `git.plan` | workspace | commit do plano aprovado em `.kluzo/plans/<milestone>.yaml` na branch da milestone, e push; espera `git.milestone` concluído |
 | `git.milestone` | workspace | cria ou adota `milestone/<nome>`; falha permanente (branches divergentes) pausa o workspace (state-machine.md) |
 | `git.rebase` / `git.merge` | nó | fila de merge (ADR 0009) |
 | `scm.open_pr` | workspace | PR `milestone → main`; grava `pr.opened` |
