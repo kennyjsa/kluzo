@@ -2,10 +2,15 @@ package supervisor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/config"
+	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/guard"
 	"github.com/kennyjsa/kluzo/internal/ports"
@@ -34,9 +39,15 @@ func (s *Supervisor) frozen(ctx context.Context, base string) (*config.Config, e
 
 // checkWork runs the check after an implementer round on the work of the
 // attempt (base..head), with the rules of guard: the violations that need a
-// human become the reasons of a proposal, the suppressions automatic findings.
-func (s *Supervisor) checkWork(ctx context.Context, base, head string) ([]string, []core.Finding, error) {
+// human become the changes of a proposal, the suppressions automatic
+// findings. A change a person already approved for the node, on the same path
+// with the same content, is an exception and passes (v0.1 item 10b).
+func (s *Supervisor) checkWork(ctx context.Context, node, base, head string) ([]core.ProposalChange, []core.Finding, error) {
 	frozen, err := s.frozen(ctx, base)
+	if err != nil {
+		return nil, nil, err
+	}
+	approved, err := s.exceptions(ctx, node)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -55,16 +66,61 @@ func (s *Supervisor) checkWork(ctx context.Context, base, head string) ([]string
 		}
 	}
 	policy := guard.Policy{ProtectedPaths: frozen.ProtectedPaths}
-	var proposal []string
+	var proposal []core.ProposalChange
 	var auto []core.Finding
 	for _, v := range policy.CheckChanges(changes) {
 		if v.Proposal() {
-			proposal = append(proposal, v.Reason)
+			hash, err := s.contentHash(ctx, head, v.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !approved[exception{v.Path, hash}] {
+				proposal = append(proposal, core.ProposalChange{Path: v.Path, Reason: v.Reason, Hash: hash})
+			}
 			continue
 		}
 		auto = append(auto, core.Finding{Category: "style", File: v.Path, Line: v.Line, Message: v.Reason, Check: lintCheck(frozen)})
 	}
 	return proposal, auto, nil
+}
+
+// exception is a change a person approved: a path with a content.
+type exception struct{ path, hash string }
+
+// exceptions are the changes of the approved proposals of the node.
+func (s *Supervisor) exceptions(ctx context.Context, node string) (map[exception]bool, error) {
+	ps, err := s.d.DB.Proposals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[exception]bool{}
+	for _, p := range ps {
+		if p.Node != node || p.Kind != contracts.ProposalChange || p.State != contracts.ProposalApproved {
+			continue
+		}
+		var body core.ChangeProposal
+		if err := json.Unmarshal(p.Payload, &body); err != nil {
+			return nil, fmt.Errorf("proposal %s: %w", p.ID, err)
+		}
+		for _, c := range body.Changes {
+			out[exception{c.Path, c.Hash}] = true
+		}
+	}
+	return out, nil
+}
+
+// contentHash is the SHA-256 of path at the commit, in hex; "" when the
+// commit does not have it (deleted).
+func (s *Supervisor) contentHash(ctx context.Context, commit, path string) (string, error) {
+	b, err := s.d.Git.ReadAt(ctx, s.cfg.Repo, commit, path)
+	if errors.Is(err, ports.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // lintCheck is how to verify a suppression is gone: the fast gates, which

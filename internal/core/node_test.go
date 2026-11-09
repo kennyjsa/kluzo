@@ -39,6 +39,10 @@ func TestNextNode(t *testing.T) {
 		{"integrated is final", Node{State: NodeIntegrated}, NodeEvent{Trigger: TriggerCancel}, Node{State: NodeIntegrated}, ErrInvalidTransition},
 		{"failed is final", Node{State: NodeFailed}, NodeEvent{Trigger: TriggerUnblock}, Node{State: NodeFailed}, ErrInvalidTransition},
 		{"no skipping review", Node{State: NodeRunning}, NodeEvent{Trigger: TriggerGatesPassed}, Node{State: NodeRunning}, ErrInvalidTransition},
+		{"retry is a new attempt", Node{State: NodeBlocked, PrevState: NodeInReview, BlockedReason: BlockedTriage, Attempt: 1, Round: 1, FastGateFailures: 2}, NodeEvent{Trigger: TriggerRetry}, Node{State: NodeRunning, Attempt: 2}, nil},
+		{"retry without attempts left", Node{State: NodeBlocked, PrevState: NodeRunning, BlockedReason: BlockedTriage, Attempt: 3}, NodeEvent{Trigger: TriggerRetry}, Node{State: NodeBlocked, PrevState: NodeRunning, BlockedReason: BlockedTriage, Attempt: 3}, ErrLimitReached},
+		{"retry of a node never dispatched", Node{State: NodeBlocked, PrevState: NodePlanned, BlockedReason: BlockedDependencyFailed}, NodeEvent{Trigger: TriggerRetry}, Node{State: NodeBlocked, PrevState: NodePlanned, BlockedReason: BlockedDependencyFailed}, ErrInvalidTransition},
+		{"retry when not blocked", Node{State: NodeRunning, Attempt: 1}, NodeEvent{Trigger: TriggerRetry}, Node{State: NodeRunning, Attempt: 1}, ErrInvalidTransition},
 		{"planned cannot be dispatched", Node{State: NodePlanned}, NodeEvent{Trigger: TriggerDispatched}, Node{State: NodePlanned}, ErrInvalidTransition},
 	}
 	for _, tt := range tests {

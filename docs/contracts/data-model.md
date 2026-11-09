@@ -201,6 +201,9 @@ CREATE TABLE questions (
   answered_at   TEXT
 );
 
+-- Projeção de proposal.created (linha pending) e proposal.decided (state,
+-- decided_by, decided_at). Uma proposta change aprovada é exceção da
+-- conferência do nó de origem: o mesmo caminho com o mesmo sha256 passa.
 CREATE TABLE proposals (
   id            TEXT PRIMARY KEY,
   origin_node   TEXT REFERENCES nodes(id),

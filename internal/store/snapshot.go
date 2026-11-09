@@ -199,3 +199,32 @@ func (d *DB) sessionRows(ctx context.Context) ([]SessionRow, error) {
 	}
 	return out, nil
 }
+
+// ProposalRow is a proposal projection.
+type ProposalRow struct {
+	ID, Node, Kind, State, DecidedBy, CreatedAt, DecidedAt string
+	Payload                                                json.RawMessage
+	Blocking                                               bool
+}
+
+// Proposals reads the proposals of the workspace, oldest first.
+func (d *DB) Proposals(ctx context.Context) ([]ProposalRow, error) {
+	var out []ProposalRow
+	err := each(ctx, d.sql,
+		`SELECT id, COALESCE(origin_node, ''), kind, payload, blocking, state, COALESCE(decided_by, ''), created_at, COALESCE(decided_at, '')
+		   FROM proposals ORDER BY created_at, id`, nil,
+		func(rows *sql.Rows) error {
+			var p ProposalRow
+			var payload string
+			if err := rows.Scan(&p.ID, &p.Node, &p.Kind, &payload, &p.Blocking, &p.State, &p.DecidedBy, &p.CreatedAt, &p.DecidedAt); err != nil {
+				return err
+			}
+			p.Payload = json.RawMessage(payload)
+			out = append(out, p)
+			return nil
+		})
+	if err != nil {
+		return nil, fmt.Errorf("read proposals: %w", err)
+	}
+	return out, nil
+}

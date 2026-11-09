@@ -5,6 +5,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -222,6 +223,12 @@ func (s *Supervisor) Step(ctx context.Context) (bool, error) {
 	switch {
 	case running:
 		busy, err = s.schedule(ctx, snap)
+		if errors.Is(err, core.ErrInvalidTransition) {
+			// A person moved the node meanwhile (kluzo node): a later step
+			// reads it again, after the idle wait.
+			s.d.Log.Warn("scheduling refused: the node moved", "workspace", s.cfg.Workspace, "err", err)
+			return false, nil
+		}
 	case w.State == core.WorkspaceReadyToMerge:
 		busy, err = s.watchMerge(ctx, w)
 	}
@@ -374,7 +381,40 @@ func retried(f store.Effect, n int, why string) settleFn {
 // transaction: the journal entries of what happened (extra), the moves, the
 // workspace trigger, the new run with its effects, and what happens to the
 // effect whose run produced the input, if any.
+//
+// The decision is taken on the node as read before the transaction; when
+// another process moved the node in between (kluzo node, kluzo proposal, or
+// the loop of kluzo run), the transaction is refused and the decision is
+// taken again on the node as it is now.
 func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, extra ...store.Event) error {
+	return s.decideRetrying(ctx, n, in, settle, false, extra...)
+}
+
+// decideRetrying is decide; with slot, the transaction also refuses to leave
+// the node in work while another node holds the work slot or the merge queue
+// (the decisions of a person, which the scheduler did not plan).
+func (s *Supervisor) decideRetrying(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, slot bool, extra ...store.Event) error {
+	for tries := 1; ; tries++ {
+		err := s.decideOnce(ctx, n, in, settle, slot, extra...)
+		if !errors.Is(err, errNodeMoved) || tries == decideTries {
+			return err
+		}
+		if n, err = s.node(ctx, n.ID); err != nil {
+			return err
+		}
+	}
+}
+
+// decideTries is how many times a decision is taken again on a node another
+// process keeps moving.
+const decideTries = 3
+
+// errNodeMoved means the node changed between the read a decision was taken
+// on and its transaction.
+var errNodeMoved = errors.New("the node moved meanwhile")
+
+// decideOnce is one try of decide.
+func (s *Supervisor) decideOnce(ctx context.Context, n store.NodeRow, in core.Input, settle settleFn, slot bool, extra ...store.Event) error {
 	r, err := run(n)
 	if err != nil {
 		return err
@@ -388,7 +428,7 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 	if err != nil {
 		return fmt.Errorf("node %s: %w", n.ID, err)
 	}
-	if p, ok, err := s.proposal(d); err != nil || ok {
+	if p, ok, err := s.proposal(d, in); err != nil || ok {
 		if err != nil {
 			return err
 		}
@@ -399,6 +439,18 @@ func (s *Supervisor) decide(ctx context.Context, n store.NodeRow, in core.Input,
 		extra = append(extra, store.Event{Kind: contracts.EventMergeFreshness, Payload: body})
 	}
 	return s.d.DB.Tx(ctx, func(t *store.Tx) error {
+		if now, err := t.Node(n.ID); err != nil || now != node {
+			return cmp.Or(err, fmt.Errorf("node %s: %w", n.ID, errNodeMoved))
+		}
+		if slot {
+			nodes, err := t.NodeSlots()
+			if err != nil {
+				return err
+			}
+			if err := slotFree(nodes, n.ID, d.Next.Node.State); err != nil {
+				return err
+			}
+		}
 		for _, e := range extra {
 			h, err := s.header()
 			if err != nil {
@@ -466,16 +518,18 @@ func (s *Supervisor) effectSpecs(h store.Header, node, issue string, effects []c
 }
 
 // proposal is the proposal.created of a decision that blocks the node for a
-// proposal: the change waits for a human (ADR 0020).
-func (s *Supervisor) proposal(d core.Decision) (store.Event, bool, error) {
-	if !slices.ContainsFunc(d.Moves, func(m core.Move) bool { return m.Event.Reason == core.BlockedProposal }) {
+// proposal: the changes of the session wait for a human (ADR 0020).
+func (s *Supervisor) proposal(d core.Decision, in core.Input) (store.Event, bool, error) {
+	done, ok := in.(core.SessionDone)
+	if !ok || !slices.ContainsFunc(d.Moves, func(m core.Move) bool { return m.Event.Reason == core.BlockedProposal }) {
 		return store.Event{}, false, nil
 	}
 	id, err := s.d.IDs.New(ids.Proposal, s.d.Clock.Now())
 	if err != nil {
 		return store.Event{}, false, err
 	}
-	body, _ := json.Marshal(contracts.ProposalCreated{ProposalID: id, Kind: contracts.ProposalChange, State: contracts.ProposalPending}) // plain data
+	payload, _ := json.Marshal(core.ChangeProposal{Changes: done.Proposal})                                                                                                // plain data
+	body, _ := json.Marshal(contracts.ProposalCreated{ProposalID: id, Kind: contracts.ProposalChange, State: contracts.ProposalPending, Blocking: true, Payload: payload}) // plain data
 	return store.Event{Kind: contracts.EventProposalCreated, Payload: body}, true, nil
 }
 
@@ -485,12 +539,7 @@ func (s *Supervisor) node(ctx context.Context, id string) (store.NodeRow, error)
 	if err != nil {
 		return store.NodeRow{}, err
 	}
-	for _, n := range snap.Nodes {
-		if n.ID == id {
-			return n, nil
-		}
-	}
-	return store.NodeRow{}, fmt.Errorf("%w: node %s", store.ErrNotFound, id)
+	return nodeRow(snap, id)
 }
 
 // effectRuns is how many runs an effect gets (docs/contracts/data-model.md).

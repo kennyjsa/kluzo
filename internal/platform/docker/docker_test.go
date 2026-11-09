@@ -118,3 +118,45 @@ func TestProbe(t *testing.T) {
 		t.Errorf("no CLI: %v", err)
 	}
 }
+
+// The images Kluzo marked, with their workspace and size, and the size of the
+// build cache, for kluzo status, doctor and clean (ADR 0025).
+func TestImagesAndBuildCache(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	bin := filepath.Join(dir, "docker")
+	script := "#!/bin/sh\necho \"$*\" >> " + calls + "\ncase \"$1 $2\" in\n" +
+		"'image ls') printf 'sha256:a\\nsha256:b\\nsha256:a\\n' ;;\n" +
+		"'image inspect') printf 'sha256:a\\tws_1\\t1500\\nsha256:b\\tws_2\\t2500\\n' ;;\n" +
+		"'system df') printf 'Images\\t3GB\\nBuild Cache\\t1.5GB\\n' ;;\nesac\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := New(bin, nil)
+	images, err := d.Images(context.Background())
+	if err != nil || len(images) != 2 || images[0] != (Image{"sha256:a", "ws_1", 1500}) || images[1] != (Image{"sha256:b", "ws_2", 2500}) {
+		t.Fatalf("Images = %+v, %v", images, err)
+	}
+	if size, err := d.BuildCache(context.Background()); err != nil || size != 1_500_000_000 {
+		t.Errorf("BuildCache = %d, %v", size, err)
+	}
+	if err := d.RemoveImageIDs(context.Background()); err != nil {
+		t.Error(err)
+	}
+	if got := read(t, calls); len(got) != 3 || !strings.HasPrefix(got[1], "image inspect --format {{.Id}}") || !strings.HasSuffix(got[1], "{{.Size}} sha256:a sha256:b") {
+		t.Errorf("calls %q", got)
+	}
+}
+
+func TestParseSize(t *testing.T) {
+	for in, want := range map[string]int64{"0B": 0, "12.3kB": 12_300, "20GB": 20_000_000_000, "1.5TB": 1_500_000_000_000, "500MB": 500_000_000} {
+		if got, err := ParseSize(in); err != nil || got != want {
+			t.Errorf("ParseSize(%q) = %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "GB", "12", "12XB"} {
+		if _, err := ParseSize(in); err == nil {
+			t.Errorf("ParseSize(%q) took it", in)
+		}
+	}
+}

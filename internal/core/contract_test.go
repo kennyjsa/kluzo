@@ -134,6 +134,7 @@ func TestNodeTableMatchesContract(t *testing.T) {
 		code[pairKey(string(s), string(NodeCancelled))] = true
 	}
 	code[pairKey(string(NodeBlocked), "previous")] = true
+	code[pairKey(string(NodeBlocked), string(NodeRunning))] = true // TriggerRetry, in NextNode
 
 	compare(t, doc, code)
 }

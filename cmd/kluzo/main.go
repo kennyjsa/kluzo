@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -62,7 +63,7 @@ func code(err error) int {
 		return exitInvalidConfig
 	case errors.Is(err, app.ErrDoctor):
 		return exitIntegration
-	case errors.Is(err, app.ErrNoWorkspace), errors.Is(err, app.ErrWorkspaceExists), errors.Is(err, app.ErrRefused), isUsage(err):
+	case errors.Is(err, app.ErrNoWorkspace), errors.Is(err, app.ErrWorkspaceExists), errors.Is(err, app.ErrRefused), errors.Is(err, app.ErrNoAttempts), isUsage(err):
 		return exitUsage
 	}
 	return exitIntegration
@@ -231,8 +232,125 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 			},
 		})
 	}
+	cleanCmd := &cobra.Command{
+		Use: "clean", Short: "remove what Kluzo left on this machine (lists only, unless --yes)", Args: args(0),
+	}
+	yes := cleanCmd.Flags().Bool("yes", false, "remove; without it, kluzo clean only lists (--dry-run)")
+	dryRun := cleanCmd.Flags().Bool("dry-run", true, "only list what would be removed (the default)")
+	images := cleanCmd.Flags().Bool("images", false, "also every image marked by Kluzo, of active workspaces too, and the dangling images of the machine")
+	cleanCmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		switch {
+		case *yes && cmd.Flags().Changed("dry-run") && *dryRun:
+			return usageError{fmt.Errorf("--yes and --dry-run contradict each other")}
+		case !*yes && !*dryRun:
+			return usageError{fmt.Errorf("--dry-run=false removes nothing by itself: use --yes")}
+		}
+		out, err := app.Clean{Host: host()}.Execute(cmd.Context(), app.CleanInput{ConfigDir: *dir, Yes: *yes, Images: *images})
+		if err != nil {
+			return err
+		}
+		printClean(stdout, out)
+		return nil
+	}
+	root.AddCommand(cleanCmd)
+
+	proposal := &cobra.Command{Use: "proposal", Short: "decide the proposals of the agents (ADR 0020)", Args: cobra.ArbitraryArgs, RunE: group(stderr)}
+	proposal.AddCommand(&cobra.Command{
+		Use: "list", Short: "list the proposals of the workspaces of the project", Args: args(0),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			items, err := app.ListProposals{Host: host()}.Execute(cmd.Context(), *dir)
+			if err != nil {
+				return err
+			}
+			if len(items) == 0 {
+				printf(stdout, "no proposals\n")
+			}
+			for _, p := range items {
+				printf(stdout, "%s  %-9s %-7s #%-5s %s  %s\n", p.ID, p.State, p.Kind, p.Issue, p.Milestone, strings.Join(p.Changes, "; "))
+			}
+			return nil
+		},
+	})
+	for _, d := range []struct {
+		use, short string
+		approve    bool
+	}{
+		{"approve <id>", "approve a proposal: the change is kept, and the check lets it pass", true},
+		{"reject <id>", "reject a proposal: the node goes back to the implementer to revert the change", false},
+	} {
+		proposal.AddCommand(&cobra.Command{
+			Use: d.use, Short: d.short, Args: args(1),
+			RunE: func(cmd *cobra.Command, a []string) error {
+				if err := (app.DecideProposal{Host: host()}).Execute(cmd.Context(), app.DecideProposalInput{ConfigDir: *dir, ID: a[0], Approve: d.approve}); err != nil {
+					return err
+				}
+				printf(stdout, "proposal %s %s\n", a[0], map[bool]string{true: "approved", false: "rejected"}[d.approve])
+				return nil
+			},
+		})
+	}
+	root.AddCommand(proposal)
+
+	node := &cobra.Command{Use: "node", Short: "take a node out of blocked, or cancel it", Args: cobra.ArbitraryArgs, RunE: group(stderr)}
+	for _, n := range []struct {
+		use, short string
+		action     app.NodeAction
+	}{
+		{"retry <issue>", "start a new attempt of a blocked node, if one is left", app.NodeRetry},
+		{"unblock <issue>", "put a blocked node back where it was, after you acted, and run its step again", app.NodeUnblock},
+		{"cancel <issue>", "remove the node from the milestone (its branch stays on the remote)", app.NodeCancel},
+	} {
+		node.AddCommand(&cobra.Command{
+			Use: n.use, Short: n.short, Args: args(1),
+			RunE: func(cmd *cobra.Command, a []string) error {
+				issue := strings.TrimPrefix(a[0], "#")
+				if err := (app.DecideNode{Host: host()}).Execute(cmd.Context(), app.DecideNodeInput{ConfigDir: *dir, Issue: issue, Action: n.action}); err != nil {
+					return err
+				}
+				printf(stdout, "node #%s: %s recorded; kluzo run carries it out\n", issue, n.action)
+				return nil
+			},
+		})
+	}
+	root.AddCommand(node)
+
 	root.SetContext(context.Background())
 	return root
+}
+
+// printClean prints what kluzo clean found, and whether it removed it.
+func printClean(w io.Writer, out app.CleanOutput) {
+	verb := "would remove"
+	if out.Removed {
+		verb = "removed"
+	}
+	for _, group := range []struct {
+		what  string
+		items []string
+	}{
+		{"checkout", out.Checkouts}, {"leftover", out.Leftovers}, {"compose project", out.Projects}, {"image", out.Images},
+	} {
+		for _, i := range group.items {
+			printf(w, "%s %s %s\n", verb, group.what, i)
+		}
+	}
+	if out.Dangling {
+		printf(w, "%s the dangling images\n", verb)
+	}
+	for _, u := range out.Unsure {
+		printf(w, "left alone (its journal cannot be read): %s\n", u)
+	}
+	if out.Docker != "" {
+		printf(w, "docker not checked: %s\n", out.Docker)
+	}
+	printf(w, "the workspaces and caches of the project took %s\n", app.HumanSize(out.Disk))
+	n := len(out.Checkouts) + len(out.Leftovers) + len(out.Projects) + len(out.Images)
+	switch {
+	case n == 0:
+		printf(w, "nothing to clean\n")
+	case !out.Removed:
+		printf(w, "\n%d item(s); run `kluzo clean --yes` to remove them\n", n)
+	}
 }
 
 // group is the run of a command that only groups others: without a
@@ -288,6 +406,12 @@ func printStatus(w io.Writer, s app.StatusOutput) {
 	printf(w, "cost US$ %.2f", s.CostUSD)
 	if s.BudgetUSD > 0 {
 		printf(w, " of US$ %.2f", s.BudgetUSD)
+	}
+	printf(w, "\ndisk: workspace %s, caches %s", app.HumanSize(s.Disk.Workspace), app.HumanSize(s.Disk.Caches))
+	if s.Disk.Docker == "" {
+		printf(w, ", images %s, docker build cache %s", app.HumanSize(s.Disk.Images), app.HumanSize(s.Disk.BuildCache))
+	} else {
+		printf(w, " (docker: %s)", s.Disk.Docker)
 	}
 	printf(w, "\n\n")
 	for _, n := range s.Nodes {

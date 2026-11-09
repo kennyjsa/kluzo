@@ -88,6 +88,7 @@ Qual etapa do flow corresponde a `running` ou a `in_review` é definido pelo cam
 | `integrating` | `running` | conflito no rebase ou freshness gate vermelho | tentativas restantes; nova tentativa com o contexto do erro |
 | qualquer não final | `blocked` | ver motivos | — |
 | `blocked` | estado anterior | motivo resolvido | — |
+| `blocked` | `running` | humano pede nova tentativa (`kluzo node retry`) | o nó já foi despachado; tentativas restantes; a tentativa nova começa da primeira etapa, com worktree novo |
 | qualquer não final | `failed` | triagem decide desistir | — |
 | qualquer não final | `cancelled` | humano remove o nó | nenhum dependente ativo, ou dependentes também cancelados |
 
@@ -108,7 +109,7 @@ Uma **tentativa** (`attempt`) começa a cada entrada em `running` vinda de `read
 | `dependency_failed` | uma dependência virou `failed` ou `cancelled` | dependência resolvida, ou o nó é replanejado |
 | `paused` | workspace pausado | workspace retomado |
 
-Enquanto a triagem automática não existe (v0.2), toda etapa que falha vai direto para `blocked` (`triage`), com notificação e o motivo no comentário: `CauseGuard`, `CauseMaxTurns`, `CauseRefusal`, `CauseNoResult`, `status: failed` do implementer, as repetições esgotadas de `CauseRateLimit` e `CauseRuntime` e o `worktree.setup` que continua falhando. `CauseAuth` leva o nó a `blocked` (`paused`) e o workspace a `paused`; `CauseBudget`, e o orçamento do nó esgotado antes de uma sessão, levam a `blocked` (`budget`). A conferência pós-sessão que encontra adulteração leva a `failed`. A saída de `blocked` na v0.1 é humana, pela CLI ([v0.1, item 10](../planning/milestones/v0.1.md)), e a etapa atual roda de novo.
+Enquanto a triagem automática não existe (v0.2), toda etapa que falha vai direto para `blocked` (`triage`), com notificação e o motivo no comentário: `CauseGuard`, `CauseMaxTurns`, `CauseRefusal`, `CauseNoResult`, `status: failed` do implementer, as repetições esgotadas de `CauseRateLimit` e `CauseRuntime` e o `worktree.setup` que continua falhando. `CauseAuth` leva o nó a `blocked` (`paused`) e o workspace a `paused`; `CauseBudget`, e o orçamento do nó esgotado antes de uma sessão, levam a `blocked` (`budget`). A conferência pós-sessão que encontra adulteração leva a `failed`. A saída de `blocked` na v0.1 é humana, pela CLI ([v0.1, item 10b](../planning/milestones/v0.1.md)): `kluzo node unblock` volta ao estado anterior e a etapa atual roda de novo (um nó que estava integrando refaz o rebase; a contagem dos gates rápidos zera); `kluzo node retry` começa uma tentativa nova; `kluzo node cancel` cancela o nó, fora de `running`, `in_review`, `gating` e `integrating`. Um nó bloqueado por `proposal` sai pela decisão da proposta (`kluzo proposal approve|reject`): aprovar segue para a etapa seguinte; recusar o devolve ao implementer, na mesma tentativa, com um finding automático (`blocking`) por mudança pedindo a reversão.
 
 ## Labels no tracker
 

@@ -29,10 +29,11 @@ func doctorConfig(t *testing.T) (dir, cfg string, raw []byte) {
 	return dir, cfg, raw
 }
 
-// greenDoctor is a doctor whose CLIs and tracker are fine.
-func greenDoctor(env []string, helpers func(context.Context, string, string) ([]string, error)) Doctor {
+// greenDoctor is a doctor whose CLIs, tracker and docker are fine.
+func greenDoctor(t *testing.T, env []string, helpers func(context.Context, string, string) ([]string, error)) Doctor {
+	d, _ := fakeDocker(t, "", "")
 	return Doctor{
-		Host: Host{Env: env, Connect: func(context.Context, *config.Project, []string) (Integrations, error) {
+		Host: Host{Env: env, Docker: d, Connect: func(context.Context, *config.Project, []string) (Integrations, error) {
 			return Integrations{Tracker: fakes.NewTracker(clock.System{})}, nil
 		}},
 		Helpers: helpers,
@@ -48,28 +49,28 @@ func TestDoctorHostCredentials(t *testing.T) {
 	none := func(context.Context, string, string) ([]string, error) { return nil, nil }
 	keychain := func(context.Context, string, string) ([]string, error) { return []string{"osxkeychain"}, nil }
 
-	out, err := greenDoctor(env, none).Execute(context.Background(), DoctorInput{Dir: dir})
+	out, err := greenDoctor(t, env, none).Execute(context.Background(), DoctorInput{Dir: dir})
 	if err != nil || !out.OK() || len(out.Warnings) != 0 {
 		t.Errorf("clean host: %+v %v", out, err)
 	}
-	out, err = greenDoctor(env, keychain).Execute(context.Background(), DoctorInput{Dir: dir})
+	out, err = greenDoctor(t, env, keychain).Execute(context.Background(), DoctorInput{Dir: dir})
 	if err != nil || out.OK() || len(out.Refused) != 1 || !strings.Contains(out.Refused[0], "osxkeychain") {
 		t.Errorf("helper: %+v %v", out, err)
 	}
 	if err := os.WriteFile(cfg, []byte(strings.Replace(string(raw), "allow_host_credentials: false", "allow_host_credentials: true", 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err = greenDoctor(env, keychain).Execute(context.Background(), DoctorInput{Dir: dir})
+	out, err = greenDoctor(t, env, keychain).Execute(context.Background(), DoctorInput{Dir: dir})
 	if err != nil || !out.OK() || len(out.Warnings) != 1 {
 		t.Errorf("allowed: %+v %v", out, err)
 	}
-	if _, err := greenDoctor([]string{}, none).Execute(context.Background(), DoctorInput{Dir: dir}); err == nil {
+	if _, err := greenDoctor(t, []string{}, none).Execute(context.Background(), DoctorInput{Dir: dir}); err == nil {
 		t.Error("no HOME is not an error")
 	}
 	if err := os.WriteFile(cfg, []byte("version: 1\nnope: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := greenDoctor(env, none).Execute(context.Background(), DoctorInput{Dir: dir}); err != nil || len(out.Invalid) == 0 || out.OK() {
+	if out, err := greenDoctor(t, env, none).Execute(context.Background(), DoctorInput{Dir: dir}); err != nil || len(out.Invalid) == 0 || out.OK() {
 		t.Errorf("invalid configuration: %+v %v", out, err)
 	}
 }
@@ -80,7 +81,7 @@ func TestDoctorIntegrations(t *testing.T) {
 	dir, _, _ := doctorConfig(t)
 	env := []string{"HOME=" + t.TempDir()}
 	none := func(context.Context, string, string) ([]string, error) { return nil, nil }
-	d := greenDoctor(env, none)
+	d := greenDoctor(t, env, none)
 	out, err := d.Execute(context.Background(), DoctorInput{Dir: dir})
 	if err != nil || !out.OK() {
 		t.Fatalf("green: %+v %v", out, err)

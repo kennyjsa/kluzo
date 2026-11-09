@@ -155,6 +155,18 @@ func NextNode(n Node, ev NodeEvent, lim Limits) (Node, error) {
 	case TriggerCancel:
 		n.State, n.PrevState, n.BlockedReason = NodeCancelled, "", ""
 		return n, nil
+	case TriggerRetry:
+		// A person asks for a new attempt of a blocked node that was dispatched.
+		if n.State != NodeBlocked || n.Attempt == 0 {
+			return n, invalid(n.State, ev.Trigger)
+		}
+		if n.Attempt >= lim.MaxAttempts {
+			return n, fmt.Errorf("%w: %d attempts", ErrLimitReached, lim.MaxAttempts)
+		}
+		n.State, n.PrevState, n.BlockedReason = NodeRunning, "", ""
+		n.Attempt++
+		n.Round, n.FastGateFailures = 0, 0
+		return n, nil
 	}
 
 	to, ok := lookupNode(n.State, ev.Trigger)

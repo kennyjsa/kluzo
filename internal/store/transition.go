@@ -67,6 +67,36 @@ func (t *Tx) TransitionWorkspace(trigger core.WorkspaceTrigger, h Header, effect
 	return next, nil
 }
 
+// NodeSlot is a node with its issue and state, as a transaction sees it.
+type NodeSlot struct {
+	ID, Issue string
+	State     core.NodeState
+}
+
+// NodeSlots lists the nodes of the workspace, as this transaction sees them.
+func (t *Tx) NodeSlots() ([]NodeSlot, error) {
+	rows, err := t.tx.QueryContext(t.ctx, `SELECT id, issue_ref, state FROM nodes ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []NodeSlot
+	for rows.Next() {
+		var n NodeSlot
+		var state string
+		if err := rows.Scan(&n.ID, &n.Issue, &state); err != nil {
+			return nil, err
+		}
+		n.State = core.NodeState(state)
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// Node loads the part of a node row the state machine needs, as this
+// transaction sees it.
+func (t *Tx) Node(id string) (core.Node, error) { return t.node(id) }
+
 // node loads the part of a node row the state machine needs.
 func (t *Tx) node(id string) (core.Node, error) {
 	var n core.Node

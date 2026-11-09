@@ -222,7 +222,7 @@ func (s *Supervisor) afterSession(ctx context.Context, n store.NodeRow, st core.
 			return err
 		}
 		done.Head = head
-		done.Proposal, done.Auto, err = s.checkWork(ctx, base, head)
+		done.Proposal, done.Auto, err = s.checkWork(ctx, n.ID, base, head)
 		return err
 	}
 	if round == nil {
