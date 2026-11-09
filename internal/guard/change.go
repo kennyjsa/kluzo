@@ -24,13 +24,21 @@ func IsTest(name string) bool { return matchAny(testFiles, name) }
 // skipMarkers disable a test when added to a test file: a skip, a build
 // constraint that leaves the file out, or a focus that leaves the others out.
 var skipMarkers = []string{
-	"t.Skip(", "t.Skipf(", "t.SkipNow(", "b.Skip(", "//go:build", "// +build", // Go
+	"t.Skip(", "t.Skipf(", "t.SkipNow(", "b.Skip(", // Go
 	".skip(", "xit(", "xdescribe(", "xtest(", ".todo(", // JavaScript
 	".only(", "fit(", "fdescribe(", "ftest(", // JavaScript focus
 	"@pytest.mark.skip", "pytest.skip(", "@unittest.skip", "self.skipTest(", // Python
 	"@Disabled", "@Ignore", // JUnit
-	"#[ignore]",         // Rust
-	"skip ", "pending ", // RSpec, at the start of a line
+	"#[ignore]", // Rust
+	"pending ",  // RSpec, at the start of a line
+}
+
+// existingFileMarkers disable a test only when added to a test file that
+// existed before the round: a new test file starts with a build constraint
+// (//go:build integration) or an RSpec skip as a matter of course.
+var existingFileMarkers = []string{
+	"//go:build", "// +build", // Go
+	"skip ", // RSpec, at the start of a line
 }
 
 // suppressionMarkers silence a linter or a type checker.
@@ -75,14 +83,19 @@ func ruleTestDeclRemoved(_ Policy, ch Change) []Violation {
 	return out
 }
 
-// ruleTestDisabled flags a skip marker added to a test file.
+// ruleTestDisabled flags a skip marker added to a test file; the markers of
+// existingFileMarkers only when the file existed before the round.
 func ruleTestDisabled(_ Policy, ch Change) []Violation {
 	if !IsTest(ch.Path) {
 		return nil
 	}
 	var out []Violation
 	for _, l := range ch.Added {
-		if m := marker(l.Text, skipMarkers); m != "" {
+		m := marker(l.Text, skipMarkers)
+		if m == "" && !ch.Created {
+			m = marker(l.Text, existingFileMarkers)
+		}
+		if m != "" {
 			out = append(out, Violation{Rule: RuleTestDisabled, Path: ch.Path, Line: l.N, Reason: "a test was disabled with " + strings.TrimSpace(m)})
 		}
 	}
