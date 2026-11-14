@@ -626,6 +626,17 @@ func TestFlowHumanExits(t *testing.T) {
 	if d, err := applyTo(t, NodeFlow{Node: Node{State: NodePlanned}}, Cancel{}); err != nil || d.Next.Node.State != NodeCancelled {
 		t.Errorf("cancel a planned node: %+v %v", d.Next.Node, err)
 	}
+	// A failed node leaves the milestone only by a cancel; its worktree,
+	// kept while it was failed, goes with it (state-machine.md).
+	failed := NodeFlow{Node: Node{State: NodeFailed, Attempt: 1}}
+	if d, err := applyTo(t, failed, Cancel{By: "kenny"}); err != nil || d.Next.Node.State != NodeCancelled || !slices.Contains(kindsOf(d), EffectCleanupNode) {
+		t.Errorf("cancel a failed node: %+v %v %v", d.Next.Node, kindsOf(d), err)
+	}
+	for _, in := range []Input{Unblock{}, Retry{}} {
+		if _, err := applyTo(t, failed, in); !errors.Is(err, ErrInvalidTransition) {
+			t.Errorf("%T of a failed node: %v", in, err)
+		}
+	}
 
 	proposal, _ := blockedForProposal(t)
 	question := s

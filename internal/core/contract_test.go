@@ -110,7 +110,14 @@ func TestNodeTableMatchesContract(t *testing.T) {
 		if to == "estado anterior" {
 			to = "previous"
 		}
-		if from == "qualquer não final" {
+		// "qualquer não final, ou `failed`": the non-final states and the
+		// final ones named after them.
+		if rest, ok := strings.CutPrefix(r[0], "qualquer não final"); ok {
+			for extra := range strings.SplitSeq(strings.TrimPrefix(rest, ", ou "), ", ") {
+				if extra != "" {
+					doc[pairKey(unquote(extra), to)] = true
+				}
+			}
 			for _, s := range nonFinal {
 				if NodeState(to) == NodeBlocked && s == NodeBlocked {
 					continue // blocking a blocked node is not a transition
@@ -135,6 +142,17 @@ func TestNodeTableMatchesContract(t *testing.T) {
 	}
 	code[pairKey(string(NodeBlocked), "previous")] = true
 	code[pairKey(string(NodeBlocked), string(NodeRunning))] = true // TriggerRetry, in NextNode
+	// A final state leaves only where NextNode lets it.
+	for _, s := range NodeStates {
+		if !s.Final() {
+			continue
+		}
+		for _, tr := range []NodeTrigger{TriggerCancel, TriggerFail, TriggerBlock, TriggerUnblock, TriggerRetry} {
+			if next, err := NextNode(Node{State: s, Attempt: 1}, NodeEvent{Trigger: tr, Reason: BlockedTriage}, testLimits); err == nil {
+				code[pairKey(string(s), string(next.State))] = true
+			}
+		}
+	}
 
 	compare(t, doc, code)
 }
