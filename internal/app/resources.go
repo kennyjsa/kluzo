@@ -51,7 +51,7 @@ func (w machineWorkspace) active() bool { return w.journaled() && w.State.Active
 // scanWorkspaces reads, without migrating or writing, the journal of every
 // workspace under root/workspaces, of every project.
 func scanWorkspaces(ctx context.Context, root string) ([]machineWorkspace, error) {
-	dirs, err := os.ReadDir(filepath.Join(root, "workspaces"))
+	dirs, err := os.ReadDir(workspacesDir(root))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -61,7 +61,7 @@ func scanWorkspaces(ctx context.Context, root string) ([]machineWorkspace, error
 	var out []machineWorkspace
 	for _, d := range dirs {
 		if d.IsDir() {
-			w := machineWorkspace{Dir: filepath.Join(root, "workspaces", d.Name()), Nodes: map[string]core.NodeState{}}
+			w := machineWorkspace{Dir: filepath.Join(workspacesDir(root), d.Name()), Nodes: map[string]core.NodeState{}}
 			w.Err = w.read(ctx, store.OpenReadOnly)
 			out = append(out, w)
 		}
@@ -72,7 +72,7 @@ func scanWorkspaces(ctx context.Context, root string) ([]machineWorkspace, error
 // read loads the state of the workspace from its journal, if it has one,
 // opened with open.
 func (w *machineWorkspace) read(ctx context.Context, open func(context.Context, string) (*store.DB, error)) error {
-	path := filepath.Join(w.Dir, "state.db")
+	path := supervisor.Layout{Dir: w.Dir}.DB()
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -189,7 +189,7 @@ func surveyProject(ctx context.Context, h Host, p *config.Project, configDir str
 	if err != nil {
 		return s, err
 	}
-	cache, err := dirSize(filepath.Join(root, "cache", projectName(p, abs)))
+	cache, err := dirSize(downloadsDir(root, projectName(p, abs)))
 	if err != nil {
 		return s, err
 	}

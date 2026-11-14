@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -45,12 +44,12 @@ func assemble(ctx context.Context, h Host, o *opened, version string) (*assemble
 	if err != nil {
 		return nil, err
 	}
-	logs := filepath.Join(o.place.Dir, "logs")
+	layout := supervisor.Layout{Dir: o.place.Dir}
 	cred := modelCredential(h.Env)
 	rt := o.project.Config.Runtimes[config.ClaudeCode]
 	git := gitops.New(gitops.Config{ParentEnv: h.Env})
-	runtime := claudecode.New(claudecode.Config{Bin: rt.Bin, MinVersion: rt.MinVersion, Home: filepath.Join(o.place.Dir, "home"),
-		ConfigDir: filepath.Join(o.place.Dir, "sessions"), LogDir: filepath.Join(logs, "sessions"), ParentEnv: h.Env, EnvAllow: rt.EnvAllow,
+	runtime := claudecode.New(claudecode.Config{Bin: rt.Bin, MinVersion: rt.MinVersion, Home: layout.SessionsHome(),
+		ConfigDir: layout.SessionFiles(), LogDir: layout.SessionLogs(), ParentEnv: h.Env, EnvAllow: rt.EnvAllow,
 		Credential: cred, Secrets: []string{cred.Value}, Clock: h.Clock})
 	srv := mcp.New(&supervisor.Recorder{DB: o.db, Clock: h.Clock, IDs: h.IDs, Log: h.Log}, rand.Reader, version)
 	if err := srv.Start(); err != nil {
@@ -63,7 +62,7 @@ func assemble(ctx context.Context, h Host, o *opened, version string) (*assemble
 		Runtime:  runtime,
 		MCP:      srv,
 		Git:      git,
-		Gates:    gates.New(gates.Config{LogDir: filepath.Join(logs, "gates"), CI: integ.CI, Secrets: []string{cred.Value}}),
+		Gates:    gates.New(gates.Config{LogDir: layout.GateLogs(), CI: integ.CI, Secrets: []string{cred.Value}}),
 		Notifier: notifylog.New(h.Log),
 		Docker:   h.Docker,
 		Nonce:    nonce,

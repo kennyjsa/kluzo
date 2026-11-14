@@ -156,7 +156,7 @@ type Place struct {
 }
 
 // DB is the journal of the workspace.
-func (p Place) DB() string { return filepath.Join(p.Dir, "state.db") }
+func (p Place) DB() string { return supervisor.Layout{Dir: p.Dir}.DB() }
 
 // place locates the workspace of a milestone of the project in configDir.
 func place(env []string, p *config.Project, configDir, milestone string) (Place, error) {
@@ -171,8 +171,8 @@ func place(env []string, p *config.Project, configDir, milestone string) (Place,
 	name := projectName(p, abs)
 	return Place{
 		ConfigDir: abs, Repo: filepath.Dir(abs), Milestone: milestone,
-		Dir:       filepath.Join(root, "workspaces", name+"-"+unsafeName.ReplaceAllString(milestone, "-")),
-		Downloads: filepath.Join(root, "cache", name),
+		Dir:       filepath.Join(workspacesDir(root), name+"-"+unsafeName.ReplaceAllString(milestone, "-")),
+		Downloads: downloadsDir(root, name),
 	}, nil
 }
 
@@ -189,6 +189,13 @@ func dataRoot(env []string) (string, error) {
 	}
 	return filepath.Join(data, "kluzo"), nil
 }
+
+// workspacesDir holds the workspaces of the machine under its data root.
+func workspacesDir(root string) string { return filepath.Join(root, "workspaces") }
+
+// downloadsDir is the download cache of a project under the data root,
+// shared by its workspaces (ADR 0025).
+func downloadsDir(root, project string) string { return filepath.Join(root, "cache", project) }
 
 // projectName is the name of the project in the directories of the machine:
 // project.name, or the directory of the repository.

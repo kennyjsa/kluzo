@@ -63,17 +63,19 @@ kluzo init                       gera .kluzo/ com papéis e flows padrão
 kluzo roles check                valida os papéis contra o protocolo do binário
 kluzo doctor                     verifica CLIs, tokens, permissões do bot, credenciais e configuração
 kluzo plan <milestone> [--ref n] cria o workspace a partir de um plano (v0.1: escrito à mão)
-kluzo approve <milestone> [--by <login>]   aprova o plano; o aprovador é um dos tracker.operators
+kluzo approve <milestone> [--by <login>]   aprova o plano
 kluzo run <milestone>            executa (ou retoma) o downstream
 kluzo status [<milestone>]       estado da milestone e dos nós
 kluzo pause|resume <milestone>   pausa ou retoma
 kluzo clean [--yes] [--images]   lista (padrão --dry-run) ou remove o que o Kluzo deixou na máquina
-kluzo proposal list|approve <id>|reject <id>   decide as propostas
-kluzo node retry|unblock|cancel <issue>        tira um nó de blocked, ou o cancela
-kluzo effect retry <id>|--all                  devolve um efeito failed a pending (doctor verde)
+kluzo proposal list|approve <id>|reject <id> [--by <login>]   decide as propostas
+kluzo node retry|unblock|cancel <issue> [--by <login>]        tira um nó de blocked, ou o cancela
+kluzo effect retry <id> | --all <milestone> [--by <login>]    devolve efeitos failed a pending (doctor verde)
 kluzo answer <question-id>       responde uma escalação
 kluzo serve                      sobe a web e o supervisor (v0.3)
 ```
+
+`--by` é sempre um dos `tracker.operators` e, sem ele, vale o único operador da lista ([plan.md](../contracts/plan.md)).
 
 `<milestone>` é sempre o **título** da milestone no tracker, o mesmo do campo `milestone` do plano e do nome do workspace. O `kluzo plan` lê `.kluzo/plans/<milestone>.yaml` e acha a milestone no tracker pelo título; título ausente ou repetido é erro de configuração (saída 2), e `--ref <número>` desfaz a ambiguidade. Sem o registro global (v0.2), `<milestone>` é obrigatório também no `status`.
 

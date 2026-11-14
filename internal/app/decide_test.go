@@ -54,6 +54,19 @@ func TestProposalAndNodeCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = o.db.Close()
+	// Who decides is an operator, never $USER (plan.md).
+	if err := (DecideProposal{Host: e.host}).Execute(ctx, DecideProposalInput{ConfigDir: e.dir, ID: "pp_1"}); !errors.Is(err, ErrNotOperator) {
+		t.Errorf("proposal decided without operators: %v", err)
+	}
+	for _, a := range []NodeAction{NodeRetry, NodeUnblock, NodeCancel} {
+		if err := (DecideNode{Host: e.host}).Execute(ctx, DecideNodeInput{ConfigDir: e.dir, Issue: "1", Action: a}); !errors.Is(err, ErrNotOperator) {
+			t.Errorf("node %s without operators: %v", a, err)
+		}
+	}
+	e.operators(t, "kenny")
+	if err := (DecideProposal{Host: e.host}).Execute(ctx, DecideProposalInput{ConfigDir: e.dir, ID: "pp_1", By: "intruder"}); !errors.Is(err, ErrNotOperator) {
+		t.Errorf("proposal decided by who is not an operator: %v", err)
+	}
 
 	items, err := ListProposals{Host: e.host}.Execute(ctx, e.dir)
 	if err != nil || len(items) != 1 || items[0].ID != "pp_1" || items[0].Issue != "1" || items[0].Milestone != "v0.1" || items[0].State != "pending" ||
@@ -125,6 +138,7 @@ func TestNodeCommandOnAnOlderJournal(t *testing.T) {
 		}
 	}
 	_ = raw.Close()
+	e.operators(t, "kenny")
 	if err := (DecideNode{Host: e.host}).Execute(ctx, DecideNodeInput{ConfigDir: e.dir, Issue: "3", Action: NodeCancel}); err != nil {
 		t.Fatalf("cancel on an older journal: %v", err)
 	}

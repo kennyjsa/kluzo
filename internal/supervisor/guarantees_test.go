@@ -266,6 +266,36 @@ func TestHostCredentialsRefuseSessions(t *testing.T) {
 	}
 }
 
+// A check before the session that fails (the CLI of the harness does not
+// run, the host cannot be read) pauses the workspace at once, with a
+// notification, outside the retries of the outbox (state-machine.md, Q71).
+func TestHostCheckFailurePausesTheWorkspace(t *testing.T) {
+	checks := 0
+	host := func(context.Context) ([]string, error) {
+		checks++
+		return nil, errors.New("claude auth status: exec: \"claude\": executable file not found in $PATH")
+	}
+	e := newEnvWith(t, envOpts{host: host}, impl(implemented()))
+	e.drain()
+	n, _ := e.nodeRow()
+	snap, _ := e.db.Snapshot(context.Background())
+	if n.State != core.NodeBlocked || n.BlockedReason != core.BlockedPaused || snap.Workspace.State != core.WorkspacePaused || len(e.runtime.Calls()) != 0 {
+		t.Errorf("node %s/%s, workspace %s, %d sessions", n.State, n.BlockedReason, snap.Workspace.State, len(e.runtime.Calls()))
+	}
+	if checks != 1 {
+		t.Errorf("the check ran %d times: it must not go through the retries of the outbox", checks)
+	}
+	if failed, _ := e.db.FailedEffects(context.Background()); len(failed) != 0 {
+		t.Errorf("failed effects: %+v", failed)
+	}
+	if sent := e.notifier.Sent(); len(sent) != 1 {
+		t.Errorf("notifications = %+v", sent)
+	}
+	if c := e.comments(); !strings.Contains(c[len(c)-1], "host_check") || !strings.Contains(c[len(c)-1], "executable file not found") {
+		t.Errorf("last comment = %q", c[len(c)-1])
+	}
+}
+
 // The decision of a person on a proposal (ADR 0020, v0.1 item 10b). An
 // approval lets the work go on, and the approved change, by path and
 // content, does not block the next round again; a rejection sends the node

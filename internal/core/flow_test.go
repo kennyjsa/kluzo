@@ -201,6 +201,7 @@ func TestFlowSessionCauses(t *testing.T) {
 	}{
 		{ports.CauseAuth, BlockedPaused, TriggerPause},
 		{ports.CauseHostCredentials, BlockedPaused, TriggerPause},
+		{ports.CauseHostCheck, BlockedPaused, TriggerPause},
 		{ports.CauseBudget, BlockedBudget, ""},
 		{ports.CauseRateLimit, BlockedTriage, ""}, // the new sessions of the attempt ran out
 		{ports.CauseRuntime, BlockedTriage, ""},

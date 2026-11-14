@@ -119,7 +119,13 @@ func (s *Supervisor) session(ctx context.Context, f store.Effect, runNo int, p e
 	done := core.SessionDone{Step: r.Step}
 	found, err := s.hostCredentials(ctx)
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return err
+		}
+		// The check before the session failed: the workspace pauses now,
+		// outside the retries of the outbox (state-machine.md, Q71).
+		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseHostCheck,
+			Detail: "the check before the session failed (" + err.Error() + "); fix the host so the CLI of the harness runs"})
 	}
 	if len(found) > 0 {
 		return s.decideSession(ctx, f, n, done, ports.Result{State: ports.StateFailed, Cause: ports.CauseHostCredentials,
@@ -460,7 +466,7 @@ func (s *Supervisor) check(st core.FlowStep, n store.NodeRow, r core.Run, wt str
 // logs/sessions/<id>.prompt.md (prompt.md#manifesto-da-sessão); a session that
 // runs again overwrites it with its own.
 func (s *Supervisor) writePrompt(session string, p prompt.Prompt) error {
-	dir := filepath.Join(s.cfg.Dir, "logs", "sessions")
+	dir := s.layout().SessionLogs()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

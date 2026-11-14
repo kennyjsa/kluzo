@@ -474,7 +474,7 @@ func (d *decider) failed(st FlowStep, in SessionDone) error {
 		detail += ": " + in.Detail
 	}
 	switch cause {
-	case ports.CauseAuth, ports.CauseHostCredentials:
+	case ports.CauseAuth, ports.CauseHostCredentials, ports.CauseHostCheck:
 		d.d.Workspace = TriggerPause
 		return d.block(BlockedPaused, detail+"; run kluzo doctor and resume the workspace")
 	case ports.CauseBudget:

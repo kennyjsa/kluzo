@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/kennyjsa/kluzo/internal/config"
@@ -19,7 +18,7 @@ import (
 // (ADR 0020, without the web) and the exit of a blocked node, without the
 // automatic triage of v0.2. They take no milestone: a proposal id and an
 // issue name their workspace among those of the project on this machine. The
-// person is $USER.
+// person is an operator (--by, plan.md).
 
 // journalsOf are the workspaces of the project on this machine whose
 // journal was read. A journal of an older binary is migrated here, as kluzo
@@ -50,7 +49,7 @@ func journalsOf(ctx context.Context, h Host, p *config.Project, configDir string
 
 // readJournal runs fn on the journal of the workspace, opened read-only.
 func readJournal(ctx context.Context, w machineWorkspace, fn func(*store.DB) error) error {
-	db, err := store.OpenReadOnly(ctx, filepath.Join(w.Dir, "state.db"))
+	db, err := store.OpenReadOnly(ctx, supervisor.Layout{Dir: w.Dir}.DB())
 	if err != nil {
 		return err
 	}
@@ -60,7 +59,7 @@ func readJournal(ctx context.Context, w machineWorkspace, fn func(*store.DB) err
 
 // writeJournal runs fn on the journal of the workspace, opened to write.
 func writeJournal(ctx context.Context, w machineWorkspace, fn func(*store.DB) error) error {
-	db, err := store.Open(ctx, filepath.Join(w.Dir, "state.db"))
+	db, err := store.Open(ctx, supervisor.Layout{Dir: w.Dir}.DB())
 	if err != nil {
 		return err
 	}
@@ -157,12 +156,17 @@ type DecideProposalInput struct {
 	ConfigDir string
 	ID        string
 	Approve   bool
+	By        string // a login of tracker.operators; empty: the only operator
 }
 
 // Execute records the decision in the workspace of the proposal.
 func (u DecideProposal) Execute(ctx context.Context, in DecideProposalInput) error {
 	h := u.Host.fill()
 	p, err := project(in.ConfigDir)
+	if err != nil {
+		return err
+	}
+	by, err := operator(p, in.By)
 	if err != nil {
 		return err
 	}
@@ -181,7 +185,7 @@ func (u DecideProposal) Execute(ctx context.Context, in DecideProposalInput) err
 		}
 		if has {
 			return writeJournal(ctx, w, func(db *store.DB) error {
-				return supervisor.DecideProposal(ctx, db, h.IDs, h.Clock, p, in.ID, in.Approve, getenv(h.Env, "USER"))
+				return supervisor.DecideProposal(ctx, db, h.IDs, h.Clock, p, in.ID, in.Approve, by)
 			})
 		}
 	}
@@ -207,12 +211,20 @@ type DecideNodeInput struct {
 	ConfigDir string
 	Issue     string
 	Action    NodeAction
+	By        string // a login of tracker.operators; empty: the only operator
 }
 
 // Execute records the decision as an input of the core of the node.
 func (u DecideNode) Execute(ctx context.Context, in DecideNodeInput) error {
 	h := u.Host.fill()
-	who := getenv(h.Env, "USER")
+	p, err := project(in.ConfigDir)
+	if err != nil {
+		return err
+	}
+	who, err := operator(p, in.By)
+	if err != nil {
+		return err
+	}
 	var input core.Input
 	switch in.Action {
 	case NodeRetry:
@@ -223,10 +235,6 @@ func (u DecideNode) Execute(ctx context.Context, in DecideNodeInput) error {
 		input = core.Cancel{By: who}
 	default:
 		return fmt.Errorf("unknown node action %q", in.Action)
-	}
-	p, err := project(in.ConfigDir)
-	if err != nil {
-		return err
 	}
 	ws, err := journalsOf(ctx, h, p, in.ConfigDir)
 	if err != nil {
@@ -251,19 +259,25 @@ func (u DecideNode) Execute(ctx context.Context, in DecideNodeInput) error {
 
 // RetryEffects returns failed effects to pending (kluzo effect retry, the
 // exit after the cause is fixed): one by id, or every failed effect of the
-// active workspaces of the project on this machine. It needs a green doctor.
+// workspace of a milestone (--all <milestone>, Q69). It needs a green doctor.
 type RetryEffects struct {
 	Host Host
 	// Doctor runs before the retry; nil means the Doctor of Host.
 	Doctor func(ctx context.Context, configDir string) (DoctorOutput, error)
 }
 
-// RetryEffectsInput names the effect, or All.
+// RetryEffectsInput names the effect, or All with the milestone.
 type RetryEffectsInput struct {
 	ConfigDir string
 	ID        string
 	All       bool
+	Milestone string // with All: the workspace whose failed effects return
+	By        string // a login of tracker.operators; empty: the only operator
 }
+
+// ErrRetryUsage means effect retry names neither one effect nor --all with
+// a milestone.
+var ErrRetryUsage = errors.New("name one failed effect, or --all with a milestone")
 
 // RetriedEffect is an effect returned to pending.
 type RetriedEffect struct {
@@ -272,11 +286,15 @@ type RetriedEffect struct {
 
 // Execute retries the effects, each workspace in one transaction.
 func (u RetryEffects) Execute(ctx context.Context, in RetryEffectsInput) ([]RetriedEffect, error) {
-	if (in.ID == "") == !in.All {
-		return nil, errors.New("name one failed effect, or --all")
+	if in.All && (in.ID != "" || in.Milestone == "") || !in.All && (in.ID == "" || in.Milestone != "") {
+		return nil, ErrRetryUsage
 	}
 	h := u.Host.fill()
 	p, err := project(in.ConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	by, err := operator(p, in.By)
 	if err != nil {
 		return nil, err
 	}
@@ -291,10 +309,10 @@ func (u RetryEffects) Execute(ctx context.Context, in RetryEffectsInput) ([]Retr
 	var batches []batch
 	var out []RetriedEffect
 	for _, w := range ws {
-		if !w.active() {
+		milestone, _ := p.Config.Branches.MilestoneTitle(w.Branch)
+		if !w.active() || in.All && milestone != in.Milestone {
 			continue
 		}
-		milestone, _ := p.Config.Branches.MilestoneTitle(w.Branch)
 		b := batch{w: w}
 		if err := readJournal(ctx, w, func(db *store.DB) error {
 			failed, err := db.FailedEffects(ctx)
@@ -314,7 +332,7 @@ func (u RetryEffects) Execute(ctx context.Context, in RetryEffectsInput) ([]Retr
 	}
 	if len(batches) == 0 {
 		if in.All {
-			return nil, fmt.Errorf("%w has a failed effect", ErrNoWorkspace)
+			return nil, fmt.Errorf("%w of %s is active with a failed effect", ErrNoWorkspace, in.Milestone)
 		}
 		return nil, fmt.Errorf("%w is active with the failed effect %s", ErrNoWorkspace, in.ID)
 	}
@@ -323,7 +341,7 @@ func (u RetryEffects) Execute(ctx context.Context, in RetryEffectsInput) ([]Retr
 	}
 	for _, b := range batches {
 		if err := writeJournal(ctx, b.w, func(db *store.DB) error {
-			return supervisor.RetryEffects(ctx, db, h.IDs, h.Clock, b.ids, getenv(h.Env, "USER"))
+			return supervisor.RetryEffects(ctx, db, h.IDs, h.Clock, b.ids, by)
 		}); err != nil {
 			return nil, err
 		}
