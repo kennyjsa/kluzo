@@ -54,6 +54,8 @@ O Kluzo executa agentes de código com permissão para editar arquivos e rodar c
 
 - **Os gates rodam código escrito pelo agente**, por isso não recebem segredos por padrão. Só recebem as variáveis em `gates[].env_allow`. A recomendação é rodar os gates em container com egress restrito.
 - **Credenciais do host:** se `gh` autenticado, credential helper do git ou chaves em `~/.ssh` estiverem visíveis para o usuário que roda os agentes, o Kluzo recusa iniciar sessões, a menos que `security.allow_host_credentials: true` esteja explícito (ADR 0020).
+- **Credencial do modelo:** a sessão só recebe a credencial que o Kluzo passa (`CLAUDE_CODE_OAUTH_TOKEN` ou `ANTHROPIC_API_KEY` no ambiente do Kluzo, ADR 0024). Um `claude` que se diz logado sem essa variável (login no Keychain do macOS, login gerenciado pelo ambiente) é credencial do host: o `doctor` testa o login com o ambiente sintético e **sem** a variável; se ainda houver login, é recusa, como as demais credenciais do host. O HOME sintético não esconde o Keychain do macOS: no Mac, a separação real é um usuário do sistema dedicado ao Kluzo.
+- **Exceção do sandbox:** no `kluzo-sandbox`, e só nele, o ensaio pode usar `security.allow_host_credentials: true` e um token pessoal. No TAW e no próprio Kluzo, o operador roda com usuário dedicado e com o GitHub App, para separar o bot do humano no tracker.
 
 ### Segredos
 

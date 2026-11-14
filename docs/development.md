@@ -9,6 +9,8 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 - Node LTS, só para desenvolver a web (`web/`).
 - `golangci-lint`.
 - Para os testes de integração: `claude` e `opencode` instalados e autenticados, e um token de teste do GitHub.
+- Os testes de integração e os ensaios rodam numa máquina com acesso direto ao GitHub (a do operador ou uma VM). Sessões de nuvem com proxy que bloqueia GraphQL ou escrita na API não servem para isso, e o adaptador não ganha caminho alternativo só REST por causa delas.
+- Os testes rodam como usuário comum. Um caso que não faz sentido para root (permissão de arquivo) se pula com `t.Skip` quando o uid é 0, dizendo o motivo.
 
 ## Comandos
 
