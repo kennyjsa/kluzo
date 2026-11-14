@@ -1,0 +1,4 @@
+!read-prompt
+{"type":"system","subtype":"init","session_id":"@@SESSION@@","model":"claude-sonnet-4","cwd":"/work","permissionMode":"dontAsk","tools":@@TOOLS@@,"mcp_servers":[{"name":"kluzo","status":"connected"}],"claude_code_version":"2.1.319","apiKeySource":"ANTHROPIC_API_KEY"}
+{"type":"result","subtype":"success","is_error":true,"duration_ms":1200,"num_turns":3,"result":"Invalid API key","stop_reason":"end_turn","terminal_reason":"api_error","total_cost_usd":0.12,"usage":{"input_tokens":100,"output_tokens":50},"modelUsage":{"claude-sonnet-4":{"inputTokens":100,"outputTokens":50,"costUSD":0.1},"claude-haiku-4":{"inputTokens":20,"outputTokens":10,"costUSD":0.02}},"permission_denials":[],"session_id":"@@SESSION@@","api_error_status":401}
+!exit 1

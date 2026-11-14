@@ -92,6 +92,18 @@ type SCM interface {
 // Operações locais de git (worktree, rebase, merge --no-ff na milestone) ficam
 // no pacote internal/gitops, sobre o binário git: não dependem do tracker.
 
+// ---------- Files: leitura do worktree para a conferência de evidência ----------
+
+// O núcleo confere a evidência `caminho:linha` dos resultados (ADR 0023, item 5)
+// sem fazer I/O: lê o worktree do nó por este port (implementação: gitops.Files).
+type Files interface {
+	// Número de linhas do arquivo (quebras de linha, mais uma se a última não
+	// tiver). ok é false para caminho não normalizado ("./a.go"), absoluto,
+	// fora do worktree, inexistente, ilegível ou que não seja arquivo regular
+	// (inclusive FIFO, sem bloquear); err é falha de leitura do worktree.
+	Lines(path string) (n int, ok bool, err error)
+}
+
 // ---------- CI: checks e pipelines ----------
 
 type CI interface {
@@ -117,28 +129,85 @@ type Runtime interface {
 }
 
 type SessionSpec struct {
-	SessionID   string            // ss_<ulid> do Kluzo
-	Role        RoleConfig        // já com a precedência de overrides aplicada
-	Prompt      string            // prompt do papel + contexto montado pelo núcleo
-	Workdir     string            // worktree do nó, ou o repositório no upstream
-	MCPEndpoint string            // servidor MCP do Kluzo para esta sessão
-	Env         map[string]string // sem segredos do Kluzo; só os do projeto
-	OutputSchema []byte           // JSON Schema da saída esperada
-	Timeout     time.Duration
+	SessionID string // ss_<ulid> do Kluzo
+	Counter   int    // numera as sessões do harness de um mesmo SessionID (0, 1…); entra no UUID
+	Attempt, Round int
+	Role      RoleConfig // já com a precedência de overrides aplicada
+	System    string     // system prompt: segmentos 1, 2 e 2b (protocolo, papel, regras do projeto); vai por arquivo 0600, sem limite de tamanho
+	Prompt    string     // segmento 3, a primeira mensagem do usuário
+	Segments  SegmentHashes // hashes que a retomada compara (ADR 0024, item 9)
+	Workdir   string     // worktree do nó, ou o repositório no upstream
+	Verify    []string   // comandos dos gates que a ferramenta `test` pode rodar
+
+	MCPEndpoint string // servidor MCP do Kluzo para esta sessão
+	MCPToken    string // token da sessão
+	MCPTools    []string
+	Accepted    func() (json.RawMessage, bool) // o kluzo_result aceito pelo servidor MCP
+
+	HookEndpoint string                   // hook PreToolUse do servidor MCP (guarda); obrigatório
+	Hooked       func(toolUseID string) bool // o hook recebeu essa chamada? O canário pergunta a cada tool_result; obrigatório
+
+	Env                map[string]string // sem segredos do Kluzo; só os do projeto (env_allow, caches)
+	MaxBudgetUSDMicros int64             // o que resta ao nó
+	PriorUsage         Usage             // Result.Cumulative da sessão anterior da mesma conversa do harness (Resume); zero no Start
+	Timeout            time.Duration
+}
+
+// Usage é o que uma conversa do harness consumiu. O Claude Code soma custo e
+// tokens entre retomadas; o Result conta só a sessão.
+type Usage struct {
+	InputTokens, OutputTokens int64
+	CostUSD                   int64 // micro-dólares
 }
 
 type Session interface {
 	HarnessRef() string               // id da sessão no harness, para Resume
-	Events() <-chan Event             // eventos normalizados (events.md); fecha ao terminar
-	Wait() (Result, error)            // bloqueia até o fim; Result.Raw validado pelo núcleo
+	Events() <-chan Event             // eventos normalizados (events.md); fecha ao terminar; o chamador precisa continuar lendo
+	Wait() (Result, error)            // bloqueia até o fim
 	Send(ctx context.Context, msg string) error // entrevistas e respostas a escalações
-	Cancel() error                    // mata o grupo de processos
+	Cancel() error                    // mata o grupo de processos; pode ser chamado duas vezes
+}
+
+type Event struct {
+	Kind    string          // events.md
+	Payload json.RawMessage // o JSON do tipo de internal/contracts
 }
 
 type Result struct {
 	State   string          // "finished" | "failed" | "cancelled" | "timeout"
-	Raw     json.RawMessage // saída estruturada, antes da validação
-	CostUSD int64           // micro-dólares
+	Cause   Cause           // se failed: max_turns, budget, auth, rate_limit, runtime, refusal, no_result, guard (ADR 0024, item 7)
+	Detail  string
+	Raw     json.RawMessage // o kluzo_result aceito, antes da validação de cobertura do núcleo
+	CostUSD int64           // micro-dólares desta sessão: o total do harness menos SessionSpec.PriorUsage
+	Cumulative Usage        // o total que o harness informou, para o PriorUsage da próxima retomada
+	Turns   int
+	Unknown map[string]int  // tipos de evento do stream que o adaptador não conhece
+	Version string          // versão do harness vista no início
+}
+
+// ---------- Gates ----------
+
+// A implementação real (comando ou checks do tracker, definição lida da ponta
+// da milestone) é do item 8; o supervisor só pede a execução.
+type Gates interface {
+	// Um gate que roda e falha é um GateResult; erro quer dizer que ele não
+	// pôde rodar (o efeito é repetido, a não ser com ErrPermanent).
+	Run(ctx context.Context, run GateRun) (GateResult, error)
+}
+
+type GateRun struct {
+	Workspace, Node string
+	Gate            string // nome em kluzo.yaml
+	SHA             string // o commit testado
+	Workdir         string // o worktree do nó
+	Fast            bool   // gate rápido, antes do review
+}
+
+type GateResult struct {
+	Gate    string
+	State   string // "passed" | "failed" | "error"
+	Summary string // fim da saída, sem segredos, para o próximo prompt
+	LogRef  string // arquivo em logs/gates ou URL do CI
 }
 
 // ---------- Notifier ----------
@@ -154,12 +223,15 @@ type Notification struct {
 }
 ```
 
+`Resume` falha com `ErrResumeMismatch` quando os segmentos, o diretório, o `HOME` ou a linha de comando mudaram; o chamador então abre uma sessão nova com o `Counter` seguinte.
+
 ## Implementações previstas
 
 | Interface | v0.1 | v0.2 | v0.3 |
 |---|---|---|---|
 | `Tracker`, `SCM`, `CI` | `github` | `gitlab` | |
 | `Runtime` | `claudecode` | `opencode` | |
+| `Gates` | (item 8) | | |
 | `Notifier` | `log` (no-op) | | `ntfy` |
 
 Todas as interfaces têm um **fake em memória** em `internal/ports/fakes`, com o comportamento do contrato (idempotência, uma label `orch/*` por issue). Os testes do núcleo usam só os fakes ([development.md](../development.md#testes)).

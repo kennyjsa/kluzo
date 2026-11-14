@@ -1,0 +1,10 @@
+!read-prompt
+{"type":"system","subtype":"init","session_id":"@@SESSION@@","model":"claude-sonnet-4","cwd":"/work","permissionMode":"dontAsk","tools":@@TOOLS@@,"mcp_servers":[{"name":"kluzo","status":"connected"}],"claude_code_version":"2.1.319","apiKeySource":"ANTHROPIC_API_KEY"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"git push origin HEAD"}}]},"session_id":"@@SESSION@@"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"Denied by the Kluzo guard: git push changes the repository","is_error":true}]},"session_id":"@@SESSION@@"}
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"go test ./..."}}]},"session_id":"@@SESSION@@"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"ok","is_error":false}]},"session_id":"@@SESSION@@"}
+{"type":"assistant","message":{"id":"msg_3","role":"assistant","content":[{"type":"tool_use","id":"toolu_3","name":"mcp__kluzo__kluzo_result","input":{"v":1,"summary":"done","markdown":"## Report"}}]},"session_id":"@@SESSION@@"}
+!deliver {"v":1,"summary":"done","markdown":"## Report"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_3","content":"accepted","is_error":false}]},"session_id":"@@SESSION@@"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":3,"total_cost_usd":0.01,"session_id":"@@SESSION@@"}

@@ -64,9 +64,18 @@ gates:                         # lidos da ponta da milestone no despacho, nunca 
     run: go test ./...
     timeout: 15m
     env_allow: [DATABASE_URL_TEST]   # gates não recebem segredos por padrão
+    report: reports/junit.xml  # opcional: relatório JUnit XML escrito pelo comando (caminho dentro do worktree)
   - name: ci                   # usa os checks do tracker em vez de um comando
     source: tracker
     required_checks: ["build", "test"]
+
+# Cada gate de nó roda com a definição de kluzo.yaml no commit em que a tentativa começou (a ponta da
+# milestone no despacho), nunca a do worktree. Um gate `run` roda com `sh` numa checkout limpa do
+# commit do nó (preparada com worktree.include e worktree.setup, com HOME e caches de build próprios dos
+# gates, separados dos das sessões), com timeout (padrão 30m), env só com env_allow + caches +
+# COMPOSE_PROJECT_NAME, e o log (redigido, até 64 MiB) em logs/gates/. Falhas estruturadas vêm de
+# `go test -json` (detectado na saída) ou do `report`, apagado antes de cada execução.
+# Um gate `source: tracker` lê os checks do CI para o commit do nó até nenhum estar pendente.
 
 milestone_gates:
   - name: e2e
@@ -93,6 +102,8 @@ worktree:                      # preparo de cada worktree, executado pelo Kluzo 
   env_allow: [NPM_TOKEN]         # variáveis do Kluzo repassadas ao setup, além de caches e COMPOSE_PROJECT_NAME
   timeout: 15m                   # falha do setup: erro de runtime repetível; persistindo, blocked (triage)
 
+# env_allow (gates, runtimes, worktree) não aceita HOME, PATH, SSH_AUTH_SOCK, GIT_*, KLUZO_*,
+# CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY nem as variáveis de credencial do tracker e do notify
 secret_paths: [".env", ".env.*"]   # o hook nega leitura por ferramenta de arquivo; leitura via shell é limite conhecido
 
 caches: [go, node]               # ecossistemas com cache de download compartilhado (ADR 0025)
@@ -132,8 +143,7 @@ protocol: 1
 description: Implementa o nó e os testes
 harness: claude-code
 model: sonnet
-advisor: opus
-subagents: haiku
+# advisor e subagents: recusados pelo roles check no claude-code até o mapeamento ser verificado (ADR 0024)
 effort: high
 tools: [read, edit, bash, test]
 skills: [testing-conventions]
@@ -155,8 +165,8 @@ You implement the node described in the task. Work test-first…
 | `description` | string | sim | Uma linha; aparece na tela Times |
 | `harness` | enum | não | `claude-code` \| `opencode`; padrão em `defaults` |
 | `model` | string | não | `claude-code`: alias (`opus`, `sonnet`, `haiku`) ou id `claude-*`. `opencode`: `provedor/modelo`. Validado por formato, sem catálogo embutido |
-| `advisor` | string | não | Só `claude-code`; não pode ser mais fraco que `model` (família `haiku` < `sonnet` < `opus`; família não reconhecida não é comparada) |
-| `subagents` | string | não | Modelo dos subagents; só `claude-code` |
+| `advisor` | string | não | Só `claude-code`, e hoje recusado pelo adaptador (ADR 0024); não pode ser mais fraco que `model` (família `haiku` < `sonnet` < `opus`; família não reconhecida não é comparada) |
+| `subagents` | string | não | Modelo dos subagents; só `claude-code`, e hoje recusado pelo adaptador (ADR 0024) |
 | `effort` | enum | não | `low` \| `medium` \| `high` |
 | `tools` | lista | sim | Vocabulário canônico do Kluzo: `read`, `edit`, `bash`, `test`. Cada adaptador traduz para as ferramentas do harness. A lista mora em `internal/contracts` e pode crescer com a investigação 3 |
 | `skills` | lista | não | Pastas em `.agents/skills/` carregadas na sessão |
@@ -174,7 +184,7 @@ Validações (também em `kluzo roles check`, que carrega a configuração intei
 - O `protocol` é igual ao do binário.
 - O corpo não contém marcadores reservados nem cita ferramenta `kluzo_*` fora de `mcp`.
 - Um papel usado em etapa com `phase: in_review` (o `reviewer` no padrão) não pode ter `edit` nem `bash` (ADR 0020). A checagem é feita ao carregar os flows.
-- O `advisor` é recusado se o harness não for `claude-code`, e também se for mais fraco que `model`.
+- O `advisor` é recusado se o harness não for `claude-code`, e também se for mais fraco que `model`. No `claude-code`, `advisor` e `subagents` são recusados enquanto o adaptador não tiver o mapeamento verificado (ADR 0024).
 - Toda ferramenta em `tools` pertence ao vocabulário canônico.
 
 Obrigatórias em `kluzo.yaml`: `version`, `project.name`, `tracker.kind` e `tracker.repo`. `tracker.auth` só é exigido pelos comandos que falam com o tracker (`doctor`, `run`). Um papel sem harness ou modelo efetivo (nem nele, nem em `defaults`) é erro no papel.

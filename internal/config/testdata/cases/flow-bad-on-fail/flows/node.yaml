@@ -1,0 +1,9 @@
+version: 1
+steps:
+  - { id: a, role: implementer }
+  - { id: q, gate: [build] }
+  - { id: g1, gate: [test], on_fail: q }
+  - { id: g2, gate: [test], on_fail: later }
+  - { id: g3, gate: [test], on_fail: a, max_retries: -1 }
+  - { id: later, role: reviewer }
+  - { id: merge, merge_queue: milestone }

@@ -19,6 +19,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | De | Para | Gatilho | Condição | Efeito |
 |---|---|---|---|---|
 | — | `refining` | `kluzo workspace create` / web | milestone existe e sem workspace ativo | cria a branch `milestone/<nome>`; inicia o flow `upstream` |
+| — | `awaiting_approval` | `kluzo plan` com plano escrito à mão (v0.1) | milestone existe e sem workspace ativo; plano válido | cria a branch `milestone/<nome>`; registra a proposta de plano |
 | `refining` | `awaiting_approval` | flow `upstream` chega na etapa `approval` | resultado do planner válido | gera a proposta de plano; item na Inbox |
 | `awaiting_approval` | `refining` | humano recusa algum item | — | devolve ao planner com os comentários |
 | `awaiting_approval` | `approved` | humano aprova o plano | nenhum item pendente; grafo válido | cria issues e links aprovados; commit de `plans/<milestone>.yaml` |
@@ -26,7 +27,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | `approved` | `paused` | efeito `git.milestone` falha permanente (branch local e remota divergentes) | — | notificação; nenhum nó é despachado; o humano reconcilia a branch e retoma (`resume` reenfileira o efeito) |
 | `running` | `paused` | efeito `git.milestone` reenfileirado por um `resume` falha permanente | — | igual à linha anterior |
 | `running` | `paused` | humano pausa | — | sessões ativas recebem `Cancel`; nós voltam para o último estado estável |
-| `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
+| `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024), ou credenciais do host visíveis às sessões sem `security.allow_host_credentials` (ADR 0020) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
 | `paused` | `running` | humano retoma | — | scheduler volta a despachar (só depois de `git.milestone` concluído) |
 | `running` | `closing` | último nó vira `integrated` | todos os nós `integrated` ou `cancelled` | inicia o flow `closing` |
 | `closing` | `ready_to_merge` | flow `closing` termina | gate E2E verde | abre o PR/MR `milestone → main` com o relatório |
@@ -87,6 +88,7 @@ Qual etapa do flow corresponde a `running` ou a `in_review` é definido pelo cam
 | `integrating` | `running` | conflito no rebase ou freshness gate vermelho | tentativas restantes; nova tentativa com o contexto do erro |
 | qualquer não final | `blocked` | ver motivos | — |
 | `blocked` | estado anterior | motivo resolvido | — |
+| `blocked` | `running` | humano pede nova tentativa (`kluzo node retry`) | o nó já foi despachado; tentativas restantes; a tentativa nova começa da primeira etapa, com worktree novo |
 | qualquer não final | `failed` | triagem decide desistir | — |
 | qualquer não final | `cancelled` | humano remove o nó | nenhum dependente ativo, ou dependentes também cancelados |
 
@@ -101,11 +103,13 @@ Uma **tentativa** (`attempt`) começa a cada entrada em `running` vinda de `read
 | `blocked_reason` | Quando | Como resolve |
 |---|---|---|
 | `question` | `kluzo_ask` | resposta humana |
-| `proposal` | `kluzo_propose_node` com `blocking: true` | proposta aprovada (e o nó novo integrado) ou recusada |
+| `proposal` | `kluzo_propose_node` com `blocking: true`; ou a conferência depois de uma rodada do implementer encontra mudança em `protected_paths`, teste apagado ou teste desativado (ADR 0020), com `proposal.created` (`kind: change`) | proposta aprovada (e o nó novo integrado) ou recusada |
 | `budget` | orçamento do nó estourou | humano aumenta o orçamento, troca o modelo ou cancela |
 | `triage` | triagem decide `escalate` | ação humana indicada no item da Inbox |
 | `dependency_failed` | uma dependência virou `failed` ou `cancelled` | dependência resolvida, ou o nó é replanejado |
 | `paused` | workspace pausado | workspace retomado |
+
+Enquanto a triagem automática não existe (v0.2), toda etapa que falha vai direto para `blocked` (`triage`), com notificação e o motivo no comentário: `CauseGuard`, `CauseMaxTurns`, `CauseRefusal`, `CauseNoResult`, `status: failed` do implementer, as repetições esgotadas de `CauseRateLimit` e `CauseRuntime` e o `worktree.setup` que continua falhando. `CauseAuth` leva o nó a `blocked` (`paused`) e o workspace a `paused`; `CauseBudget`, e o orçamento do nó esgotado antes de uma sessão, levam a `blocked` (`budget`). A conferência pós-sessão que encontra adulteração leva a `failed`. A saída de `blocked` na v0.1 é humana, pela CLI ([v0.1, item 10b](../planning/milestones/v0.1.md)): `kluzo node unblock` volta ao estado anterior e a etapa atual roda de novo (um nó que estava integrando refaz o rebase; a contagem dos gates rápidos zera); `kluzo node retry` começa uma tentativa nova; `kluzo node cancel` cancela o nó, fora de `running`, `in_review`, `gating` e `integrating`. Um nó bloqueado por `proposal` sai pela decisão da proposta (`kluzo proposal approve|reject`): aprovar segue para a etapa seguinte; recusar o devolve ao implementer, na mesma tentativa, com um finding automático (`blocking`) por mudança pedindo a reversão.
 
 ## Labels no tracker
 

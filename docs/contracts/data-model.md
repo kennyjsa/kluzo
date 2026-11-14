@@ -58,7 +58,7 @@ CREATE TABLE effects (
   kind          TEXT NOT NULL,             -- catálogo abaixo
   payload       TEXT NOT NULL,             -- JSON
   state         TEXT NOT NULL,             -- 'pending' | 'done' | 'failed'
-  attempts      INTEGER NOT NULL DEFAULT 0,
+  attempts      INTEGER NOT NULL DEFAULT 0, -- execuções iniciadas (contadas antes de rodar)
   next_at       TEXT,                      -- backoff
   last_error    TEXT,
   created_at    TEXT NOT NULL,
@@ -73,6 +73,8 @@ Política do outbox, aplicada pelo supervisor (o store só oferece as operaçõe
 - Ao virar `failed`, o supervisor grava `effect.failed` no journal e notifica. O nó ou workspace que dependia do efeito não avança sozinho.
 - `kluzo effect retry <id>` (ou `--all`, para todos os `failed` do workspace) devolve o efeito a `pending`, com as tentativas zeradas e a **mesma** `idem_key`, e grava `effect.retried` `{effect_id, kind, by}` no journal. Vale em qualquer estado ativo do workspace e exige `kluzo doctor` verde, como o `resume`. É a saída depois de corrigir a causa (um token sem permissão, por exemplo) sem zerar a milestone.
 - Um efeito iniciado e não concluído (o processo morreu) continua `pending` e roda de novo; o adaptador deduplica pela `idem_key`.
+- A conclusão de um efeito cujo resultado vira entrada do núcleo (sessão, gates) é gravada na mesma transação da decisão: depois dela, a retomada não roda o efeito de novo.
+- Sessões têm política própria (ADR 0024, item 7): `CauseRateLimit` e `CauseRuntime` repetem com o mesmo backoff, em até 2 sessões novas na mesma tentativa; esgotadas, a etapa falha.
 
 Catálogo de efeitos (`kind`). Um tipo novo entra aqui no mesmo PR que o cria:
 
@@ -82,6 +84,7 @@ Catálogo de efeitos (`kind`). Um tipo novo entra aqui no mesmo PR que o cria:
 | `gate.run` | nó | gates de etapa; com `freshness`, os gates completos de novo no rebase |
 | `tracker.set_label` / `tracker.comment` | nó | espelho no tracker |
 | `notify` | nó ou workspace | notificação |
+| `git.plan` | workspace | commit do plano aprovado em `.kluzo/plans/<milestone>.yaml` na branch da milestone, e push; espera `git.milestone` concluído |
 | `git.milestone` | workspace | cria ou adota `milestone/<nome>`; falha permanente (branches divergentes) pausa o workspace (state-machine.md) |
 | `git.rebase` / `git.merge` | nó | fila de merge (ADR 0009) |
 | `scm.open_pr` | workspace | PR `milestone → main`; grava `pr.opened` |
@@ -105,7 +108,7 @@ CREATE TABLE workspace (                   -- uma única linha
   plan_version  INTEGER,                   -- versão do plano aprovado
   flow_cursor   TEXT,                      -- JSON: posição nos flows upstream/closing
   budget_usd_micros INTEGER,
-  cost_usd_micros   INTEGER NOT NULL DEFAULT 0,
+  cost_usd_micros   INTEGER NOT NULL DEFAULT 0, -- soma dos session.finished do workspace
   updated_at    TEXT NOT NULL
 );
 
@@ -124,9 +127,10 @@ CREATE TABLE nodes (
   step_index    INTEGER,                   -- etapa atual do flow de nó
   overrides     TEXT,                      -- JSON: modelo/harness por label ou milestone
   budget        TEXT NOT NULL,             -- JSON: {attempts, minutes, usd_micros}
-  cost_usd_micros INTEGER NOT NULL DEFAULT 0,
+  cost_usd_micros INTEGER NOT NULL DEFAULT 0, -- soma dos session.finished do nó
   critical      INTEGER NOT NULL DEFAULT 0, -- no caminho crítico (recalculado)
   merged_sha    TEXT,
+  flow          TEXT,                      -- JSON: progresso no flow de nó (evento node.flow)
   updated_at    TEXT NOT NULL
 );
 
@@ -146,6 +150,8 @@ CREATE TABLE subtasks (
   PRIMARY KEY (node_id, idx)
 );
 
+-- Projeção de session.started (cria ou assume a linha) e session.finished
+-- (estado, resultado, custo somado), events.md.
 CREATE TABLE sessions (
   id            TEXT PRIMARY KEY,          -- ss_<ulid>
   node_id       TEXT REFERENCES nodes(id), -- nulo em sessões de upstream/closing
@@ -196,6 +202,9 @@ CREATE TABLE questions (
   answered_at   TEXT
 );
 
+-- Projeção de proposal.created (linha pending) e proposal.decided (state,
+-- decided_by, decided_at). Uma proposta change aprovada é exceção da
+-- conferência do nó de origem: o mesmo caminho com o mesmo sha256 passa.
 CREATE TABLE proposals (
   id            TEXT PRIMARY KEY,
   origin_node   TEXT REFERENCES nodes(id),
@@ -212,14 +221,19 @@ CREATE TABLE proposals (
 
 ## Arquivos do workspace
 
+O layout do workspace tem uma definição só no código (`supervisor.Layout`), usada pelo supervisor e pelas operações do `app` (`doctor`, `clean`, `status`).
+
 ```
 ~/.local/share/kluzo/
 ├── cache/<project>/              # caches de download verificados por hash, compartilhados (ADR 0025)
 └── workspaces/<project>-<milestone>/
     ├── state.db
     ├── home/                     # HOME sintético das sessões (ADR 0024)
-    ├── cache/                    # caches de build, só deste workspace
+    ├── cache/                    # caches de build das sessões, só deste workspace
+    ├── gates-home/               # HOME sintético dos gates, separado do das sessões (ADR 0020)
+    ├── gates-cache/              # caches de build dos gates
     ├── worktrees/<issue>/        # um worktree por nó ativo; removido quando o nó é integrado ou cancelado
+    ├── gates/<issue>/            # checkout limpo em que rodam os gates do nó; removido com o worktree
     └── logs/
         ├── sessions/<session>.jsonl   # stream bruto do harness
         └── gates/<gate-run>.log

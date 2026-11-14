@@ -19,9 +19,9 @@ Toda feature com tela precisa funcionar em 390, 768 e 1280 px de largura, sem ro
 | ID | Feature | Grupo | Versão | Status |
 |---|---|---|---|---|
 | F01 | [Projetos](F01-projetos.md) | Navegação e organização | v0.3 (na v0.1, um projeto via CLI) | planejada |
-| F02 | [Workspaces](F02-workspaces.md) | Navegação e organização | v0.1 | planejada |
+| F02 | [Workspaces](F02-workspaces.md) | Navegação e organização | v0.1 | em andamento |
 | F03 | [Inbox](F03-inbox.md) | Navegação e organização | v0.3 | planejada |
-| F04 | [Configuração `.kluzo/`](F04-configuracao-kluzo.md) | Configuração | v0.1 | planejada |
+| F04 | [Configuração `.kluzo/`](F04-configuracao-kluzo.md) | Configuração | v0.1 | em andamento |
 | F05 | [Times por flow](F05-times-por-flow.md) | Configuração | v0.3 | planejada |
 | F06 | [Perfis](F06-perfis.md) | Configuração | v0.4 | planejada |
 | F07 | [Entrevistas](F07-entrevistas.md) | Upstream | v0.3 | planejada |
@@ -45,7 +45,7 @@ Toda feature com tela precisa funcionar em 390, 768 e 1280 px de largura, sem ro
 | F25 | [MCP do Kluzo](F25-mcp-do-kluzo.md) | Plataforma | v0.2 (na v0.1, o resultado vem pela saída estruturada do harness) | planejada |
 | F26 | [Acesso e permissões](F26-acesso-e-permissoes.md) | Plataforma | v0.3 | planejada |
 | F27 | [Notificações](F27-notificacoes.md) | Plataforma | v0.3 | planejada |
-| F28 | [Journal e retomada](F28-journal-e-retomada.md) | Plataforma | v0.1 | planejada |
+| F28 | [Journal e retomada](F28-journal-e-retomada.md) | Plataforma | v0.1 | em andamento |
 | F29 | [CLI](F29-cli.md) | Plataforma | v0.1 | planejada |
 | F30 | [Visão Estrutura](F30-visao-estrutura.md) | Visualização do progresso | v0.3 | planejada |
 | F31 | [Mapa de código](F31-mapa-de-codigo.md) | Plataforma | `kluzo_changes` v0.2; `CodeMapper` v0.3 | planejada |

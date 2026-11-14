@@ -1,0 +1,72 @@
+# Kluzo configuration (docs/contracts/config.md).
+# TODO: replace the placeholders below (marked TODO) with your project's values.
+version: 1
+
+project:
+  name: __PROJECT_NAME__
+  language: en                      # language of summary, message and rationale
+
+tracker:
+  kind: github                      # github | gitlab
+  repo: OWNER/REPO                  # TODO: your repository
+  auth:
+    kind: github_app                # github_app | token
+    app_id_env: KLUZO_GH_APP_ID
+    key_file_env: KLUZO_GH_APP_KEY
+    # kind: token -> token_env: KLUZO_GH_TOKEN (the default; GitLab: KLUZO_GL_TOKEN)
+  poll_interval: 30s
+  operators: []                     # TODO: logins that may approve and use /kluzo
+
+branches:
+  main: main
+  milestone_prefix: milestone/
+  node_pattern: "issue/{number}-{slug}"
+
+protected_paths:                    # changes here become proposals for a human (ADR 0020)
+  - ".kluzo/**"
+  - "AGENTS.md"                       # project memory (ADR 0022)
+  - "CLAUDE.md"                       # project rules read by Kluzo (ADR 0024)
+  - ".claude/**"
+  - ".mcp.json"
+  - ".github/workflows/**"
+
+# TODO: replace the placeholder commands. They fail on purpose, so a gate that
+# was never configured cannot pass by accident.
+gates:
+  - name: build
+    run: "echo 'TODO: set the build command in .kluzo/kluzo.yaml' >&2; exit 1"
+    fast: true                      # runs before the review
+  - name: test
+    run: "echo 'TODO: set the test command in .kluzo/kluzo.yaml' >&2; exit 1"
+    timeout: 15m
+
+milestone_gates:
+  - name: e2e
+    run: "echo 'TODO: set the end-to-end command in .kluzo/kluzo.yaml' >&2; exit 1"
+    timeout: 40m
+
+secret_paths: [".env", ".env.*"]    # file tools may not read these (the shell can: a known limit)
+
+scheduler:
+  max_parallel: 1
+
+security:
+  allow_host_credentials: false
+
+budgets:
+  node: { attempts: 3, minutes: 60, usd: 6 }
+  milestone: { usd: 60, alert_at: 1.1 }
+
+runtimes:
+  claude-code:
+    bin: claude
+    min_version: 2.1.295
+    env_allow: []
+  opencode:
+    bin: opencode
+    min_version: 1.4.0
+    env_allow: []
+
+defaults:
+  harness: claude-code
+  model: sonnet

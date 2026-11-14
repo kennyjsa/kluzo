@@ -8,9 +8,20 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 - `git` 2.38 ou mais novo (worktrees e `merge --no-ff`).
 - Node LTS, só para desenvolver a web (`web/`).
 - `golangci-lint`.
-- Para os testes de integração: `claude` e `opencode` instalados e autenticados, e um token de teste do GitHub.
+- Para os testes de integração: `claude` e `opencode` instalados e autenticados, e um token de teste do GitHub (abaixo).
 - Os testes de integração e os ensaios rodam numa máquina com acesso direto ao GitHub (a do operador ou uma VM). Sessões de nuvem com proxy que bloqueia GraphQL ou escrita na API não servem para isso, e o adaptador não ganha caminho alternativo só REST por causa delas.
 - Os testes rodam como usuário comum. Um caso que não faz sentido para root (permissão de arquivo) se pula com `t.Skip` quando o uid é 0, dizendo o motivo.
+
+### Testes de integração
+
+Nunca use as credenciais do host: cada teste lê só as variáveis abaixo e pula, com o motivo, quando faltam.
+
+| Teste | Variáveis | Como rodar |
+|---|---|---|
+| Contrato do adaptador do GitHub | `KLUZO_IT_GITHUB_REPO` (`dono/nome` de um repositório sandbox, nunca o do Kluzo) e `KLUZO_IT_GITHUB_TOKEN` | `go test -tags integration -run TestIntegrationContract ./internal/tracker/github/` |
+| Nó de verdade com Claude Code | `KLUZO_IT_NODE=1` e `CLAUDE_CODE_OAUTH_TOKEN` (ou `ANTHROPIC_API_KEY`) | `go test -tags integration -run TestIntegrationNode -v ./internal/supervisor/` |
+
+O token da sandbox precisa das permissões do bot ([integrations.md](architecture/integrations.md#permissões-no-github)), mais **Commit statuses: escrita** (o teste grava statuses) e o merge de PR na sandbox. Um token fine-grained não tem **Checks**: os casos de check runs da suíte de CI falham com 403. Para a suíte inteira, use um token clássico com o escopo `repo` (ou `public_repo` + `repo:status` numa sandbox pública).
 
 ## Comandos
 
@@ -22,8 +33,28 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 | `make arch` | Teste de regras de dependência (`internal/archtest`) |
 | `make test-integration` | Testes com GitHub real e harness real (tag `integration`); não roda no CI de PR |
 | `make web-dev` | Vite em modo dev apontando para um Kluzo local em `--listen` |
-| `make vuln` | `govulncheck ./...` (e `npm audit` na web) |
-| `make check` | `lint` + `arch` + `test` + `vuln`; o mesmo que o CI roda |
+| `make vuln` | `govulncheck ./...` (e `npm audit` na web); roda no CI |
+| `make dist` | Binários para Linux e macOS (amd64 e arm64) em `dist/` |
+| `make check` | `lint` + `arch` + `test`; o CI roda isso, mais `vuln` e `dist` |
+
+## Usar o Kluzo num projeto (v0.1)
+
+```
+kluzo init                       # cria .kluzo/; edite os TODO
+kluzo doctor                     # 0 ok, 2 configuração inválida, 3 integração (CLIs, token, credenciais do host)
+# escreva .kluzo/plans/<título>.yaml (docs/contracts/plan.md)
+kluzo plan <título> [--ref n]    # cria o workspace, aguardando aprovação
+kluzo approve <título> [--by l]  # aprova (um dos tracker.operators); o plano vai em commit na branch da milestone
+kluzo run <título>               # executa até o PR milestone → main ser mergeado (por você)
+kluzo status <título> [--json]
+kluzo pause|resume <título>
+kluzo proposal list|approve <id>|reject <id>
+kluzo node retry|unblock|cancel <issue>
+kluzo effect retry <id>|--all    # devolve um efeito failed a pending, depois de corrigir a causa
+kluzo clean [--yes] [--images]   # lista o que sobrou; --yes remove
+```
+
+Variáveis lidas pelo Kluzo (nunca de `.kluzo/`): o token do bot (`KLUZO_GH_TOKEN`, ou `tracker.auth.token_env`; ou o GitHub App em `KLUZO_GH_APP_ID` e `KLUZO_GH_APP_KEY`), com as permissões de [integrations.md](architecture/integrations.md#permissões-no-github), e a credencial do modelo das sessões (`CLAUDE_CODE_OAUTH_TOKEN` ou `ANTHROPIC_API_KEY`, ADR 0024; um login do `claude` não substitui a variável e conta como credencial do host). Na v0.1 as notificações saem no log do `kluzo run`.
 
 ## Testes
 

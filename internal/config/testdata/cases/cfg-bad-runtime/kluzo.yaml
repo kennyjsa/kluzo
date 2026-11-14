@@ -1,0 +1,71 @@
+version: 1
+
+project:
+  name: agiclin
+  language: pt-BR
+
+tracker:
+  kind: github
+  repo: kennyjsa/kluzo
+  auth:
+    kind: github_app
+    app_id_env: KLUZO_GH_APP_ID
+    key_file_env: KLUZO_GH_APP_KEY
+  poll_interval: 30s
+  operators: [kennyjsa]
+
+branches:
+  main: main
+  milestone_prefix: milestone/
+  node_pattern: "issue/{number}-{slug}"
+
+areas:
+  agenda: ["internal/agenda/**", "web/src/agenda/**"]
+  auth: ["internal/auth/**"]
+
+protected_paths:
+  - ".kluzo/**"
+  - "Makefile"
+
+gates:
+  - name: build
+    run: go build ./... && go vet ./...
+    fast: true
+  - name: test
+    run: go test ./...
+    timeout: 15m
+    env_allow: [DATABASE_URL_TEST]
+  - name: ci
+    source: tracker
+    required_checks: ["build", "test"]
+
+milestone_gates:
+  - name: e2e
+    run: make e2e
+    timeout: 40m
+
+scheduler:
+  max_parallel: 3
+
+security:
+  allow_host_credentials: false
+
+budgets:
+  node: { attempts: 3, minutes: 60, usd: 6 }
+  milestone: { usd: 60, alert_at: 1.1 }
+
+runtimes:
+  claude-code:
+    bin: claude
+    min_version: latest
+    env_allow: [DATABASE_URL_TEST, "1BAD"]
+  codex:
+    bin: codex
+
+defaults:
+  harness: claude-code
+  model: sonnet
+
+notify:
+  kind: ntfy
+  url_env: KLUZO_NTFY_URL

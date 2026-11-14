@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "triage-result",
+  "description": "Output of triage.",
+  "type": "object",
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Schema version."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One or two sentences for the journal and the web."
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "title",
+          "rationale"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Decisions taken under ambiguity."
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "why",
+          "blocking"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Gaps found; they become proposals."
+    },
+    "action": {
+      "enum": [
+        "retry",
+        "switch_model",
+        "switch_harness",
+        "split",
+        "escalate"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "params": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "v",
+    "summary",
+    "action",
+    "reason"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "split"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "required": [
+              "subtasks_as_nodes"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "escalate"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "params"
+        ],
+        "properties": {
+          "params": {
+            "required": [
+              "question"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

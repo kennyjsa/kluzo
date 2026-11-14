@@ -60,12 +60,17 @@ A referência visual está no [protótipo](../design/prototype/), e o sistema vi
 
 ```
 kluzo init                       gera .kluzo/ com papéis e flows padrão
-kluzo doctor                     verifica CLIs, tokens e configuração
-kluzo plan <milestone>           cria o workspace a partir de um plano
-kluzo approve <milestone>        aprova o plano (ou uma proposta)
+kluzo roles check                valida os papéis contra o protocolo do binário
+kluzo doctor                     verifica CLIs, tokens, permissões do bot, credenciais e configuração
+kluzo plan <milestone> [--ref n] cria o workspace a partir de um plano (v0.1: escrito à mão)
+kluzo approve <milestone> [--by <login>]   aprova o plano; o aprovador é um dos tracker.operators
 kluzo run <milestone>            executa (ou retoma) o downstream
 kluzo status [<milestone>]       estado da milestone e dos nós
 kluzo pause|resume <milestone>   pausa ou retoma
+kluzo clean [--yes] [--images]   lista (padrão --dry-run) ou remove o que o Kluzo deixou na máquina
+kluzo proposal list|approve <id>|reject <id>   decide as propostas
+kluzo node retry|unblock|cancel <issue>        tira um nó de blocked, ou o cancela
+kluzo effect retry <id>|--all                  devolve um efeito failed a pending (doctor verde)
 kluzo answer <question-id>       responde uma escalação
 kluzo serve                      sobe a web e o supervisor (v0.3)
 ```

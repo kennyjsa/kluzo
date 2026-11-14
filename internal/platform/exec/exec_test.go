@@ -1,0 +1,153 @@
+//go:build unix
+
+package exec
+
+import (
+	"context"
+	"errors"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+var sh = Spec{Bin: "/bin/sh", Env: []string{"PATH=/usr/bin:/bin", "KEEP=yes"}}
+
+func script(s string) Spec {
+	spec := sh
+	spec.Args = []string{"-c", s}
+	return spec
+}
+
+func TestRunReturnsOutputAndStatus(t *testing.T) {
+	o, err := Run(context.Background(), script(`echo "$KEEP"; echo oops >&2; exit 3`))
+	if err != nil || o.Status.Code != 3 || o.Stdout != "yes\n" || o.Stderr != "oops\n" {
+		t.Errorf("output %+v, err %v", o, err)
+	}
+	if o, err := Run(context.Background(), Spec{Bin: "/nonexistent/bin"}); err == nil || o.Status.Code != -1 {
+		t.Error("missing binary accepted")
+	}
+}
+
+func TestEnvironmentIsNotInherited(t *testing.T) {
+	t.Setenv("SECRET_FROM_PARENT", "leak")
+	o, err := Run(context.Background(), script(`echo "[$SECRET_FROM_PARENT]"`))
+	out := o.Stdout
+	if err != nil || out != "[]\n" {
+		t.Errorf("out %q, err %v", out, err)
+	}
+}
+
+func TestStdinStdoutAndStderrTail(t *testing.T) {
+	p, err := Start(script(`read line; echo "got $line"; echo oops >&2; exit 1`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(p.Stdin(), "hello\n")
+	out, _ := io.ReadAll(p.Stdout())
+	st := p.Wait()
+	if string(out) != "got hello\n" || st.Code != 1 || !strings.Contains(p.Stderr(), "oops") {
+		t.Errorf("out %q, status %+v, stderr %q", out, st, p.Stderr())
+	}
+}
+
+func TestStderrKeepsOnlyTheEnd(t *testing.T) {
+	tl := &tail{}
+	for i := 0; i < 3000; i++ {
+		_, _ = tl.Write([]byte("line-" + strconv.Itoa(i) + "-xxxxxxxxxx\n"))
+	}
+	if got := tl.String(); len(got) > stderrKeep || !strings.HasSuffix(got, "line-2999-xxxxxxxxxx\n") {
+		t.Errorf("tail has %d bytes, ends %q", len(got), got[max(0, len(got)-30):])
+	}
+}
+
+// Terminate stops the whole group: the child and the grandchild it started.
+func TestTerminateKillsTheProcessGroup(t *testing.T) {
+	pidFile := t.TempDir() + "/grandchild.pid"
+	p, err := Start(script(`sleep 60 & echo $! > ` + pidFile + `; wait`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	for range 100 {
+		if b, err := os.ReadFile(pidFile); err == nil && strings.TrimSpace(string(b)) != "" {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("grandchild did not start")
+	}
+	p.Terminate(time.Second)
+	_, _ = io.ReadAll(p.Stdout())
+	st := p.Wait()
+	if st.Signal == "" {
+		t.Errorf("status = %+v, want a signal", st)
+	}
+	waitGone(t, pid)
+}
+
+// A process that ignores SIGTERM is killed after the grace period.
+func TestTerminateEscalatesToKill(t *testing.T) {
+	p, err := Start(script(`trap '' TERM; echo ready; while true; do sleep 0.05; done`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 6)
+	_, _ = io.ReadFull(p.Stdout(), buf)
+	start := time.Now()
+	p.Terminate(200 * time.Millisecond)
+	_, _ = io.ReadAll(p.Stdout())
+	st := p.Wait()
+	if st.Signal != "killed" || time.Since(start) < 150*time.Millisecond {
+		t.Errorf("status %+v after %v, want SIGKILL after the grace", st, time.Since(start))
+	}
+}
+
+func TestRunStopsWithTheContext(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := Run(ctx, script(`sleep 30`))
+	if err == nil || time.Since(start) > 5*time.Second {
+		t.Errorf("err %v after %v", err, time.Since(start))
+	}
+}
+
+func waitGone(t *testing.T, pid int) {
+	t.Helper()
+	for range 100 {
+		if err := syscall.Kill(pid, 0); err != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("process %d still alive", pid)
+}
+
+func TestRunTo(t *testing.T) {
+	env := []string{"PATH=" + os.Getenv("PATH")}
+	var out strings.Builder
+	start := time.Now()
+	// A child left in the background with the output open does not hold the run.
+	st, err := RunTo(context.Background(), Spec{Bin: "sh", Args: []string{"-c", "sleep 30 & echo hi; echo err >&2"}, Env: env}, &out, 200*time.Millisecond)
+	if err != nil || st.Code != 0 || !strings.Contains(out.String(), "hi") || !strings.Contains(out.String(), "err") || time.Since(start) > 5*time.Second {
+		t.Errorf("background child: %+v %v %q after %s", st, err, out.String(), time.Since(start))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start = time.Now()
+	if _, err := RunTo(ctx, Spec{Bin: "sh", Args: []string{"-c", "sleep 30"}, Env: env}, io.Discard, time.Second); !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
+		t.Errorf("timeout: %v after %s", err, time.Since(start))
+	}
+	if st, err := RunTo(context.Background(), Spec{Bin: "sh", Args: []string{"-c", "exit 4"}, Env: env}, io.Discard, time.Second); err != nil || st.Code != 4 {
+		t.Errorf("exit 4: %+v %v", st, err)
+	}
+	if _, err := RunTo(context.Background(), Spec{Bin: "/does/not/exist"}, io.Discard, time.Second); err == nil {
+		t.Error("a missing program is not an error")
+	}
+}

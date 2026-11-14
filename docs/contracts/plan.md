@@ -37,7 +37,7 @@ nodes:
       - Cancelamento e remarcação
       - Testes de contrato com o #43
     budget: { usd: 6 }
-    overrides: { implementer: { model: sonnet, advisor: opus } }
+    overrides: { implementer: { model: sonnet, effort: high } }
   - issue: 44
     title: Tela de agenda
     areas: [web-agenda]

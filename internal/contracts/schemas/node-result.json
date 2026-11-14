@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "node-result",
+  "description": "Output of the implementer (docs/contracts/results.md).",
+  "type": "object",
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "Schema version."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One or two sentences for the journal and the web."
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "title",
+          "rationale"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Decisions taken under ambiguity."
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "why",
+          "blocking"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Gaps found; they become proposals."
+    },
+    "status": {
+      "enum": [
+        "done",
+        "failed",
+        "needs_input"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when status is failed."
+    },
+    "subtasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "title",
+          "state"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^AC[0-9]+$"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "path:line or path:Name references."
+          }
+        },
+        "required": [
+          "id",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^F[0-9]+$"
+          },
+          "action": {
+            "enum": [
+              "fixed",
+              "contested"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "note"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "files_changed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tests": {
+      "type": "object",
+      "properties": {
+        "added": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "command": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "added",
+        "command"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "v",
+    "summary",
+    "status",
+    "criteria",
+    "files_changed",
+    "tests"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "reason"
+        ]
+      }
+    }
+  ]
+}
