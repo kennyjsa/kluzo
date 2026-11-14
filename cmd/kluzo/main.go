@@ -63,7 +63,7 @@ func code(err error) int {
 		return exitInvalidConfig
 	case errors.Is(err, app.ErrDoctor):
 		return exitIntegration
-	case errors.Is(err, app.ErrNoWorkspace), errors.Is(err, app.ErrWorkspaceExists), errors.Is(err, app.ErrRefused), errors.Is(err, app.ErrNoAttempts), isUsage(err):
+	case errors.Is(err, app.ErrNoWorkspace), errors.Is(err, app.ErrWorkspaceExists), errors.Is(err, app.ErrRefused), errors.Is(err, app.ErrNoAttempts), errors.Is(err, app.ErrNotOperator), isUsage(err):
 		return exitUsage
 	}
 	return exitIntegration
@@ -169,16 +169,18 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	}
 	root.AddCommand(planCmd)
 
-	root.AddCommand(&cobra.Command{
+	approveCmd := &cobra.Command{
 		Use: "approve <milestone>", Short: "approve the plan: it is committed on the milestone branch", Args: args(1),
-		RunE: func(cmd *cobra.Command, a []string) error {
-			if err := (app.ApprovePlan{Host: host()}).Execute(cmd.Context(), app.ApprovePlanInput{ConfigDir: *dir, Milestone: a[0]}); err != nil {
-				return err
-			}
-			printf(stdout, "plan of %s approved; run `kluzo run %s`.\n", a[0], a[0])
-			return nil
-		},
-	})
+	}
+	by := approveCmd.Flags().String("by", "", "who approves: a login of tracker.operators (default: the only operator)")
+	approveCmd.RunE = func(cmd *cobra.Command, a []string) error {
+		if err := (app.ApprovePlan{Host: host()}).Execute(cmd.Context(), app.ApprovePlanInput{ConfigDir: *dir, Milestone: a[0], By: *by}); err != nil {
+			return err
+		}
+		printf(stdout, "plan of %s approved; run `kluzo run %s`.\n", a[0], a[0])
+		return nil
+	}
+	root.AddCommand(approveCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use: "run <milestone>", Short: "run (or go on running) the milestone until it is over or interrupted", Args: args(1),
@@ -237,7 +239,7 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	}
 	yes := cleanCmd.Flags().Bool("yes", false, "remove; without it, kluzo clean only lists (--dry-run)")
 	dryRun := cleanCmd.Flags().Bool("dry-run", true, "only list what would be removed (the default)")
-	images := cleanCmd.Flags().Bool("images", false, "also every image marked by Kluzo, of active workspaces too, and the dangling images of the machine")
+	images := cleanCmd.Flags().Bool("images", false, "also the images of every compose project of Kluzo whose workspace is not active, and the dangling images of the machine; never those of an active workspace (nor, while a journal of the machine cannot be read, those of unknown workspaces)")
 	cleanCmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		switch {
 		case *yes && cmd.Flags().Changed("dry-run") && *dryRun:
@@ -313,6 +315,32 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 		})
 	}
 	root.AddCommand(node)
+
+	effect := &cobra.Command{Use: "effect", Short: "act on the effects of the outbox", Args: cobra.ArbitraryArgs, RunE: group(stderr)}
+	retry := &cobra.Command{
+		Use: "retry <id>|--all", Short: "return a failed effect to pending, once its cause is fixed (kluzo doctor must be green)", Args: cobra.MaximumNArgs(1),
+	}
+	all := retry.Flags().Bool("all", false, "every failed effect of the active workspaces of the project")
+	retry.RunE = func(cmd *cobra.Command, a []string) error {
+		if (len(a) == 1) == *all {
+			return usageError{fmt.Errorf("name one failed effect, or --all")}
+		}
+		in := app.RetryEffectsInput{ConfigDir: *dir, All: *all}
+		if len(a) == 1 {
+			in.ID = a[0]
+		}
+		out, err := app.RetryEffects{Host: host()}.Execute(cmd.Context(), in)
+		if err != nil {
+			return err
+		}
+		for _, f := range out {
+			printf(stdout, "%s  %-18s %s  pending again (was: %s)\n", f.ID, f.Kind, f.Milestone, f.LastError)
+		}
+		printf(stdout, "kluzo run carries it out\n")
+		return nil
+	}
+	effect.AddCommand(retry)
+	root.AddCommand(effect)
 
 	root.SetContext(context.Background())
 	return root
@@ -420,6 +448,12 @@ func printStatus(w io.Writer, s app.StatusOutput) {
 			state += " (" + n.Blocked + ")"
 		}
 		printf(w, "#%-5s %-14s attempt %d round %d  US$ %.2f  %s\n", n.Issue, state, n.Attempt, n.Round, n.CostUSD, n.Title)
+	}
+	if len(s.Failed) > 0 {
+		printf(w, "\nfailed effects (fix the cause, then `kluzo effect retry <id>`):\n")
+	}
+	for _, f := range s.Failed {
+		printf(w, "%s  %-18s %s\n", f.ID, f.Kind, f.LastError)
 	}
 }
 

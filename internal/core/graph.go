@@ -118,6 +118,25 @@ func (g Graph) Ready() []string {
 	return out
 }
 
+// NodeLabel is the orch/* label of the issue of a node.
+type NodeLabel struct{ Node, Label string }
+
+// ApprovalLabels are the first orch/* label of each node, given when the plan
+// is approved, without a comment (state-machine.md, labels): orch/ready for a
+// planned node whose dependencies are satisfied, otherwise the label of its
+// state (orch/planned). Sorted by ID.
+func (g Graph) ApprovalLabels() []NodeLabel {
+	out := make([]NodeLabel, 0, len(g.Nodes))
+	for _, id := range g.ids() {
+		st := g.Nodes[id].State
+		if st == NodePlanned && g.depsSatisfied(id) {
+			st = NodeReady
+		}
+		out = append(out, NodeLabel{Node: id, Label: st.Label()})
+	}
+	return out
+}
+
 func (g Graph) depsSatisfied(id string) bool {
 	for _, e := range g.Edges {
 		if e.To != id {

@@ -29,6 +29,7 @@ const (
 	EventMergeRebased    = "merge.rebased"
 	EventMergeFreshness  = "merge.freshness"
 	EventEffectFailed    = "effect.failed"
+	EventEffectRetried   = "effect.retried"
 	EventBudgetAlert     = "budget.alert"
 	EventProposalCreated = "proposal.created"
 	EventProposalDecided = "proposal.decided"
@@ -137,6 +138,14 @@ type EffectFailed struct {
 	Kind      string `json:"kind"`
 	Attempts  int    `json:"attempts"`
 	LastError string `json:"last_error"`
+}
+
+// EffectRetried is the payload of effect.retried: a person returned a failed
+// effect to pending (kluzo effect retry, docs/contracts/data-model.md).
+type EffectRetried struct {
+	EffectID string `json:"effect_id"`
+	Kind     string `json:"kind"`
+	By       string `json:"by"`
 }
 
 // NodeTransition is the payload of node.transition.

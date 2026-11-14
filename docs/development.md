@@ -44,16 +44,17 @@ kluzo init                       # cria .kluzo/; edite os TODO
 kluzo doctor                     # 0 ok, 2 configuração inválida, 3 integração (CLIs, token, credenciais do host)
 # escreva .kluzo/plans/<título>.yaml (docs/contracts/plan.md)
 kluzo plan <título> [--ref n]    # cria o workspace, aguardando aprovação
-kluzo approve <título>           # aprova; o plano vai em commit na branch da milestone
+kluzo approve <título> [--by l]  # aprova (um dos tracker.operators); o plano vai em commit na branch da milestone
 kluzo run <título>               # executa até o PR milestone → main ser mergeado (por você)
 kluzo status <título> [--json]
 kluzo pause|resume <título>
 kluzo proposal list|approve <id>|reject <id>
 kluzo node retry|unblock|cancel <issue>
+kluzo effect retry <id>|--all    # devolve um efeito failed a pending, depois de corrigir a causa
 kluzo clean [--yes] [--images]   # lista o que sobrou; --yes remove
 ```
 
-Variáveis lidas pelo Kluzo (nunca de `.kluzo/`): o token do bot (`KLUZO_GH_TOKEN`, ou `tracker.auth.token_env`; ou o GitHub App em `KLUZO_GH_APP_ID` e `KLUZO_GH_APP_KEY`), com as permissões de [integrations.md](architecture/integrations.md#permissões-no-github), e a credencial do modelo das sessões (`CLAUDE_CODE_OAUTH_TOKEN` ou `ANTHROPIC_API_KEY`, ADR 0024). Na v0.1 as notificações saem no log do `kluzo run`.
+Variáveis lidas pelo Kluzo (nunca de `.kluzo/`): o token do bot (`KLUZO_GH_TOKEN`, ou `tracker.auth.token_env`; ou o GitHub App em `KLUZO_GH_APP_ID` e `KLUZO_GH_APP_KEY`), com as permissões de [integrations.md](architecture/integrations.md#permissões-no-github), e a credencial do modelo das sessões (`CLAUDE_CODE_OAUTH_TOKEN` ou `ANTHROPIC_API_KEY`, ADR 0024; um login do `claude` não substitui a variável e conta como credencial do host). Na v0.1 as notificações saem no log do `kluzo run`.
 
 ## Testes
 

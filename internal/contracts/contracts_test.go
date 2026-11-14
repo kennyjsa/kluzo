@@ -78,6 +78,7 @@ func TestEventsMatchContract(t *testing.T) {
 		EventAreaDeviation:       AreaDeviation{},
 		EventNodeFlow:            NodeFlow{},
 		EventEffectFailed:        EffectFailed{},
+		EventEffectRetried:       EffectRetried{},
 	}
 	for kind, payload := range payloads {
 		want, ok := documented[kind]

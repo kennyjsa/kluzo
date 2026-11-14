@@ -37,11 +37,19 @@ type Effect struct {
 // is still pending: running it again is safe because adapters deduplicate on
 // IdemKey (ADR 0013).
 func (d *DB) PendingEffects(ctx context.Context, now time.Time, limit int) ([]Effect, error) {
+	return d.effects(ctx, `WHERE state = 'pending' AND (next_at IS NULL OR next_at <= ?) ORDER BY event_seq, id LIMIT ?`, formatTS(now), limit)
+}
+
+// FailedEffects returns the effects that gave up, oldest event first.
+func (d *DB) FailedEffects(ctx context.Context) ([]Effect, error) {
+	return d.effects(ctx, `WHERE state = 'failed' ORDER BY event_seq, id`)
+}
+
+// effects reads the rows of the outbox that where selects.
+func (d *DB) effects(ctx context.Context, where string, args ...any) ([]Effect, error) {
 	var out []Effect
 	err := each(ctx, d.sql,
-		`SELECT id, idem_key, event_seq, kind, payload, state, attempts, next_at, COALESCE(last_error, '')
-		   FROM effects WHERE state = 'pending' AND (next_at IS NULL OR next_at <= ?)
-		  ORDER BY event_seq, id LIMIT ?`, []any{formatTS(now), limit},
+		`SELECT id, idem_key, event_seq, kind, payload, state, attempts, next_at, COALESCE(last_error, '') FROM effects `+where, args,
 		func(rows *sql.Rows) error {
 			var f Effect
 			var payload, state string
@@ -118,6 +126,23 @@ func (t *Tx) FollowEffect(id string, at time.Time, effects ...EffectSpec) error 
 // effect.failed.
 func (t *Tx) FailEffect(id, lastError string) error {
 	return updateEffect(t.ctx, t.tx, id, `UPDATE effects SET state = 'failed', last_error = ?, next_at = NULL WHERE id = ? AND state = 'pending'`, lastError)
+}
+
+// RequeueEffect returns a failed effect to pending, with its runs zeroed and
+// the same idempotency key (kluzo effect retry), in the transaction that
+// journals effect.retried. It returns the kind and the payload of the effect.
+func (t *Tx) RequeueEffect(id string) (kind string, payload json.RawMessage, err error) {
+	var raw string
+	err = t.tx.QueryRowContext(t.ctx,
+		`UPDATE effects SET state = 'pending', attempts = 0, next_at = NULL, last_error = NULL WHERE id = ? AND state = 'failed' RETURNING kind, payload`,
+		id).Scan(&kind, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, fmt.Errorf("%w: failed effect %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("requeue effect %s: %w", id, err)
+	}
+	return kind, json.RawMessage(raw), nil
 }
 
 // execer is what updateEffect needs of a *sql.DB or a *sql.Tx.

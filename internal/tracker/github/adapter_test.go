@@ -571,7 +571,9 @@ func TestGitHubAppAuthentication(t *testing.T) {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "a JWT is required"})
 				return true
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"id": 77})
+			writeJSON(w, http.StatusOK, map[string]any{"id": 77, "permissions": map[string]string{
+				"metadata": "read", "issues": "write", "contents": "read", "pull_requests": "write", "checks": "read",
+			}})
 		case "/app/installations/77/access_tokens":
 			asked = append(asked, "token")
 			writeJSON(w, http.StatusCreated, map[string]any{"token": h.f.token, "expires_at": epoch.Add(time.Hour)})
@@ -590,6 +592,13 @@ func TestGitHubAppAuthentication(t *testing.T) {
 	}
 	if login, err := a.Whoami(context.Background()); err != nil || login != "kluzo-test[bot]" {
 		t.Errorf("Whoami of an App = %q, %v; want kluzo-test[bot]", login, err)
+	}
+	// The installation lacks contents: write and statuses: read.
+	if p := a.Permissions(); !p.Verified || fmt.Sprint(p.Missing) != "[contents: write statuses: read]" {
+		t.Errorf("Permissions of the App = %+v", p)
+	}
+	if p := h.adapter(t, Auth{Kind: AuthToken, Token: "ghp_" + strings.Repeat("t", 36)}).Permissions(); p.Verified || len(p.Missing) != 0 {
+		t.Errorf("Permissions of a token = %+v, want not verified", p)
 	}
 	if tok, err := a.GitToken(context.Background()); err != nil || tok != h.f.token {
 		t.Errorf("GitToken of an App = %q, %v; want the installation token", tok, err)

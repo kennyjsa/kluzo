@@ -102,11 +102,15 @@ type PlanApproval struct {
 }
 
 // ApprovePlan journals plan.approved with the commit of the plan on the
-// milestone branch (git.plan), and moves the workspace to approved, in one
-// transaction (kluzo approve). The loop starts the workspace once the
+// milestone branch (git.plan) and the first orch/* label of each node, and
+// moves the workspace to approved, in one transaction (kluzo approve). The loop starts the workspace once the
 // milestone branch is ready.
 func ApprovePlan(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock.Clock, a PlanApproval) error {
 	s := journal(db, gen, clk)
+	snap, err := db.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
 	return db.Tx(ctx, func(t *store.Tx) error {
 		h, err := s.header()
 		if err != nil {
@@ -119,6 +123,11 @@ func ApprovePlan(ctx context.Context, db *store.DB, gen *ids.Generator, clk cloc
 		if err != nil {
 			return err
 		}
+		labels, err := s.approvalLabels(snap, h)
+		if err != nil {
+			return err
+		}
+		specs = append(specs, labels...)
 		body, _ := json.Marshal(a.Approved) // plain data
 		if _, err := t.Append(store.Event{Header: h, Kind: contracts.EventPlanApproved, Payload: body}, specs...); err != nil {
 			return err
@@ -129,6 +138,54 @@ func ApprovePlan(ctx context.Context, db *store.DB, gen *ids.Generator, clk cloc
 		}
 		return s.transitionWorkspace(t, core.TriggerPlanApproved, th)
 	})
+}
+
+// RetryEffects returns failed effects to pending, with their runs zeroed and
+// the same idempotency key, and journals effect.retried for each, in one
+// transaction (kluzo effect retry, data-model.md).
+func RetryEffects(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock.Clock, effects []string, by string) error {
+	s := journal(db, gen, clk)
+	return db.Tx(ctx, func(t *store.Tx) error {
+		for _, id := range effects {
+			kind, payload, err := t.RequeueEffect(id)
+			if err != nil {
+				return err
+			}
+			var p effectPayload
+			_ = json.Unmarshal(payload, &p) // best effort: the node of the event, as effect.failed
+			h, err := s.header()
+			if err != nil {
+				return err
+			}
+			body, _ := json.Marshal(contracts.EffectRetried{EffectID: id, Kind: kind, By: by}) // plain data
+			if _, err := t.Append(store.Event{Header: h, Kind: contracts.EventEffectRetried, NodeID: p.Node, Payload: body}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// approvalLabels are the tracker.set_label effects of the approval of the
+// plan: the first orch/* label of each node, without a comment.
+func (s *Supervisor) approvalLabels(snap store.Snapshot, h store.Header) ([]store.EffectSpec, error) {
+	g, err := snapshotGraph(snap)
+	if err != nil {
+		return nil, err
+	}
+	var specs []store.EffectSpec
+	for _, l := range g.ApprovalLabels() {
+		n, err := snap.NodeByIssue(l.Node)
+		if err != nil {
+			return nil, err
+		}
+		spec, err := s.effectSpecs(h, n.ID, n.IssueRef, []core.Effect{{Kind: core.EffectLabel, Key: "label-" + n.IssueRef, Label: l.Label}})
+		if err != nil {
+			return nil, err
+		}
+		specs = append(specs, spec...)
+	}
+	return specs, nil
 }
 
 // commitPlan runs git.plan: the approved plan, committed on the milestone

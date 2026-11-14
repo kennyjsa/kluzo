@@ -15,6 +15,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/ports/fakes"
+	"github.com/kennyjsa/kluzo/internal/store"
 	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
 
@@ -47,6 +48,30 @@ func newWorkspaceEnv(t *testing.T) workspaceEnv {
 		},
 	}
 	return e
+}
+
+// The approver is one of tracker.operators: --by names one, and without it
+// the only operator approves (plan.md).
+func TestApprover(t *testing.T) {
+	for _, tt := range []struct {
+		ops     []string
+		by      string
+		want    string
+		refused bool
+	}{
+		{[]string{"kenny"}, "", "kenny", false},
+		{[]string{"kenny", "ana"}, "ana", "ana", false},
+		{[]string{"Kenny"}, "kenny", "Kenny", false},
+		{[]string{"kenny", "ana"}, "", "", true},
+		{[]string{"kenny"}, "bob", "", true},
+		{nil, "", "", true},
+		{nil, "kenny", "", true},
+	} {
+		got, err := approver(tt.ops, tt.by)
+		if got != tt.want || errors.Is(err, ErrNotOperator) != tt.refused {
+			t.Errorf("approver(%v, %q) = %q, %v", tt.ops, tt.by, got, err)
+		}
+	}
 }
 
 // kluzo plan, approve, status, pause and resume on one workspace.
@@ -86,6 +111,18 @@ func TestWorkspaceCommands(t *testing.T) {
 	}
 	if _, err := move(Pause, true); !errors.Is(err, core.ErrInvalidTransition) {
 		t.Errorf("pause awaiting approval: %v", err)
+	}
+	// tracker.operators is empty: nobody may approve (plan.md).
+	if err := (ApprovePlan{Host: e.host}).Execute(ctx, ApprovePlanInput{ConfigDir: e.dir, Milestone: "v0.1"}); !errors.Is(err, ErrNotOperator) {
+		t.Fatalf("approval without operators: %v", err)
+	}
+	cfg := filepath.Join(e.dir, "kluzo.yaml")
+	raw, err := os.ReadFile(cfg)
+	if err != nil || !strings.Contains(string(raw), "operators: []") {
+		t.Fatalf("kluzo.yaml: %v", err)
+	}
+	if err := os.WriteFile(cfg, []byte(strings.Replace(string(raw), "operators: []", "operators: [kenny]", 1)), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if err := (ApprovePlan{Host: e.host}).Execute(ctx, ApprovePlanInput{ConfigDir: e.dir, Milestone: "v0.1"}); err != nil {
 		t.Fatal(err)
@@ -213,5 +250,58 @@ func TestProductionAssembly(t *testing.T) {
 	}
 	if _, err := assemble(ctx, h, o, "test"); err == nil || !strings.Contains(err.Error(), "SCM") {
 		t.Errorf("without the SCM: %v", err)
+	}
+}
+
+// kluzo effect retry: a failed effect of an active workspace goes back to
+// pending, by id or with --all, only with a green doctor.
+func TestRetryEffects(t *testing.T) {
+	ctx := context.Background()
+	e := newWorkspaceEnv(t)
+	out, err := (PlanWorkspace{Host: e.host}).Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, Milestone: "v0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(ctx, filepath.Join(out.Dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := db.PendingEffects(ctx, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), 10)
+	if len(pending) == 0 {
+		t.Fatal("no effect queued by kluzo plan")
+	}
+	id := pending[0].ID
+	if err := db.Tx(ctx, func(x *store.Tx) error { return x.FailEffect(id, "403") }); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	retry := func(in RetryEffectsInput, green bool) ([]RetriedEffect, error) {
+		in.ConfigDir = e.dir
+		return RetryEffects{Host: e.host, Doctor: func(context.Context, string) (DoctorOutput, error) {
+			if green {
+				return DoctorOutput{}, nil
+			}
+			return DoctorOutput{Problems: []string{"tracker permissions: the GitHub App installation lacks pull_requests: write"}}, nil
+		}}.Execute(ctx, in)
+	}
+	st, err := Status{Host: e.host}.Execute(ctx, StatusInput{ConfigDir: e.dir, Milestone: "v0.1"})
+	if err != nil || len(st.Failed) != 1 || st.Failed[0].ID != id || st.Failed[0].LastError != "403" {
+		t.Fatalf("status lists the failed effect: %+v, %v", st.Failed, err)
+	}
+	if _, err := retry(RetryEffectsInput{}, true); err == nil {
+		t.Error("neither an id nor --all")
+	}
+	if _, err := retry(RetryEffectsInput{ID: "ef_nope"}, true); !errors.Is(err, ErrNoWorkspace) {
+		t.Errorf("unknown effect: %v", err)
+	}
+	if _, err := retry(RetryEffectsInput{ID: id}, false); !errors.Is(err, ErrDoctor) {
+		t.Errorf("red doctor: %v", err)
+	}
+	got, err := retry(RetryEffectsInput{All: true}, true)
+	if err != nil || len(got) != 1 || got[0].ID != id || got[0].Milestone != "v0.1" || got[0].LastError != "403" {
+		t.Fatalf("retry --all = %+v, %v", got, err)
+	}
+	if _, err := retry(RetryEffectsInput{All: true}, true); !errors.Is(err, ErrNoWorkspace) {
+		t.Errorf("nothing left to retry: %v", err)
 	}
 }

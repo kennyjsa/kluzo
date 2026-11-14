@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -114,7 +115,8 @@ func (rt *Runtime) env(spec ports.SessionSpec, home string) []string {
 }
 
 // Check implements ports.Runtime: it reads the version, the flags and the
-// credential. Every problem found is reported, joined.
+// credential, which must come from CLAUDE_CODE_OAUTH_TOKEN or
+// ANTHROPIC_API_KEY (a login of the CLI does not count, see HostLogin). Every problem found is reported, joined.
 func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
 	var info ports.RuntimeInfo
 	home, err := rt.home()
@@ -160,9 +162,10 @@ func (rt *Runtime) Check(ctx context.Context) (ports.RuntimeInfo, error) {
 		problems = append(problems, fmt.Errorf("%w: %s", ports.ErrRuntimeFlags, strings.Join(missing, ", ")))
 	}
 
-	info.Authenticated, info.AuthSource = rt.authenticated(run)
-	if !info.Authenticated {
-		problems = append(problems, fmt.Errorf("%w: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY for Kluzo, or run `claude auth login`", ports.ErrRuntimeAuth))
+	if rt.cfg.Credential.Value == "" {
+		problems = append(problems, fmt.Errorf("%w: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the environment of Kluzo", ports.ErrRuntimeAuth))
+	} else {
+		info.Authenticated, info.AuthSource = true, "env:"+rt.cfg.Credential.Name
 	}
 	return info, errors.Join(problems...)
 }
@@ -176,17 +179,33 @@ func (rt *Runtime) knowsFlag(ctx context.Context, home, flag string) bool {
 	return err == nil && !strings.Contains(o.Stderr, "unknown option")
 }
 
-// authenticated reports whether a credential is available: the variable
-// configured for the sessions, or a login the CLI reports in `auth status`.
-func (rt *Runtime) authenticated(run func(...string) (string, exec.Status, error)) (bool, string) {
-	if rt.cfg.Credential.Value != "" {
-		return true, "env:" + rt.cfg.Credential.Name
+// credentialVars are the variables that carry the credential of the model.
+var credentialVars = []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}
+
+// HostLogin reports whether the CLI is logged in without the credential
+// variables: with the synthetic environment of the sessions minus
+// CLAUDE_CODE_OAUTH_TOKEN and ANTHROPIC_API_KEY, `claude auth status` still
+// finds a login (the macOS Keychain, a login managed by the environment).
+// That login is a credential of the host (security.md, Q67).
+func (rt *Runtime) HostLogin(ctx context.Context) (bool, error) {
+	home, err := rt.home()
+	if err != nil {
+		return false, err
 	}
-	out, st, err := run("auth", "status")
-	if err != nil || st.Code != 0 || strings.Contains(out, `"loggedIn": false`) || strings.Contains(out, `"loggedIn":false`) {
-		return false, ""
+	var env []string
+	for _, kv := range rt.env(ports.SessionSpec{}, home) {
+		if k, _, _ := strings.Cut(kv, "="); !slices.Contains(credentialVars, k) {
+			env = append(env, kv)
+		}
 	}
-	return true, "login"
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	o, err := exec.Run(ctx, exec.Spec{Bin: rt.cfg.Bin, Args: []string{"auth", "status"}, Env: env})
+	if err != nil {
+		return false, fmt.Errorf("claude auth status: %w", err)
+	}
+	compact := strings.ReplaceAll(o.Stdout, " ", "")
+	return o.Status.Code == 0 && !strings.Contains(compact, `"loggedIn":false`), nil
 }
 
 func exitErr(st exec.Status) error {

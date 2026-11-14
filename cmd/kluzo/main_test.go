@@ -31,6 +31,11 @@ func TestRun(t *testing.T) {
 		{name: "node without a subcommand", args: []string{"node", "nope"}, wantCode: 1, wantStderr: `unknown command "nope"`},
 		{name: "node retry without configuration", args: []string{"node", "retry", "7", "--dir", "/does/not/exist"}, wantCode: 2},
 		{name: "every command of 10b", args: []string{"help"}, wantCode: 0, wantStdout: "proposal"},
+		{name: "effect retry without an id or --all", args: []string{"effect", "retry"}, wantCode: 1, wantStderr: "or --all"},
+		{name: "effect retry with an id and --all", args: []string{"effect", "retry", "ef_1", "--all"}, wantCode: 1, wantStderr: "or --all"},
+		{name: "effect retry without configuration", args: []string{"effect", "retry", "--all", "--dir", "/does/not/exist"}, wantCode: 2},
+		{name: "approve with --by", args: []string{"approve", "v1", "--by", "kenny", "--dir", "/does/not/exist"}, wantCode: 2},
+		{name: "every command of 10e", args: []string{"help"}, wantCode: 0, wantStdout: "effect"},
 		{name: "status without workspace", args: []string{"status", "v1", "--dir", "testdata/none"}, wantCode: 2},
 	}
 	for _, tt := range tests {

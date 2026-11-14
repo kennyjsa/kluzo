@@ -3,8 +3,11 @@ package supervisor_test
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
+	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/ports/fakes"
 	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
@@ -38,6 +42,24 @@ func TestWorkspaceFromPlan(t *testing.T) {
 	approved := e.events(contracts.EventPlanApproved)
 	if len(approved) != 1 {
 		t.Fatal("plan.approved not journaled")
+	}
+	// The approval gives the node its first label, orch/ready (no
+	// dependency), without a comment (state-machine.md, labels).
+	pending, err := e.db.PendingEffects(ctx, time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, f := range pending {
+		var p struct {
+			Issue string      `json:"issue"`
+			Do    core.Effect `json:"do"`
+		}
+		_ = json.Unmarshal(f.Payload, &p)
+		kinds = append(kinds, f.Kind+":"+p.Issue+":"+p.Do.Label)
+	}
+	if want := []string{"git.plan::", "tracker.set_label:" + e.issue + ":orch/ready"}; !slices.Equal(kinds, want) {
+		t.Errorf("effects of the approval = %v, want %v", kinds, want)
 	}
 	e.drain()
 	if n, _ := e.nodeRow(); n.State != core.NodeIntegrated {
@@ -94,5 +116,46 @@ func TestNewNeedsEveryDependency(t *testing.T) {
 	}
 	if _, err := supervisor.New(full, cfg); err != nil {
 		t.Errorf("with every dependency: %v", err)
+	}
+}
+
+// kluzo effect retry: scm.open_pr fails for good (a token without Pull
+// requests); once the cause is fixed, the retry returns it to pending with the
+// same idempotency key, and the PR is opened once (data-model.md).
+func TestRetryFailedEffect(t *testing.T) {
+	e := newEnvWith(t, envOpts{}, impl(implemented()), rev(reviewed(true, nil)))
+	ctx := context.Background()
+	e.scm.openPRErr = fmt.Errorf("403 Resource not accessible by integration: %w", ports.ErrPermanent)
+	e.drain()
+	failed, err := e.db.FailedEffects(ctx)
+	if err != nil || len(failed) != 1 || failed[0].Kind != string(core.EffectOpenPR) || len(e.events(contracts.EventEffectFailed)) != 1 {
+		t.Fatalf("failed effects %+v, %v", failed, err)
+	}
+	if snap, _ := e.db.Snapshot(ctx); snap.Workspace.State != core.WorkspaceClosing {
+		t.Fatalf("workspace %s, want closing", snap.Workspace.State)
+	}
+	e.scm.openPRErr = nil
+	gen := ids.NewGenerator(rand.Reader)
+	if err := supervisor.RetryEffects(ctx, e.db, gen, e.clock, []string{failed[0].ID}, "kenny"); err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.RetryEffects(ctx, e.db, gen, e.clock, []string{failed[0].ID}, "kenny"); err == nil {
+		t.Error("a pending effect was retried")
+	}
+	retried := e.events(contracts.EventEffectRetried)
+	var p contracts.EffectRetried
+	if len(retried) != 1 || json.Unmarshal(retried[0].Payload, &p) != nil || p != (contracts.EffectRetried{EffectID: failed[0].ID, Kind: "scm.open_pr", By: "kenny"}) {
+		t.Fatalf("effect.retried = %+v", retried)
+	}
+	e.drain()
+	snap, _ := e.db.Snapshot(ctx)
+	if snap.Workspace.State != core.WorkspaceReadyToMerge || snap.Workspace.PR.Ref != "1" || len(e.events(contracts.EventPROpened)) != 1 {
+		t.Fatalf("workspace %s, PR %+v", snap.Workspace.State, snap.Workspace.PR)
+	}
+	if _, err := e.scm.PR(ctx, "2"); err == nil {
+		t.Error("a second PR was opened")
+	}
+	if len(e.scm.prKeys) != 2 || e.scm.prKeys[0] != e.scm.prKeys[1] || e.scm.prKeys[0] != failed[0].IdemKey {
+		t.Errorf("idempotency keys of OpenPR = %v, want twice %s", e.scm.prKeys, failed[0].IdemKey)
 	}
 }

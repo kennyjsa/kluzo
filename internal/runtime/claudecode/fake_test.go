@@ -68,7 +68,8 @@ func fakeClaude(args []string) int {
 			fmt.Print(help)
 			return 0
 		case "auth":
-			if os.Getenv("KLUZO_FAKE_LOGGED_OUT") == "1" {
+			fromEnv := os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != ""
+			if os.Getenv("KLUZO_FAKE_LOGGED_OUT") == "1" && !fromEnv {
 				fmt.Println(`{"loggedIn": false}`)
 				return 1
 			}

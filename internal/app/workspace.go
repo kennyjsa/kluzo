@@ -59,6 +59,9 @@ type Integrations struct {
 	GitToken func(context.Context) (string, error)
 	// Remote is the URL git fetches from and pushes to.
 	Remote string
+	// Permissions are the permissions of the bot, for kluzo doctor (nil:
+	// not known).
+	Permissions func() github.PermissionCheck
 }
 
 // fill returns h with the real machine where it is empty.
@@ -126,7 +129,8 @@ func Connect(ctx context.Context, p *config.Project, env []string) (Integrations
 	if err != nil {
 		return Integrations{}, err
 	}
-	return Integrations{Tracker: a, SCM: a, CI: a, GitToken: a.GitToken, Remote: "https://github.com/" + t.Repo + ".git"}, nil
+	return Integrations{Tracker: a, SCM: a, CI: a, GitToken: a.GitToken, Remote: "https://github.com/" + t.Repo + ".git",
+		Permissions: a.Permissions}, nil
 }
 
 // project loads the configuration; its problems wrap ErrInvalid.
@@ -246,6 +250,24 @@ func (o *opened) created(ctx context.Context) (contracts.WorkspaceCreated, error
 	return c, json.Unmarshal(evs[0].Payload, &c)
 }
 
+// requireDoctor fails with ErrDoctor unless kluzo doctor is green, before
+// doing what (a resume, a retry); doctor nil means the Doctor of h.
+func requireDoctor(ctx context.Context, h Host, doctor func(context.Context, string) (DoctorOutput, error), configDir, what string) error {
+	if doctor == nil {
+		doctor = func(ctx context.Context, dir string) (DoctorOutput, error) {
+			return Doctor{Host: h}.Execute(ctx, DoctorInput{Dir: dir})
+		}
+	}
+	out, err := doctor(ctx, configDir)
+	if err != nil {
+		return err
+	}
+	if !out.OK() {
+		return fmt.Errorf("%w: run kluzo doctor and fix what it reports before %s", ErrDoctor, what)
+	}
+	return nil
+}
+
 // MoveWorkspace pauses or resumes the workspace of a milestone (kluzo pause,
 // kluzo resume).
 type MoveWorkspace struct {
@@ -293,18 +315,8 @@ func (u MoveWorkspace) Execute(ctx context.Context, in MoveWorkspaceInput) (core
 		return o.snap.Workspace.State, fmt.Errorf("the workspace is %s: %w", o.snap.Workspace.State, err)
 	}
 	if in.Move == Resume {
-		doctor := u.Doctor
-		if doctor == nil {
-			doctor = func(ctx context.Context, dir string) (DoctorOutput, error) {
-				return Doctor{Host: h}.Execute(ctx, DoctorInput{Dir: dir})
-			}
-		}
-		out, err := doctor(ctx, in.ConfigDir)
-		if err != nil {
+		if err := requireDoctor(ctx, h, u.Doctor, in.ConfigDir, "resuming"); err != nil {
 			return o.snap.Workspace.State, err
-		}
-		if !out.OK() {
-			return o.snap.Workspace.State, fmt.Errorf("%w: run kluzo doctor and fix what it reports before resuming", ErrDoctor)
 		}
 	}
 	if err := supervisor.MoveWorkspace(ctx, o.db, h.IDs, h.Clock, trigger); err != nil {

@@ -52,6 +52,9 @@ func TestFilesSymlinks(t *testing.T) {
 // What an agent can leave in the worktree must give a problem to fix, never
 // hang the check or turn into an infrastructure error.
 func TestFilesSpecialFiles(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a 0000 file, so locked.go would be citable; run the tests as a regular user (Q68)")
+	}
 	root := t.TempDir()
 	if err := syscall.Mkfifo(filepath.Join(root, "pipe.go"), 0o644); err != nil {
 		t.Fatal(err)

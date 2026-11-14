@@ -177,7 +177,30 @@ type ApprovePlan struct{ Host Host }
 type ApprovePlanInput struct {
 	ConfigDir string
 	Milestone string
-	By        string // empty: $USER
+	By        string // a login of tracker.operators; empty: the only operator
+}
+
+// ErrNotOperator means the approver is not one of tracker.operators.
+var ErrNotOperator = errors.New("the approver must be one of tracker.operators")
+
+// approver is who approves the plan (plan.md): by, which must be one of the
+// operators, or the only operator when by is empty.
+func approver(operators []string, by string) (string, error) {
+	if len(operators) == 0 {
+		return "", fmt.Errorf("%w, and the list is empty: add the login of who approves to tracker.operators in kluzo.yaml", ErrNotOperator)
+	}
+	if by == "" {
+		if len(operators) != 1 {
+			return "", fmt.Errorf("%w (%s): name one with --by", ErrNotOperator, strings.Join(operators, ", "))
+		}
+		return operators[0], nil
+	}
+	for _, op := range operators {
+		if strings.EqualFold(op, by) {
+			return op, nil
+		}
+	}
+	return "", fmt.Errorf("%w (%s): %q is not", ErrNotOperator, strings.Join(operators, ", "), by)
 }
 
 // Execute approves the plan.
@@ -190,6 +213,10 @@ func (u ApprovePlan) Execute(ctx context.Context, in ApprovePlanInput) error {
 	defer func() { _ = o.db.Close() }()
 	if s := o.snap.Workspace.State; s != core.WorkspaceAwaitingApproval {
 		return fmt.Errorf("the workspace is %s, not awaiting approval", s)
+	}
+	by, err := approver(o.project.Config.Tracker.Operators, in.By)
+	if err != nil {
+		return err
 	}
 	integ, err := h.Connect(ctx, o.project, h.Env)
 	if err != nil {
@@ -211,10 +238,6 @@ func (u ApprovePlan) Execute(ctx context.Context, in ApprovePlanInput) error {
 	rel, err := filepath.Rel(o.place.Repo, file)
 	if err != nil {
 		return err
-	}
-	by := in.By
-	if by == "" {
-		by = getenv(h.Env, "USER")
 	}
 	return supervisor.ApprovePlan(ctx, o.db, h.IDs, h.Clock, supervisor.PlanApproval{
 		Approved: contracts.PlanApproved{PlanVersion: g.Plan.PlanVersion, CreatedIssues: []int{}, By: by},

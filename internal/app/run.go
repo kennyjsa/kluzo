@@ -49,6 +49,9 @@ func assemble(ctx context.Context, h Host, o *opened, version string) (*assemble
 	cred := modelCredential(h.Env)
 	rt := o.project.Config.Runtimes[config.ClaudeCode]
 	git := gitops.New(gitops.Config{ParentEnv: h.Env})
+	runtime := claudecode.New(claudecode.Config{Bin: rt.Bin, MinVersion: rt.MinVersion, Home: filepath.Join(o.place.Dir, "home"),
+		ConfigDir: filepath.Join(o.place.Dir, "sessions"), LogDir: filepath.Join(logs, "sessions"), ParentEnv: h.Env, EnvAllow: rt.EnvAllow,
+		Credential: cred, Secrets: []string{cred.Value}, Clock: h.Clock})
 	srv := mcp.New(&supervisor.Recorder{DB: o.db, Clock: h.Clock, IDs: h.IDs, Log: h.Log}, rand.Reader, version)
 	if err := srv.Start(); err != nil {
 		return nil, err
@@ -57,9 +60,7 @@ func assemble(ctx context.Context, h Host, o *opened, version string) (*assemble
 	sup, err := supervisor.New(supervisor.Deps{
 		DB: o.db, Clock: h.Clock, IDs: h.IDs, Log: h.Log,
 		Tracker: integ.Tracker, SCM: integ.SCM, GitToken: integ.GitToken,
-		Runtime: claudecode.New(claudecode.Config{Bin: rt.Bin, MinVersion: rt.MinVersion, Home: filepath.Join(o.place.Dir, "home"),
-			ConfigDir: filepath.Join(o.place.Dir, "sessions"), LogDir: filepath.Join(logs, "sessions"), ParentEnv: h.Env, EnvAllow: rt.EnvAllow,
-			Credential: cred, Secrets: []string{cred.Value}, Clock: h.Clock}),
+		Runtime:  runtime,
 		MCP:      srv,
 		Git:      git,
 		Gates:    gates.New(gates.Config{LogDir: filepath.Join(logs, "gates"), CI: integ.CI, Secrets: []string{cred.Value}}),
@@ -67,7 +68,7 @@ func assemble(ctx context.Context, h Host, o *opened, version string) (*assemble
 		Docker:   h.Docker,
 		Nonce:    nonce,
 		HostCredentials: func(ctx context.Context) ([]string, error) {
-			return hostcred.Check(ctx, h.Env, git.HostCredentialHelpers)
+			return sessionHostCredentials(ctx, h.Env, git.HostCredentialHelpers, runtime.HostLogin)
 		},
 	}, supervisor.Config{
 		Project: o.project, Workspace: created.ID, Milestone: o.place.Milestone, Repo: o.place.Repo, Remote: integ.Remote,
@@ -78,6 +79,31 @@ func assemble(ctx context.Context, h Host, o *opened, version string) (*assemble
 		return nil, err
 	}
 	return &assembled{sup: sup, stop: stop}, nil
+}
+
+// sessionHostCredentials are the credentials of the host checked before each
+// session (ADR 0020, Q67): those hostcred finds, and a CLI logged in without
+// the credential variables of Kluzo.
+func sessionHostCredentials(ctx context.Context, env []string, helpers func(context.Context, string, string) ([]string, error),
+	hostLogin func(context.Context) (bool, error)) ([]string, error) {
+	found, err := hostcred.Check(ctx, env, helpers)
+	if err != nil {
+		return nil, err
+	}
+	login, err := hostLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if login {
+		found = append(found, hostLoginFinding(config.ClaudeCode))
+	}
+	return found, nil
+}
+
+// hostLoginFinding names a harness logged in without the credential
+// variables of Kluzo.
+func hostLoginFinding(h config.Harness) string {
+	return string(h) + " is logged in without CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY (a login of the host)"
 }
 
 // nonce is the envelope nonce of a prompt: 8 random hex digits.
@@ -172,7 +198,16 @@ type StatusOutput struct {
 	CostUSD   float64      `json:"cost_usd"`
 	BudgetUSD float64      `json:"budget_usd,omitempty"`
 	Nodes     []StatusNode `json:"nodes"`
-	Disk      StatusDisk   `json:"disk"`
+	// Failed are the effects that gave up, for kluzo effect retry.
+	Failed []StatusEffect `json:"failed_effects"`
+	Disk   StatusDisk     `json:"disk"`
+}
+
+// StatusEffect is a failed effect of the outbox.
+type StatusEffect struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	LastError string `json:"last_error"`
 }
 
 // StatusDisk is the disk the workspace uses (ADR 0025), in bytes: its
@@ -195,6 +230,14 @@ func (u Status) Execute(ctx context.Context, in StatusInput) (StatusOutput, erro
 	}
 	defer func() { _ = o.db.Close() }()
 	out := status(in.Milestone, o.snap)
+	failed, err := o.db.FailedEffects(ctx)
+	if err != nil {
+		return out, err
+	}
+	out.Failed = []StatusEffect{}
+	for _, f := range failed {
+		out.Failed = append(out.Failed, StatusEffect{ID: f.ID, Kind: f.Kind, LastError: f.LastError})
+	}
 	out.Disk, err = disk(ctx, h, o)
 	return out, err
 }

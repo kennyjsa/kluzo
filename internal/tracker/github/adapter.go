@@ -70,6 +70,9 @@ type Adapter struct {
 	mu    sync.Mutex
 	login string // who the adapter acts as; set at once for an App, on demand for a token
 
+	// installation are the permissions of the App installation, nil for a token.
+	installation *gh.InstallationPermissions
+
 	// token returns the credential git uses to fetch and push as the bot:
 	// the token, or a fresh installation token of the App.
 	token func(context.Context) (string, error)
@@ -173,6 +176,10 @@ func (a *Adapter) authTransport(ctx context.Context, opts Options, base *http.Cl
 	inst, _, err := appClient.Apps.GetRepositoryInstallation(ctx, a.owner, a.repo)
 	if err != nil {
 		return nil, a.fail("find the app installation of "+a.owner+"/"+a.repo, err)
+	}
+	a.installation = inst.GetPermissions()
+	if a.installation == nil {
+		a.installation = &gh.InstallationPermissions{}
 	}
 	installation := ghinstallation.NewFromAppsTransport(apps, inst.GetID())
 	a.token = func(ctx context.Context) (string, error) {
