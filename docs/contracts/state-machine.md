@@ -115,4 +115,5 @@ Enquanto a triagem automática não existe (v0.2), toda etapa que falha vai dire
 
 - Todas as labels `orch/*` pertencem ao Kluzo. O Kluzo ignora qualquer `orch/*` aplicada por outro usuário e a reverte.
 - Um nó tem exatamente uma label `orch/*` por vez. A troca é feita removendo a anterior e aplicando a nova.
+- O nó ganha a primeira label quando o plano é aprovado: `orch/planned` (ou `orch/ready`, se já estiver pronto), sem comentário. Antes da aprovação, a issue não tem label `orch/*`.
 - Cada transição gera um comentário curto na issue: o estado novo, o motivo e um link para a tela do nó, quando a web existir.

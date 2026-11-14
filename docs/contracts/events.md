@@ -46,6 +46,7 @@ Um único formato de evento serve para três coisas:
 | `proposal.created` / `proposal.decided` | `{proposal_id, kind, state?, blocking?, payload?, by?}` (`kind` inclui `lesson`, ADR 0022; `payload` só no `created`, e para `change` é `{changes: [{path, reason, sha256}]}`, com o SHA-256 do conteúdo do caminho no head da rodada, vazio quando apagado; `by` só no `decided`, com `state` `approved` ou `rejected`) |
 | `pattern.detected` | `{pattern_id, kind: finding\|gate_failure\|question, occurrences: [node], sample}` |
 | `effect.failed` | `{effect_id, kind, attempts, last_error}` |
+| `effect.retried` | `{effect_id, kind, by}` (humano devolveu o efeito a `pending`) |
 | `budget.alert` | `{scope: node\|milestone, spent_usd_micros, limit_usd_micros}` (`milestone`: gravado uma vez, com notificação, quando o custo do workspace passa de `limit × budgets.milestone.alert_at`, na transação do `session.finished` que o fez passar) |
 | `tracker.sync_failed` | `{op, error, retry_in}` |
 
