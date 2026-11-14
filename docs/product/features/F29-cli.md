@@ -8,6 +8,7 @@
   - Comandos: `init`, `doctor`, `plan`, `approve`, `run`, `status`, `pause`, `resume`, `answer` e `serve` (lista em [interfaces.md](../interfaces.md#cli)).
   - Usa a mesma camada de comandos (`internal/app`) que a web.
   - `doctor` verifica as CLIs dos harnesses (versão mínima), os tokens, o acesso ao tracker e a configuração.
+  - Permissões do tracker: com GitHub App, o `doctor` lê as permissões da instalação e acusa a que faltar (issues, pull requests e contents em escrita; checks em leitura). Com token pessoal, a API não informa o que o token pode, então o `doctor` lista as permissões exigidas como aviso, sem as verificar.
   - Saída legível por padrão; `--json` em `status` para scripts.
   - Códigos de saída: 0 ok, 1 erro de uso, 2 configuração inválida, 3 falha de integração.
 - **Aceite:** todo comando com efeito também funciona pela web (a partir da v0.3), e com o mesmo resultado.

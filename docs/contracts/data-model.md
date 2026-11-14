@@ -71,6 +71,7 @@ Política do outbox, aplicada pelo supervisor (o store só oferece as operaçõe
 - Um efeito tem até 8 tentativas. Entre elas, o atraso é exponencial a partir de 1 s, dobrando a cada falha, com teto de 5 min. Sem jitter, para manter a execução reproduzível.
 - Um erro que o adaptador classifica como permanente (credencial inválida, recurso inexistente) vai direto para `failed`.
 - Ao virar `failed`, o supervisor grava `effect.failed` no journal e notifica. O nó ou workspace que dependia do efeito não avança sozinho.
+- `kluzo effect retry <id>` (ou `--all`, para todos os `failed` do workspace) devolve o efeito a `pending`, com as tentativas zeradas e a **mesma** `idem_key`, e grava `effect.retried` `{effect_id, kind, by}` no journal. Vale em qualquer estado ativo do workspace e exige `kluzo doctor` verde, como o `resume`. É a saída depois de corrigir a causa (um token sem permissão, por exemplo) sem zerar a milestone.
 - Um efeito iniciado e não concluído (o processo morreu) continua `pending` e roda de novo; o adaptador deduplica pela `idem_key`.
 
 Catálogo de efeitos (`kind`). Um tipo novo entra aqui no mesmo PR que o cria:

@@ -45,6 +45,7 @@ Um único formato de evento serve para três coisas:
 | `proposal.created` / `proposal.decided` | `{proposal_id, kind, state?}` (`kind` inclui `lesson`, ADR 0022) |
 | `pattern.detected` | `{pattern_id, kind: finding\|gate_failure\|question, occurrences: [node], sample}` |
 | `effect.failed` | `{effect_id, kind, attempts, last_error}` |
+| `effect.retried` | `{effect_id, kind, by}` (humano devolveu o efeito a `pending`) |
 | `budget.alert` | `{scope: node\|milestone, spent_usd_micros, limit_usd_micros}` |
 | `tracker.sync_failed` | `{op, error, retry_in}` |
 
