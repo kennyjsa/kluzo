@@ -42,7 +42,7 @@ func TestDecisionOnANodeThatMovedMeanwhile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		n, err := nodeRow(snap, node)
+		n, err := snap.Node(node)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/core"
@@ -15,6 +16,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/mcp"
 	notifylog "github.com/kennyjsa/kluzo/internal/notify/log"
 	"github.com/kennyjsa/kluzo/internal/platform/hostcred"
+	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
 	"github.com/kennyjsa/kluzo/internal/runtime/claudecode"
 	"github.com/kennyjsa/kluzo/internal/store"
 	"github.com/kennyjsa/kluzo/internal/supervisor"
@@ -217,14 +219,15 @@ func disk(ctx context.Context, h Host, o *opened) (StatusDisk, error) {
 	return d, nil
 }
 
-// dockerDisk adds the images of the workspace and the build cache.
+// dockerDisk adds the images of the compose projects of the workspace and
+// the build cache.
 func dockerDisk(ctx context.Context, h Host, workspace string, d *StatusDisk) error {
 	images, err := h.Docker.Images(ctx)
 	if err != nil {
 		return err
 	}
 	for _, im := range images {
-		if im.Workspace == workspace {
+		if ws, _, ok := sessionenv.ParseComposeProject(im.Project); ok && ws == strings.ToLower(workspace) {
 			d.Images += im.Size
 		}
 	}

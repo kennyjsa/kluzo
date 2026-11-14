@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/docker"
+	"github.com/kennyjsa/kluzo/internal/platform/paths"
 	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
 	"github.com/kennyjsa/kluzo/internal/store"
 )
@@ -22,7 +22,7 @@ const defaultBuildCache = "10GB"
 
 // gatesCheckout is the clean checkout the gates of a node run in.
 func (s *Supervisor) gatesCheckout(n store.NodeRow) string {
-	return filepath.Join(s.cfg.Dir, "gates", n.IssueRef)
+	return s.layout().GatesCheckout(n.IssueRef)
 }
 
 // removeCheckouts removes the local git state of a node: its worktree, its
@@ -37,9 +37,10 @@ func (s *Supervisor) removeCheckouts(ctx context.Context, n store.NodeRow) error
 // cleanupNode removes what an integrated or cancelled node leaves: its
 // worktree and local branch, the checkout of its gates, its compose project
 // (by name, or by a working directory in those checkouts) with volumes and
-// local images, and the images its gates built. The branch of an integrated
-// node is deleted on the remote too (its work is in the milestone); a
-// cancelled node keeps it, the only copy of its work. Logs and journal stay.
+// local images, and the images built under its project name. The branch of an
+// integrated node is deleted on the remote too (its work is in the
+// milestone); a cancelled node keeps it, the only copy of its work. Logs and
+// journal stay.
 func (s *Supervisor) cleanupNode(ctx context.Context, p effectPayload) error {
 	n, err := s.node(ctx, p.Node)
 	if err != nil {
@@ -54,11 +55,12 @@ func (s *Supervisor) cleanupNode(ctx context.Context, p effectPayload) error {
 		}
 	}
 	dirs := []string{s.worktree(n), s.gatesCheckout(n)}
+	project := sessionenv.ComposeProject(s.cfg.Workspace, n.IssueRef)
 	return s.docker(ctx, func(d *docker.Docker) error {
-		if err := s.downProjects(ctx, d, []string{sessionenv.ComposeProject(s.cfg.Workspace, n.IssueRef)}, dirs); err != nil {
+		if err := s.downProjects(ctx, d, []string{project}, dirs); err != nil {
 			return err
 		}
-		return d.RemoveImages(ctx, "kluzo.workspace="+s.cfg.Workspace, "kluzo.node="+n.ID)
+		return d.RemoveImages(ctx, docker.LabelProject+"="+project)
 	})
 }
 
@@ -83,8 +85,9 @@ func (s *Supervisor) cleanupWorkspace(ctx context.Context, f store.Effect) error
 		}
 		names = append(names, sessionenv.ComposeProject(s.cfg.Workspace, n.IssueRef))
 	}
-	for _, d := range []string{"worktrees", "gates", sessionsPlace.home, sessionsPlace.builds, gatesPlace.home, gatesPlace.builds} {
-		if err := os.RemoveAll(filepath.Join(s.cfg.Dir, d)); err != nil {
+	l := s.layout()
+	for _, d := range append([]string{l.Worktrees(), l.Gates()}, l.Leftovers()...) {
+		if err := os.RemoveAll(d); err != nil {
 			return err
 		}
 	}
@@ -149,14 +152,14 @@ func (s *Supervisor) deleteRemoteBranches(ctx context.Context, nodes ...store.No
 }
 
 // dockerWorkspace removes the Docker resources of the workspace: its compose
-// projects and images, the dangling images and the build cache above
-// retention.docker_build_cache.
+// projects, the images of every project kluzo-<workspace>-*, the dangling
+// images and the build cache above retention.docker_build_cache.
 func (s *Supervisor) dockerWorkspace(ctx context.Context, names []string) error {
 	return s.docker(ctx, func(d *docker.Docker) error {
 		if err := s.downProjects(ctx, d, names, []string{s.cfg.Dir}); err != nil {
 			return err
 		}
-		if err := d.RemoveImages(ctx, "kluzo.workspace="+s.cfg.Workspace); err != nil {
+		if err := s.removeImages(ctx, d); err != nil {
 			return err
 		}
 		if err := d.PruneDangling(ctx); err != nil {
@@ -173,6 +176,23 @@ func (s *Supervisor) dockerWorkspace(ctx context.Context, names []string) error 
 	})
 }
 
+// removeImages removes the images of every compose project of the workspace,
+// kluzo-<workspace>-<issue>: the label compose writes is their proof of
+// authorship (docs/contracts/data-model.md, cleanup rules).
+func (s *Supervisor) removeImages(ctx context.Context, d *docker.Docker) error {
+	images, err := d.Images(ctx)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for _, im := range images {
+		if ws, _, ok := sessionenv.ParseComposeProject(im.Project); ok && ws == strings.ToLower(s.cfg.Workspace) {
+			ids = append(ids, im.ID)
+		}
+	}
+	return d.RemoveImageIDs(ctx, ids...)
+}
+
 // downProjects removes the compose projects named, and those whose working
 // directory is inside one of dirs (a project may name itself, ADR 0025).
 func (s *Supervisor) downProjects(ctx context.Context, d *docker.Docker, names, dirs []string) error {
@@ -182,7 +202,7 @@ func (s *Supervisor) downProjects(ctx context.Context, d *docker.Docker, names, 
 	}
 	for _, p := range projects {
 		for _, dir := range dirs {
-			if _, ok := inside(dir, p.WorkingDir); ok && filepath.IsAbs(p.WorkingDir) && !slices.Contains(names, p.Name) {
+			if paths.WithinAbs(dir, p.WorkingDir) && !slices.Contains(names, p.Name) {
 				names = append(names, p.Name)
 			}
 		}

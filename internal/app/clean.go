@@ -11,10 +11,12 @@ import (
 // Clean removes, on demand, what Kluzo left on this machine for a project
 // (kluzo clean, ADR 0025): orphan checkouts, the worktrees failed nodes keep
 // for diagnosis, the HOMEs and build caches of the workspaces that are over,
-// and the Docker resources of the workspaces that are over; with Images, every
-// image marked by Kluzo and the dangling images (kluzo clean --images). By
-// default it only lists them (--dry-run); state.db, the logs, the download
-// caches and the directories whose journal cannot be read stay.
+// and the Docker resources of the workspaces that are over; with Images, the
+// images of every compose project of Kluzo whose workspace is not active, and
+// the dangling images (kluzo clean --images). An image of an active workspace
+// is never removed. By default it only lists them (--dry-run); state.db, the
+// logs, the download caches and the directories whose journal cannot be read
+// stay.
 type Clean struct{ Host Host }
 
 // CleanInput selects the project and whether to remove (--yes).
@@ -51,7 +53,7 @@ func (u Clean) Execute(ctx context.Context, in CleanInput) (CleanOutput, error) 
 	out := CleanOutput{Checkouts: append(s.Orphans, s.Failed...), Leftovers: s.Leftovers, Projects: s.Projects, Unsure: s.Unsure, Disk: s.Disk}
 	images := s.Images
 	if in.Images {
-		images = s.Marked
+		images = s.Idle
 	}
 	for _, im := range images {
 		out.Images = append(out.Images, im.ID)

@@ -79,3 +79,16 @@ func TestComposeProjectIsLowerCase(t *testing.T) {
 		t.Errorf("COMPOSE_PROJECT_NAME = %q", got)
 	}
 }
+
+// A name of ComposeProject reads back; other names do not.
+func TestParseComposeProject(t *testing.T) {
+	ws, node, ok := ParseComposeProject(ComposeProject("ws_01JC8ZABC", "12"))
+	if !ok || ws != "ws_01jc8zabc" || node != "12" {
+		t.Fatalf("round trip = %q, %q, %v", ws, node, ok)
+	}
+	for _, name := range []string{"", "kluzo-", "kluzo-ws_1", "kluzo--12", "kluzo-ws_1-", "kluzo-ws_1-1-2", "app-ws_1-12", "kluzo-WS_1-12"} {
+		if _, _, ok := ParseComposeProject(name); ok {
+			t.Errorf("ParseComposeProject(%q) = ok", name)
+		}
+	}
+}

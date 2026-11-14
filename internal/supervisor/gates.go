@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -48,7 +47,7 @@ func (s *Supervisor) gates(ctx context.Context, f store.Effect, p effectPayload)
 	// The gates run in a clean checkout of the commit, never in the worktree
 	// of the node: ignored files, index flags and caches there are the
 	// agent's (ADR 0020).
-	dir := filepath.Join(s.cfg.Dir, "gates", n.IssueRef)
+	dir := s.gatesCheckout(n)
 	if err := s.d.Git.Checkout(ctx, s.cfg.Repo, dir, r.Head); err != nil {
 		return err
 	}

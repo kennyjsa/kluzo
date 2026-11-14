@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/kennyjsa/kluzo/internal/contracts"
 	"github.com/kennyjsa/kluzo/internal/core"
@@ -66,6 +67,22 @@ type Snapshot struct {
 	Edges     []EdgeRow     // ordered by from, to, kind
 	Sessions  []SessionRow  // ordered by id
 	GateRuns  []GateRunRow  // ordered by start
+}
+
+// Node is the node of the snapshot with this id.
+func (s Snapshot) Node(id string) (NodeRow, error) {
+	if i := slices.IndexFunc(s.Nodes, func(n NodeRow) bool { return n.ID == id }); i >= 0 {
+		return s.Nodes[i], nil
+	}
+	return NodeRow{}, fmt.Errorf("%w: node %s", ErrNotFound, id)
+}
+
+// NodeByIssue is the node of the snapshot for an issue.
+func (s Snapshot) NodeByIssue(issue string) (NodeRow, error) {
+	if i := slices.IndexFunc(s.Nodes, func(n NodeRow) bool { return n.IssueRef == issue }); i >= 0 {
+		return s.Nodes[i], nil
+	}
+	return NodeRow{}, fmt.Errorf("%w: no node for issue #%s", ErrNotFound, issue)
 }
 
 // Snapshot reads the projections.
