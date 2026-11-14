@@ -52,7 +52,8 @@ type Unblock struct{ By string }
 type Retry struct{ By string }
 
 // Cancel is a person removing the node from the milestone. The node must not
-// be in the middle of work (running, in review, gating or integrating).
+// be in the middle of work (running, in review, gating or integrating); a
+// failed node leaves the milestone only this way (state-machine.md).
 type Cancel struct{ By string }
 
 func (ProposalDecided) isInput() {}

@@ -130,7 +130,9 @@ var nodeTable = []nodeEdge{
 // It returns ErrInvalidTransition when ev is not allowed from n.State, and
 // ErrLimitReached when a retry limit forbids the move (the node is unchanged).
 func NextNode(n Node, ev NodeEvent, lim Limits) (Node, error) {
-	if n.State.Final() {
+	// A failed node leaves the milestone only by a cancel of a person
+	// (state-machine.md): without it the workspace would never close.
+	if n.State.Final() && (n.State != NodeFailed || ev.Trigger != TriggerCancel) {
 		return n, invalid(n.State, ev.Trigger)
 	}
 	switch ev.Trigger {

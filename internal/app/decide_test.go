@@ -147,3 +147,51 @@ func TestNodeCommandOnAnOlderJournal(t *testing.T) {
 		t.Errorf("proposals after the migration: %+v %v", items, err)
 	}
 }
+
+// kluzo node cancel takes a failed node out of the milestone
+// (state-machine.md): the only way it leaves.
+func TestNodeCancelOfAFailedNode(t *testing.T) {
+	ctx := context.Background()
+	e := newWorkspaceEnv(t)
+	if _, err := (PlanWorkspace{Host: e.host}).Execute(ctx, PlanWorkspaceInput{ConfigDir: e.dir, Milestone: "v0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	e.operators(t, "kenny")
+	h := e.host.fill()
+	o, err := open(ctx, h, e.dir, "v0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Node #3 depends on nothing after it: no dependent stops its cancel.
+	var node string
+	for _, n := range o.snap.Nodes {
+		if n.IssueRef == "3" {
+			node = n.ID
+		}
+	}
+	if err := o.db.Tx(ctx, func(x *store.Tx) error {
+		id, _ := h.IDs.New(ids.Event, h.Clock.Now())
+		_, err := x.TransitionNode(node, core.NodeEvent{Trigger: core.TriggerFail}, core.Limits{MaxAttempts: 3}, store.Header{ID: id, TS: h.Clock.Now()})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = o.db.Close()
+	if err := (DecideNode{Host: e.host}).Execute(ctx, DecideNodeInput{ConfigDir: e.dir, Issue: "3", Action: NodeCancel}); err != nil {
+		t.Fatalf("cancel of a failed node: %v", err)
+	}
+	for _, a := range []NodeAction{NodeRetry, NodeUnblock, NodeCancel} {
+		if err := (DecideNode{Host: e.host}).Execute(ctx, DecideNodeInput{ConfigDir: e.dir, Issue: "3", Action: a}); !errors.Is(err, ErrRefused) {
+			t.Errorf("%s of a cancelled node: %v", a, err)
+		}
+	}
+	st, err := Status{Host: e.host}.Execute(ctx, StatusInput{ConfigDir: e.dir, Milestone: "v0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range st.Nodes {
+		if n.Issue == "3" && n.State != "cancelled" {
+			t.Errorf("node #3 is %s", n.State)
+		}
+	}
+}

@@ -223,6 +223,77 @@ func TestTamperingFailsTheNode(t *testing.T) {
 	}
 }
 
+// A failed node leaves the milestone only by a cancel of a person, with the
+// rule of the dependents; then the workspace goes on to closing
+// (state-machine.md).
+func TestCancelAFailedNodeLetsTheWorkspaceClose(t *testing.T) {
+	st := impl(implemented())
+	st.tamper = true
+	e := newEnv(t, st)
+	e.drain()
+	if n, _ := e.nodeRow(); n.State != core.NodeFailed {
+		t.Fatalf("node = %+v", n)
+	}
+	// Node #98, integrated, and node #99, planned and depending on the failed one.
+	gen := ids.NewGenerator(rand.Reader)
+	done, _ := gen.New(ids.Node, epoch)
+	dependent, _ := gen.New(ids.Node, epoch)
+	hdr := func() store.Header { id, _ := gen.New(ids.Event, epoch); return store.Header{ID: id, TS: epoch} }
+	lim := core.Limits{MaxAttempts: 3}
+	if err := e.db.Tx(context.Background(), func(x *store.Tx) error {
+		for _, ev := range []store.Event{
+			{Kind: contracts.EventNodeAdded, NodeID: done, Payload: mustJSON(contracts.NodeAdded{IssueRef: "98", Title: "Agenda API", Areas: []string{"api"}})},
+			{Kind: contracts.EventNodeAdded, NodeID: dependent, Payload: mustJSON(contracts.NodeAdded{IssueRef: "99", Title: "Agenda UI", Areas: []string{"ui"}})},
+			{Kind: contracts.EventEdgeAdded, Payload: mustJSON(contracts.EdgeAdded{From: e.node, To: dependent, Kind: "blocks", Source: "plan"})},
+		} {
+			ev.Header = hdr()
+			if _, err := x.Append(ev); err != nil {
+				return err
+			}
+		}
+		for _, tr := range []core.NodeTrigger{core.TriggerDepsSatisfied, core.TriggerDispatched, core.TriggerImplementerDone, core.TriggerReviewApproved,
+			core.TriggerGatesPassed, core.TriggerQueueTurn, core.TriggerMerged} {
+			if _, err := x.TransitionNode(done, core.NodeEvent{Trigger: tr}, lim, hdr()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.drain()
+	if snap, _ := e.db.Snapshot(context.Background()); snap.Workspace.State != core.WorkspaceRunning {
+		t.Fatalf("with a failed node the workspace is %s", snap.Workspace.State)
+	}
+	project, err := config.Load(filepath.Join(e.repo, ".kluzo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel := func(issue string) error {
+		return supervisor.DecideNode(context.Background(), e.db, gen, e.clock, project, issue, core.Cancel{By: "kenny"})
+	}
+	if err := cancel(e.issue); !errors.Is(err, core.ErrInvalidTransition) || !strings.Contains(err.Error(), "#99") {
+		t.Fatalf("cancel of a failed node with an active dependent: %v", err)
+	}
+	if err := cancel("99"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cancel(e.issue); err != nil {
+		t.Fatalf("cancel of a failed node: %v", err)
+	}
+	if n, _ := e.nodeRow(); n.State != core.NodeCancelled {
+		t.Errorf("node %s; moves %v", n.State, e.moves())
+	}
+	e.drain()
+	if snap, _ := e.db.Snapshot(context.Background()); snap.Workspace.State != core.WorkspaceClosing && snap.Workspace.State != core.WorkspaceReadyToMerge {
+		t.Errorf("after the cancel the workspace is %s, want closing", snap.Workspace.State)
+	}
+	// Its worktree, kept while it was failed, goes with the cancel.
+	if _, err := os.Stat(filepath.Join(e.dir, "ws", "worktrees", e.issue)); !os.IsNotExist(err) {
+		t.Errorf("worktree of the cancelled node: %v", err)
+	}
+}
+
 // A node that spent its budget is blocked before the next session starts.
 func TestBudgetSpent(t *testing.T) {
 	e := newEnvBudget(t, 10_000, impl(implemented()))
