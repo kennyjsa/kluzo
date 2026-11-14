@@ -89,7 +89,9 @@ Qual etapa do flow corresponde a `running` ou a `in_review` é definido pelo cam
 | qualquer não final | `blocked` | ver motivos | — |
 | `blocked` | estado anterior | motivo resolvido | — |
 | qualquer não final | `failed` | triagem decide desistir | — |
-| qualquer não final | `cancelled` | humano remove o nó | nenhum dependente ativo, ou dependentes também cancelados |
+| qualquer não final, ou `failed` | `cancelled` | humano remove o nó | nenhum dependente ativo, ou dependentes também cancelados |
+
+Um nó `failed` só sai da milestone por `cancel` humano. Sem isso, o workspace nunca chegaria a `closing`, que exige todos os nós `integrated` ou `cancelled`. Na v0.1, sem triagem automática, um nó com as tentativas esgotadas vai para `blocked` (`triage`), não para `failed`; `failed` vem de uma garantia violada (adulteração do repositório).
 
 Os **gates rápidos** (`fast: true`, ADR 0020) rodam com o nó ainda em `running`, entre o implementer e o reviewer. Uma falha volta ao implementer na mesma sessão e na mesma tentativa. Ela tem contador próprio, limitado pelo `max_retries` da etapa `gate` (padrão 3), que zera a cada tentativa (não a cada rodada) e não consome as rodadas de review. Esgotado o limite, o nó vai para `blocked` (`triage`). O gatilho `implementer_done` só é emitido depois que os gates rápidos passam.
 
