@@ -155,16 +155,6 @@ func person(db *store.DB, gen *ids.Generator, clk clock.Clock, project *config.P
 	return s, nil
 }
 
-// nodeByIssue reads the node of an issue.
-func nodeByIssue(snap store.Snapshot, issue string) (store.NodeRow, error) {
-	for _, n := range snap.Nodes {
-		if n.IssueRef == issue {
-			return n, nil
-		}
-	}
-	return store.NodeRow{}, fmt.Errorf("%w: no node for issue #%s", store.ErrNotFound, issue)
-}
-
 // DecideNode applies the decision of a person on the node of an issue
 // (kluzo node retry, unblock, cancel), in one transaction with the moves,
 // their labels and comments, and the work it queues. A node is cancelled only
@@ -178,7 +168,7 @@ func DecideNode(ctx context.Context, db *store.DB, gen *ids.Generator, clk clock
 	if err != nil {
 		return err
 	}
-	n, err := nodeByIssue(snap, issue)
+	n, err := snap.NodeByIssue(issue)
 	if err != nil {
 		return err
 	}
@@ -244,13 +234,12 @@ func slotFree(nodes []store.NodeSlot, node string, to core.NodeState) error {
 // activeDependents are the issues of the nodes that depend on the node and
 // are not final (integrated, failed or cancelled).
 func activeDependents(snap store.Snapshot, node string) []string {
-	byID := map[string]store.NodeRow{}
-	for _, n := range snap.Nodes {
-		byID[n.ID] = n
-	}
 	var out []string
 	for _, e := range snap.Edges {
-		if d := byID[e.To]; e.From == node && !d.State.Final() && !slices.Contains(out, d.IssueRef) {
+		if e.From != node {
+			continue
+		}
+		if d, err := snap.Node(e.To); err == nil && !d.State.Final() && !slices.Contains(out, d.IssueRef) {
 			out = append(out, d.IssueRef)
 		}
 	}
@@ -291,7 +280,7 @@ func DecideProposal(ctx context.Context, db *store.DB, gen *ids.Generator, clk c
 	if !snap.Workspace.State.Active() {
 		return fmt.Errorf("%w: the workspace is %s", core.ErrInvalidTransition, snap.Workspace.State)
 	}
-	n, err := nodeRow(snap, p.Node)
+	n, err := snap.Node(p.Node)
 	if err != nil {
 		return err
 	}
@@ -300,14 +289,4 @@ func DecideProposal(ctx context.Context, db *store.DB, gen *ids.Generator, clk c
 		state = contracts.ProposalApproved
 	}
 	return s.decideRetrying(ctx, n, core.ProposalDecided{Approved: approved, By: by, Changes: body.Changes}, nil, true, decided(p, state, by))
-}
-
-// nodeRow reads a node of the snapshot by id.
-func nodeRow(snap store.Snapshot, id string) (store.NodeRow, error) {
-	for _, n := range snap.Nodes {
-		if n.ID == id {
-			return n, nil
-		}
-	}
-	return store.NodeRow{}, fmt.Errorf("%w: node %s", store.ErrNotFound, id)
 }

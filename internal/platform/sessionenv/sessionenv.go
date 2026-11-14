@@ -93,9 +93,28 @@ func Compose(workspace, node string) map[string]string {
 	return map[string]string{"COMPOSE_PROJECT_NAME": ComposeProject(workspace, node)}
 }
 
-// ComposeProject is the compose project name of a node.
+// ComposeProject is the compose project name of a node:
+// kluzo-<workspace>-<node>, in lower case.
 func ComposeProject(workspace, node string) string {
-	return strings.ToLower("kluzo-" + workspace + "-" + node)
+	return strings.ToLower(composePrefix + workspace + "-" + node)
+}
+
+// composePrefix starts every compose project name Kluzo gives a node.
+const composePrefix = "kluzo-"
+
+// ParseComposeProject reads a name of ComposeProject back: the workspace and
+// the node, in lower case, and whether name has that form. Neither part may
+// be empty or hold a "-" (workspace ids and issue refs never do).
+func ParseComposeProject(name string) (workspace, node string, ok bool) {
+	rest, ok := strings.CutPrefix(name, composePrefix)
+	if !ok || rest != strings.ToLower(rest) {
+		return "", "", false
+	}
+	workspace, node, ok = strings.Cut(rest, "-")
+	if !ok || workspace == "" || node == "" || strings.Contains(node, "-") {
+		return "", "", false
+	}
+	return workspace, node, true
 }
 
 // Merge returns the union of the maps; later maps win.

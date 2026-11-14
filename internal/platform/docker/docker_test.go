@@ -45,7 +45,7 @@ func TestCleanup(t *testing.T) {
 	}
 	for _, step := range []error{
 		d.DownProject(ctx, "taw-dev"),
-		d.RemoveImages(ctx, "kluzo.workspace=ws_1", "kluzo.node=nd_7"),
+		d.RemoveImages(ctx, LabelProject+"=kluzo-ws_1-7"),
 		d.PruneDangling(ctx),
 		d.PruneBuildCache(ctx, "10GB"),
 	} {
@@ -56,7 +56,7 @@ func TestCleanup(t *testing.T) {
 	want := []string{
 		"ps --all --filter label=com.docker.compose.project --format " + projectLabels,
 		"compose --project-name taw-dev down --volumes --rmi local --remove-orphans",
-		"image ls --quiet --no-trunc --filter label=kluzo.workspace=ws_1 --filter label=kluzo.node=nd_7",
+		"image ls --quiet --no-trunc --filter label=com.docker.compose.project=kluzo-ws_1-7",
 		"image rm --force sha256:a sha256:b",
 		"image prune --force",
 		"builder prune --force --keep-storage 10GB",
@@ -74,7 +74,7 @@ func TestCleanup(t *testing.T) {
 
 func TestNoImagesNoRemoval(t *testing.T) {
 	bin, calls := fakeDocker(t, "", "")
-	if err := New(bin, nil).RemoveImages(context.Background(), "kluzo.workspace=ws_1"); err != nil {
+	if err := New(bin, nil).RemoveImages(context.Background(), LabelProject+"=kluzo-ws_1-7"); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, calls); len(got) != 1 {
@@ -119,7 +119,7 @@ func TestProbe(t *testing.T) {
 	}
 }
 
-// The images Kluzo marked, with their workspace and size, and the size of the
+// The images compose projects built, with their project and size, and the size of the
 // build cache, for kluzo status, doctor and clean (ADR 0025).
 func TestImagesAndBuildCache(t *testing.T) {
 	dir := t.TempDir()
@@ -127,14 +127,14 @@ func TestImagesAndBuildCache(t *testing.T) {
 	bin := filepath.Join(dir, "docker")
 	script := "#!/bin/sh\necho \"$*\" >> " + calls + "\ncase \"$1 $2\" in\n" +
 		"'image ls') printf 'sha256:a\\nsha256:b\\nsha256:a\\n' ;;\n" +
-		"'image inspect') printf 'sha256:a\\tws_1\\t1500\\nsha256:b\\tws_2\\t2500\\n' ;;\n" +
+		"'image inspect') printf 'sha256:a\\tkluzo-ws_1-7\\t1500\\nsha256:b\\ttaw-dev\\t2500\\n' ;;\n" +
 		"'system df') printf 'Images\\t3GB\\nBuild Cache\\t1.5GB\\n' ;;\nesac\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	d := New(bin, nil)
 	images, err := d.Images(context.Background())
-	if err != nil || len(images) != 2 || images[0] != (Image{"sha256:a", "ws_1", 1500}) || images[1] != (Image{"sha256:b", "ws_2", 2500}) {
+	if err != nil || len(images) != 2 || images[0] != (Image{"sha256:a", "kluzo-ws_1-7", 1500}) || images[1] != (Image{"sha256:b", "taw-dev", 2500}) {
 		t.Fatalf("Images = %+v, %v", images, err)
 	}
 	if size, err := d.BuildCache(context.Background()); err != nil || size != 1_500_000_000 {
@@ -143,7 +143,7 @@ func TestImagesAndBuildCache(t *testing.T) {
 	if err := d.RemoveImageIDs(context.Background()); err != nil {
 		t.Error(err)
 	}
-	if got := read(t, calls); len(got) != 3 || !strings.HasPrefix(got[1], "image inspect --format {{.Id}}") || !strings.HasSuffix(got[1], "{{.Size}} sha256:a sha256:b") {
+	if got := read(t, calls); len(got) != 3 || !strings.HasPrefix(got[1], "image inspect --format {{.Id}}") || !strings.HasSuffix(got[1], "{{.Size}} sha256:a sha256:b") || got[0] != "image ls --quiet --no-trunc --filter label=com.docker.compose.project" {
 		t.Errorf("calls %q", got)
 	}
 }

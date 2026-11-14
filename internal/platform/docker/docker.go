@@ -1,7 +1,7 @@
 // Package docker removes the Docker resources Kluzo can prove it created
 // (ADR 0025): compose projects by name or by a working directory inside the
-// workspace, images by label, dangling images and the build cache over a
-// limit. It runs the docker CLI through platform/exec and never removes
+// workspace, images by the compose project that built them, dangling images
+// and the build cache over a limit. It runs the docker CLI through platform/exec and never removes
 // anything without one of those marks.
 package docker
 
@@ -69,12 +69,18 @@ func (d *Docker) Probe(ctx context.Context) error {
 // recorded on its containers.
 type Project struct{ Name, WorkingDir string }
 
+// LabelProject is the label compose writes on the containers it starts and
+// the images it builds: the name of the project. It is the proof that an
+// image comes from a project Kluzo named (docs/contracts/data-model.md,
+// cleanup rules).
+const LabelProject = "com.docker.compose.project"
+
 // projectLabels are the compose labels of a container.
-const projectLabels = `{{.Label "com.docker.compose.project"}}` + "\t" + `{{.Label "com.docker.compose.project.working_dir"}}`
+const projectLabels = `{{.Label "` + LabelProject + `"}}` + "\t" + `{{.Label "com.docker.compose.project.working_dir"}}`
 
 // Projects lists the compose projects that have containers, running or not.
 func (d *Docker) Projects(ctx context.Context) ([]Project, error) {
-	out, err := d.run(ctx, "ps", "--all", "--filter", "label=com.docker.compose.project", "--format", projectLabels)
+	out, err := d.run(ctx, "ps", "--all", "--filter", "label="+LabelProject, "--format", projectLabels)
 	if err != nil {
 		return nil, err
 	}
@@ -138,24 +144,20 @@ func (d *Docker) RemoveImageIDs(ctx context.Context, ids ...string) error {
 	return err
 }
 
-// LabelWorkspace is the label of the images the gates build: the workspace
-// that built them (ADR 0025).
-const LabelWorkspace = "kluzo.workspace"
-
-// Image is an image Kluzo marked: its id, the workspace of its label and its
-// size in bytes.
+// Image is an image a compose project built: its id, the project of its
+// label and its size in bytes.
 type Image struct {
-	ID, Workspace string
-	Size          int64
+	ID, Project string
+	Size        int64
 }
 
-// Images lists the images that carry the label kluzo.workspace.
+// Images lists the images that carry the label of a compose project.
 func (d *Docker) Images(ctx context.Context) ([]Image, error) {
-	ids, err := d.imageIDs(ctx, LabelWorkspace)
+	ids, err := d.imageIDs(ctx, LabelProject)
 	if err != nil || len(ids) == 0 {
 		return nil, err
 	}
-	out, err := d.run(ctx, append([]string{"image", "inspect", "--format", `{{.Id}}{{"\t"}}{{index .Config.Labels "` + LabelWorkspace + `"}}{{"\t"}}{{.Size}}`}, ids...)...)
+	out, err := d.run(ctx, append([]string{"image", "inspect", "--format", `{{.Id}}{{"\t"}}{{index .Config.Labels "` + LabelProject + `"}}{{"\t"}}{{.Size}}`}, ids...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +168,7 @@ func (d *Docker) Images(ctx context.Context) ([]Image, error) {
 			continue
 		}
 		size, _ := strconv.ParseInt(f[2], 10, 64)
-		images = append(images, Image{ID: f[0], Workspace: f[1], Size: size})
+		images = append(images, Image{ID: f[0], Project: f[1], Size: size})
 	}
 	return images, nil
 }

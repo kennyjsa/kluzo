@@ -16,7 +16,7 @@ import (
 )
 
 // fakeDocker is a docker CLI whose daemon answers, with the images (lines
-// "id\tworkspace\tsize") and the compose projects (lines "name\tdir") given;
+// "id\tcompose project\tsize") and the compose projects (lines "name\tdir") given;
 // it records its calls in the returned file.
 func fakeDocker(t *testing.T, images, projects string) (*docker.Docker, string) {
 	t.Helper()
@@ -128,7 +128,7 @@ func TestDoctorCleanAndStatusSeeWhatKluzoLeft(t *testing.T) {
 	unsureTree := mkdir(unsure.Dir, "worktrees", "1")                          // no journal: never cleaned
 	mkdir(e.data, "kluzo", "workspaces", "other-project-v1", "worktrees", "1") // not this project
 	d, dockerCalls := fakeDocker(t,
-		"sha256:a\t"+active+"\t1000\nsha256:b\t"+gone+"\t3000\nsha256:c\tws_elsewhere\t500\n",
+		"sha256:a\tkluzo-"+strings.ToLower(active)+"-1\t1000\nsha256:b\tkluzo-"+strings.ToLower(gone)+"-3\t3000\nsha256:c\tkluzo-ws_elsewhere-2\t500\nsha256:d\ttaw-dev\t700\n",
 		"kluzo-"+strings.ToLower(active)+"-1\t\nkluzo-"+strings.ToLower(gone)+"-3\t/x\nkluzo-site\t/home/u/kluzo-site\ntaw-dev\t"+oldTree+"\nother\t/elsewhere\n")
 	host := e.host
 	host.Docker = d
@@ -145,7 +145,7 @@ func TestDoctorCleanAndStatusSeeWhatKluzoLeft(t *testing.T) {
 			t.Errorf("doctor misses %s:\n%s", want, all)
 		}
 	}
-	for _, not := range []string{kept + ";", otherTree, "sha256:a", "sha256:c", "kluzo-site", "other", "disk:"} {
+	for _, not := range []string{kept + ";", otherTree, "sha256:a", "sha256:c", "sha256:d", "kluzo-site", "other", "disk:"} {
 		if strings.Contains(all, not) {
 			t.Errorf("doctor reports %s:\n%s", not, all)
 		}
@@ -163,9 +163,12 @@ func TestDoctorCleanAndStatusSeeWhatKluzoLeft(t *testing.T) {
 	if _, err := os.Stat(orphan); err != nil {
 		t.Errorf("the dry run removed the orphan: %v", err)
 	}
-	marked, err := Clean{Host: host}.Execute(ctx, CleanInput{ConfigDir: e.dir, Images: true})
-	if err != nil || len(marked.Images) != 3 || !marked.Dangling {
-		t.Fatalf("dry run with --images: %+v %v", marked, err)
+	// --images adds the images of Kluzo projects whose workspace has no
+	// journal here; never those of the active workspace, nor images of other
+	// projects.
+	idle, err := Clean{Host: host}.Execute(ctx, CleanInput{ConfigDir: e.dir, Images: true})
+	if err != nil || strings.Join(idle.Images, " ") != "sha256:b sha256:c" || !idle.Dangling {
+		t.Fatalf("dry run with --images: %+v %v", idle, err)
 	}
 	done, err := Clean{Host: host}.Execute(ctx, CleanInput{ConfigDir: e.dir, Yes: true})
 	if err != nil || !done.Removed {
@@ -187,7 +190,7 @@ func TestDoctorCleanAndStatusSeeWhatKluzoLeft(t *testing.T) {
 			t.Errorf("clean did not run %q:\n%s", want, got)
 		}
 	}
-	for _, not := range []string{"sha256:a", "sha256:c", "kluzo-site", "image prune"} {
+	for _, not := range []string{"sha256:a", "sha256:c", "sha256:d", "kluzo-site", "image prune"} {
 		if strings.Contains(got, "image rm --force "+not) || strings.Contains(got, "project-name "+not) || (not == "image prune" && strings.Contains(got, not)) {
 			t.Errorf("clean touched %s:\n%s", not, got)
 		}
@@ -209,5 +212,14 @@ func TestDoctorCleanAndStatusSeeWhatKluzoLeft(t *testing.T) {
 	out, err = doctor.Execute(ctx, DoctorInput{Dir: e.dir})
 	if err != nil || !strings.Contains(strings.Join(out.Warnings, "\n"), "above retention.disk_warn (1.0MB)") {
 		t.Errorf("doctor above the limit: %+v %v", out.Warnings, err)
+	}
+	// A journal of this machine that cannot be read may be of an active
+	// workspace: --images then keeps the images of workspaces unknown here.
+	if err := os.WriteFile(filepath.Join(unsure.Dir, "state.db"), []byte("not sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idle, err = Clean{Host: host}.Execute(ctx, CleanInput{ConfigDir: e.dir, Images: true})
+	if err != nil || strings.Join(idle.Images, " ") != "sha256:b" {
+		t.Errorf("--images with an unreadable journal: %+v %v", idle, err)
 	}
 }

@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/kennyjsa/kluzo/internal/platform/paths"
 )
 
 // Rule names, recorded with every denial.
@@ -137,14 +139,13 @@ func (p Policy) rel(name string) (string, bool) {
 	if name == "" {
 		return "", true
 	}
+	if r, ok := paths.Within(p.Workdir, name); ok {
+		return r, true
+	}
 	if !filepath.IsAbs(name) {
 		name = filepath.Join(p.Workdir, name)
 	}
-	r, err := filepath.Rel(p.Workdir, filepath.Clean(name))
-	if err != nil || r == ".." || strings.HasPrefix(r, "../") {
-		return filepath.ToSlash(name), false
-	}
-	return filepath.ToSlash(r), true
+	return filepath.ToSlash(name), false
 }
 
 func (p Policy) protected(name string) bool { return matchAny(p.ProtectedPaths, name) }

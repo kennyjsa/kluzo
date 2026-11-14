@@ -220,14 +220,19 @@ CREATE TABLE proposals (
 
 ## Arquivos do workspace
 
+O layout do workspace tem uma definição só no código (`supervisor.Layout`), usada pelo supervisor e pelas operações do `app` (`doctor`, `clean`, `status`).
+
 ```
 ~/.local/share/kluzo/
 ├── cache/<project>/              # caches de download verificados por hash, compartilhados (ADR 0025)
 └── workspaces/<project>-<milestone>/
     ├── state.db
     ├── home/                     # HOME sintético das sessões (ADR 0024)
-    ├── cache/                    # caches de build, só deste workspace
+    ├── cache/                    # caches de build das sessões, só deste workspace
+    ├── gates-home/               # HOME sintético dos gates, separado do das sessões (ADR 0020)
+    ├── gates-cache/              # caches de build dos gates
     ├── worktrees/<issue>/        # um worktree por nó ativo; removido quando o nó é integrado ou cancelado
+    ├── gates/<issue>/            # checkout limpo em que rodam os gates do nó; removido com o worktree
     └── logs/
         ├── sessions/<session>.jsonl   # stream bruto do harness
         └── gates/<gate-run>.log

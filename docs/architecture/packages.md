@@ -27,7 +27,7 @@ kluzo/
 │   ├── notify/{log,ntfy}/      # Notifier
 │   ├── codemap/{cartog,lsp}/   # CodeMapper (v0.3, ADR 0021)
 │   ├── web/                    # REST, SSE, tsnet, autorização, SPA embutida
-│   ├── platform/               # utilitários técnicos sem domínio: clock, ids (ULID), exec, redact, sessionenv, hostcred, text, docker, version
+│   ├── platform/               # utilitários técnicos sem domínio: clock, ids (ULID), exec, redact, sessionenv, hostcred, text, docker, version, paths
 │   └── archtest/               # testes das regras de dependência
 ├── web/                        # frontend Vue (fonte) → web/dist (embutido)
 ├── testdata/
@@ -53,7 +53,7 @@ kluzo/
 | `mcp` | Servir as ferramentas `kluzo_*` e converter chamadas em entradas para o supervisor | Decidir o que acontece com elas |
 | `tracker/*`, `runtime/*`, `notify/*`, `codemap/*` | Implementar um port | Importar `core` |
 | `web` | HTTP, SSE, autenticação via tailnet; chama `app` | Regra de negócio |
-| `platform` | Clock, gerador de ids, `exec` com grupo de processos, remoção de segredos, ambiente das sessões, credenciais visíveis do host (`hostcred`), corte de texto (`text.Clip`, o único), remoção dos recursos Docker marcados pelo Kluzo (`docker`, pela CLI), leitura e comparação de versões das CLIs (`version`) | Conhecer o domínio |
+| `platform` | Clock, gerador de ids, `exec` com grupo de processos, remoção de segredos, ambiente das sessões, credenciais visíveis do host (`hostcred`), corte de texto (`text.Clip`, o único), contenção de caminho (`paths.Within`, a única), nome do projeto compose de um nó e a sua leitura (`sessionenv.ComposeProject` e `ParseComposeProject`), remoção dos recursos Docker cuja autoria o Kluzo prova (`docker`, pela CLI), leitura e comparação de versões das CLIs (`version`) | Conhecer o domínio |
 
 ### Sessões e gates no laço do supervisor
 

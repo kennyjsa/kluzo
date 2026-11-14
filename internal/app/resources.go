@@ -8,22 +8,24 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/core"
 	"github.com/kennyjsa/kluzo/internal/platform/docker"
+	"github.com/kennyjsa/kluzo/internal/platform/paths"
+	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
 	"github.com/kennyjsa/kluzo/internal/store"
+	"github.com/kennyjsa/kluzo/internal/supervisor"
 )
 
 // The resources Kluzo leaves on this machine (ADR 0025): what kluzo doctor
 // reports, kluzo clean removes and kluzo status measures. Only what Kluzo can
 // prove it created is considered: a workspace is the project's when its
 // journal says so, and a Docker resource is Kluzo's when it names a workspace
-// whose journal is on this machine, by the label kluzo.workspace of an image,
-// the compose project name kluzo-<workspace>-<issue> or a compose working
-// directory inside a workspace.
+// whose journal is on this machine, by the compose project name
+// kluzo-<workspace>-<issue> (on a container, or the label compose writes on
+// the images it builds) or a compose working directory inside a workspace.
 
 // defaultDiskWarn is retention.disk_warn when it is not set.
 const defaultDiskWarn = "20GB"
@@ -136,24 +138,19 @@ type survey struct {
 	// read: reported, never cleaned.
 	Unsure []string
 	// Projects and Images are the Docker resources of workspaces of this
-	// machine that are over; Marked is every image marked by Kluzo.
+	// machine that are over. Idle adds to Images the images of the compose
+	// projects of Kluzo whose workspace has no journal here; none of them
+	// belongs to an active workspace, and when a journal of this machine
+	// cannot be read (its workspace may be active) only Images are idle.
 	Projects []string
 	Images   []docker.Image
-	Marked   []docker.Image
+	Idle     []docker.Image
 	// Docker is why the Docker resources could not be read (nil when they were).
 	Docker error
 	// Disk is what the workspaces and the download cache of the project take,
 	// in bytes; DiskWarn the limit of retention.disk_warn.
 	Disk, DiskWarn int64
 }
-
-// checkoutDirs are the directories of a workspace that hold one checkout per
-// issue.
-var checkoutDirs = []string{"worktrees", "gates"}
-
-// leftoverDirs are the HOMEs and build caches of a workspace
-// (docs/contracts/data-model.md).
-var leftoverDirs = []string{"home", "cache", "gates-home", "gates-cache"}
 
 // surveyProject looks at the workspaces of the project in the data root of
 // this machine and at the Docker resources marked by Kluzo.
@@ -206,8 +203,9 @@ func surveyProject(ctx context.Context, h Host, p *config.Project, configDir str
 
 // checkouts sorts the checkouts and leftovers of a workspace of the project.
 func (s *survey) checkouts(w machineWorkspace) error {
-	for _, d := range checkoutDirs {
-		entries, err := os.ReadDir(filepath.Join(w.Dir, d))
+	l := supervisor.Layout{Dir: w.Dir}
+	for _, d := range []string{l.Worktrees(), l.Gates()} {
+		entries, err := os.ReadDir(d)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -215,9 +213,9 @@ func (s *survey) checkouts(w machineWorkspace) error {
 			return err
 		}
 		for _, e := range entries {
-			path := filepath.Join(w.Dir, d, e.Name())
+			path := filepath.Join(d, e.Name())
 			switch state, ok := w.Nodes[e.Name()]; {
-			case w.active() && ok && state == core.NodeFailed && d == "worktrees":
+			case w.active() && ok && state == core.NodeFailed && d == l.Worktrees():
 				s.Failed = append(s.Failed, path)
 			case !w.active() || !ok || state == core.NodeIntegrated || state == core.NodeCancelled:
 				s.Orphans = append(s.Orphans, path)
@@ -227,17 +225,13 @@ func (s *survey) checkouts(w machineWorkspace) error {
 	if w.active() {
 		return nil
 	}
-	for _, d := range leftoverDirs {
-		if _, err := os.Stat(filepath.Join(w.Dir, d)); err == nil {
-			s.Leftovers = append(s.Leftovers, filepath.Join(w.Dir, d))
+	for _, d := range l.Leftovers() {
+		if _, err := os.Stat(d); err == nil {
+			s.Leftovers = append(s.Leftovers, d)
 		}
 	}
 	return nil
 }
-
-// composeName is the compose project name Kluzo gives a node:
-// kluzo-<workspace id, lower case>-<issue> (sessionenv.ComposeProject).
-var composeName = regexp.MustCompile(`^kluzo-(ws_[0-9a-z]{26})-[^-]+$`)
 
 // docker finds the compose projects and images of the workspaces of this
 // machine that are over. Docker unavailable is reported, not an error.
@@ -247,22 +241,33 @@ func (s *survey) docker(ctx context.Context, d *docker.Docker, all []machineWork
 	}
 	over := map[string]bool{} // id (lower case) → the workspace is over; absent: unknown here
 	var overDirs []string
+	unreadable := false
 	for _, w := range all {
-		if w.journaled() {
+		switch {
+		case w.journaled():
 			over[strings.ToLower(w.ID)] = !w.active()
 			if !w.active() {
 				overDirs = append(overDirs, w.Dir)
 			}
+		case w.Err != nil:
+			unreadable = true
 		}
 	}
 	images, err := d.Images(ctx)
 	if err != nil {
 		return err
 	}
-	s.Marked = images
 	for _, im := range images {
-		if over[strings.ToLower(im.Workspace)] {
+		ws, _, ok := sessionenv.ParseComposeProject(im.Project)
+		if !ok {
+			continue
+		}
+		switch done, known := over[ws]; {
+		case known && done:
 			s.Images = append(s.Images, im)
+			s.Idle = append(s.Idle, im)
+		case !known && !unreadable:
+			s.Idle = append(s.Idle, im)
 		}
 	}
 	projects, err := d.Projects(ctx)
@@ -270,25 +275,16 @@ func (s *survey) docker(ctx context.Context, d *docker.Docker, all []machineWork
 		return err
 	}
 	for _, pr := range projects {
-		m := composeName.FindStringSubmatch(pr.Name)
+		ws, _, named := sessionenv.ParseComposeProject(pr.Name)
 		inOver := false
 		for _, dir := range overDirs {
-			inOver = inOver || inDir(dir, pr.WorkingDir)
+			inOver = inOver || paths.WithinAbs(dir, pr.WorkingDir)
 		}
-		if (m != nil && over[m[1]]) || inOver {
+		if (named && over[ws]) || inOver {
 			s.Projects = append(s.Projects, pr.Name)
 		}
 	}
 	return nil
-}
-
-// inDir reports whether path is dir or inside it.
-func inDir(dir, path string) bool {
-	if path == "" || !filepath.IsAbs(path) {
-		return false
-	}
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // dirSize is the size of the files under dir, in bytes; 0 when it does not
@@ -330,7 +326,7 @@ func (s survey) warnings() []string {
 		out = append(out, "compose project of a workspace that is over: "+p+"; kluzo clean removes it")
 	}
 	for _, im := range s.Images {
-		out = append(out, fmt.Sprintf("image of a workspace that is over: %s (workspace %s, %s); kluzo clean removes it", im.ID, im.Workspace, HumanSize(im.Size)))
+		out = append(out, fmt.Sprintf("image of a workspace that is over: %s (compose project %s, %s); kluzo clean removes it", im.ID, im.Project, HumanSize(im.Size)))
 	}
 	if s.Docker != nil {
 		out = append(out, "docker: "+s.Docker.Error()+"; its resources were not checked")

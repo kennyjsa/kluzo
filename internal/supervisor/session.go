@@ -21,6 +21,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/guard"
 	"github.com/kennyjsa/kluzo/internal/mcp"
 	"github.com/kennyjsa/kluzo/internal/platform/ids"
+	"github.com/kennyjsa/kluzo/internal/platform/paths"
 	"github.com/kennyjsa/kluzo/internal/platform/redact"
 	"github.com/kennyjsa/kluzo/internal/platform/sessionenv"
 	"github.com/kennyjsa/kluzo/internal/platform/text"
@@ -48,9 +49,10 @@ func (s *Supervisor) branch(n store.NodeRow) string {
 	return strings.NewReplacer("{number}", n.IssueRef, "{slug}", slug).Replace(pattern)
 }
 
-func (s *Supervisor) worktree(n store.NodeRow) string {
-	return filepath.Join(s.cfg.Dir, "worktrees", n.IssueRef)
-}
+// layout is the directory layout of the workspace.
+func (s *Supervisor) layout() Layout { return Layout{Dir: s.cfg.Dir} }
+
+func (s *Supervisor) worktree(n store.NodeRow) string { return s.layout().Worktree(n.IssueRef) }
 
 // projectEnv is what the sessions, the gates and the setup of a node get
 // besides the fixed part: the cache variables, with the build caches under
@@ -78,24 +80,14 @@ func (s *Supervisor) prepare(ctx context.Context, n store.NodeRow) (string, erro
 	return base, s.setup(ctx, n, wt, sessionsPlace)
 }
 
-// place is where a checkout of the node runs: its HOME and build caches.
-type place struct{ home, builds string }
-
-// The sessions and the gates of a node use apart HOMEs and build caches: a
-// session cannot leave in them what a gate will run (ADR 0020).
-var (
-	sessionsPlace = place{home: "home", builds: "cache"}
-	gatesPlace    = place{home: "gates-home", builds: "gates-cache"}
-)
-
 // env is the environment of a checkout of the node at p: env_allow from
 // Kluzo, the caches and COMPOSE_PROJECT_NAME.
 func (s *Supervisor) env(n store.NodeRow, p place, allow []string) ([]string, error) {
-	extra, err := s.projectEnv(n, filepath.Join(s.cfg.Dir, p.builds))
+	extra, err := s.projectEnv(n, s.layout().builds(p))
 	if err != nil {
 		return nil, err
 	}
-	return sessionenv.Build(sessionenv.Spec{Parent: s.cfg.ParentEnv, Home: filepath.Join(s.cfg.Dir, p.home), Allow: allow, Extra: extra}), nil
+	return sessionenv.Build(sessionenv.Spec{Parent: s.cfg.ParentEnv, Home: s.layout().home(p), Allow: allow, Extra: extra}), nil
 }
 
 // setup runs worktree.include and worktree.setup in a checkout of the node.
@@ -296,7 +288,7 @@ func (s *Supervisor) play(ctx context.Context, f store.Effect, n store.NodeRow, 
 		return ports.Result{}, nil, err
 	}
 	defer ms.Close()
-	env, err := s.projectEnv(n, filepath.Join(s.cfg.Dir, sessionsPlace.builds))
+	env, err := s.projectEnv(n, s.layout().builds(sessionsPlace))
 	if err != nil {
 		return ports.Result{}, nil, err
 	}
@@ -726,7 +718,7 @@ func previousFacts(evs []store.Event, attempt int, wt string) ([]string, error) 
 		case contracts.EventFileEdited:
 			var p contracts.FileEdited
 			if err = json.Unmarshal(e.Payload, &p); err == nil && cur == attempt {
-				if rel, ok := inside(wt, p.Path); ok {
+				if rel, ok := paths.Within(wt, p.Path); ok {
 					files[rel] = true
 				}
 			}
@@ -776,17 +768,4 @@ func previousFacts(evs []store.Event, attempt int, wt string) ([]string, error) 
 		}
 	}
 	return facts, nil
-}
-
-// inside returns name relative to the worktree wt, slash-separated, and
-// whether it is inside it; a relative name is already relative to wt.
-func inside(wt, name string) (string, bool) {
-	if !filepath.IsAbs(name) {
-		name = filepath.Join(wt, name)
-	}
-	rel, err := filepath.Rel(wt, filepath.Clean(name))
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return filepath.ToSlash(rel), true
 }

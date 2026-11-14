@@ -125,8 +125,8 @@ func (u ListProposals) Execute(ctx context.Context, configDir string) ([]Proposa
 // proposalItem is a proposal of a workspace in the list.
 func proposalItem(milestone string, snap store.Snapshot, pr store.ProposalRow) ProposalItem {
 	item := ProposalItem{ID: pr.ID, Milestone: milestone, Kind: pr.Kind, State: pr.State, CreatedAt: pr.CreatedAt, DecidedBy: pr.DecidedBy, Changes: []string{}}
-	if i := slices.IndexFunc(snap.Nodes, func(n store.NodeRow) bool { return n.ID == pr.Node }); i >= 0 {
-		item.Issue = snap.Nodes[i].IssueRef
+	if n, err := snap.Node(pr.Node); err == nil {
+		item.Issue = n.IssueRef
 	}
 	var body core.ChangeProposal
 	if json.Unmarshal(pr.Payload, &body) == nil {

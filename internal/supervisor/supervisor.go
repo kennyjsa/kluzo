@@ -293,22 +293,30 @@ const pendingBatch = 200
 // no node is active.
 func (s *Supervisor) schedule(ctx context.Context, snap store.Snapshot) (bool, error) {
 	g := core.Graph{Nodes: map[string]core.GraphNode{}}
-	byRef := map[string]store.NodeRow{}
-	byID := map[string]string{}
 	for _, n := range snap.Nodes {
 		g.Nodes[n.IssueRef] = core.GraphNode{ID: n.IssueRef, Title: n.Title, State: n.State, Areas: n.Areas}
-		byRef[n.IssueRef], byID[n.ID] = n, n.IssueRef
 	}
 	for _, e := range snap.Edges {
-		g.Edges = append(g.Edges, core.Edge{From: byID[e.From], To: byID[e.To], Kind: contracts.EdgeKind(e.Kind)})
+		from, err := snap.Node(e.From)
+		if err != nil {
+			return false, err
+		}
+		to, err := snap.Node(e.To)
+		if err != nil {
+			return false, err
+		}
+		g.Edges = append(g.Edges, core.Edge{From: from.IssueRef, To: to.IssueRef, Kind: contracts.EdgeKind(e.Kind)})
 	}
+	// The graph names its nodes by issue: every ref it returns is a node of
+	// the snapshot.
+	byRef := func(ref string) store.NodeRow { n, _ := snap.NodeByIssue(ref); return n }
 	for _, ref := range g.Ready() {
-		if n := byRef[ref]; n.State == core.NodePlanned {
+		if n := byRef(ref); n.State == core.NodePlanned {
 			return true, s.decide(ctx, n, core.Ready{}, nil)
 		}
 	}
 	if ref, ok := g.NextToIntegrate(); ok {
-		return true, s.decide(ctx, byRef[ref], core.QueueTurn{}, nil)
+		return true, s.decide(ctx, byRef(ref), core.QueueTurn{}, nil)
 	}
 	states := make([]core.NodeState, len(snap.Nodes))
 	for i, n := range snap.Nodes {
@@ -323,7 +331,7 @@ func (s *Supervisor) schedule(ctx context.Context, snap store.Snapshot) (bool, e
 		}
 	}
 	if next := g.NextToDispatch(1); len(next) > 0 {
-		return true, s.decide(ctx, byRef[next[0]], core.Dispatch{}, nil)
+		return true, s.decide(ctx, byRef(next[0]), core.Dispatch{}, nil)
 	}
 	return false, nil
 }
@@ -539,7 +547,7 @@ func (s *Supervisor) node(ctx context.Context, id string) (store.NodeRow, error)
 	if err != nil {
 		return store.NodeRow{}, err
 	}
-	return nodeRow(snap, id)
+	return snap.Node(id)
 }
 
 // effectRuns is how many runs an effect gets (docs/contracts/data-model.md).

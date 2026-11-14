@@ -70,17 +70,19 @@ func (s *repoSCM) OpenPR(ctx context.Context, in ports.NewPR, idemKey string) (p
 	return s.SCM.OpenPR(ctx, in, idemKey)
 }
 
-// fakeDocker is a docker CLI that records its calls and lists the compose
-// projects written to its ps file.
+// fakeDocker is a docker CLI that records its calls, lists the compose
+// projects written to its ps file and the images of its images file (id,
+// compose project and size, tab-separated).
 type fakeDocker struct {
-	bin, calls, ps string
+	bin, calls, ps, images string
 }
 
 func newFakeDocker(t *testing.T) *fakeDocker {
 	t.Helper()
 	dir := t.TempDir()
-	d := &fakeDocker{bin: filepath.Join(dir, "docker"), calls: filepath.Join(dir, "calls"), ps: filepath.Join(dir, "ps")}
-	script := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 27.3.1; exit 0; fi\necho \"$*\" >> " + d.calls + "\nif [ \"$1\" = ps ] && [ -f " + d.ps + " ]; then cat " + d.ps + "; fi\n"
+	d := &fakeDocker{bin: filepath.Join(dir, "docker"), calls: filepath.Join(dir, "calls"), ps: filepath.Join(dir, "ps"), images: filepath.Join(dir, "images")}
+	script := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 27.3.1; exit 0; fi\necho \"$*\" >> " + d.calls + "\nif [ \"$1\" = ps ] && [ -f " + d.ps + " ]; then cat " + d.ps + "; fi\n" +
+		"if [ -f " + d.images + " ]; then case \"$1 $2\" in 'image ls') cut -f1 " + d.images + " ;; 'image inspect') cat " + d.images + " ;; esac; fi\n"
 	if err := os.WriteFile(d.bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

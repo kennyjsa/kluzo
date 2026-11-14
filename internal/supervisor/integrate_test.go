@@ -129,7 +129,7 @@ func TestIntegrationAndClosing(t *testing.T) {
 	}
 	calls := e.docker.Calls()
 	for _, want := range []string{"compose --project-name kluzo-ws_1-1 down --volumes --rmi local --remove-orphans",
-		"image ls --quiet --no-trunc --filter label=kluzo.workspace=ws_1 --filter label=kluzo.node=" + n.ID} {
+		"image ls --quiet --no-trunc --filter label=com.docker.compose.project=kluzo-ws_1-1"} {
 		if !slices.Contains(calls, want) {
 			t.Errorf("docker calls %q miss %q", calls, want)
 		}
@@ -155,13 +155,19 @@ func TestIntegrationAndClosing(t *testing.T) {
 	if err := scm.Merge(snap.Workspace.PR.Ref); err != nil {
 		t.Fatal(err)
 	}
+	// Images of the projects of this workspace go, by the label compose
+	// writes; those of another workspace or project stay.
+	images := "sha256:a\tkluzo-ws_1-1\t10\nsha256:b\tkluzo-ws_1-9\t10\nsha256:c\tkluzo-ws_2-1\t10\nsha256:d\ttaw-dev\t10\n"
+	if err := os.WriteFile(e.docker.images, []byte(images), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	e.drain()
 	snap, _ = e.db.Snapshot(context.Background())
 	if snap.Workspace.State != core.WorkspaceMerged {
 		t.Fatalf("workspace %s after the human merge", snap.Workspace.State)
 	}
 	calls = e.docker.Calls()
-	for _, want := range []string{"image ls --quiet --no-trunc --filter label=kluzo.workspace=ws_1", "image prune --force", "builder prune --force --keep-storage 10GB"} {
+	for _, want := range []string{"image ls --quiet --no-trunc --filter label=com.docker.compose.project", "image rm --force sha256:a sha256:b", "image prune --force", "builder prune --force --keep-storage 10GB"} {
 		if !slices.Contains(calls, want) {
 			t.Errorf("docker calls %q miss %q", calls, want)
 		}

@@ -224,15 +224,15 @@ func assemble(t *testing.T, dir string, d deps, issue, model string) (supervisor
 	}
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 	return supervisor.Deps{
-		DB: d.db, Clock: d.clock, IDs: d.ids, Tracker: d.tracker, Runtime: d.runtime, MCP: srv,
-		Git: gitops.New(gitops.Config{ParentEnv: os.Environ()}), Gates: d.gates, Notifier: d.notifier,
-		Nonce: func() (string, error) { return "0123abcd", nil }, HostCredentials: d.host,
-		SCM: d.scm, Docker: docker.New(d.docker.bin, nil),
-	}, supervisor.Config{
-		Project: project, Workspace: "ws_1", Milestone: "v1", Repo: repo, Remote: filepath.Join(dir, "origin.git"), Branch: "milestone/v1", Dir: filepath.Join(dir, "ws"),
-		Downloads: filepath.Join(dir, "downloads"), Criteria: map[string][]core.Criterion{issue: {{ID: "AC1", Text: "The agenda lists appointments"}}},
-		Idle: 10 * time.Millisecond, Version: "test", ParentEnv: os.Environ(),
-	}
+			DB: d.db, Clock: d.clock, IDs: d.ids, Tracker: d.tracker, Runtime: d.runtime, MCP: srv,
+			Git: gitops.New(gitops.Config{ParentEnv: os.Environ()}), Gates: d.gates, Notifier: d.notifier,
+			Nonce: func() (string, error) { return "0123abcd", nil }, HostCredentials: d.host,
+			SCM: d.scm, Docker: docker.New(d.docker.bin, nil),
+		}, supervisor.Config{
+			Project: project, Workspace: "ws_1", Milestone: "v1", Repo: repo, Remote: filepath.Join(dir, "origin.git"), Branch: "milestone/v1", Dir: filepath.Join(dir, "ws"),
+			Downloads: filepath.Join(dir, "downloads"), Criteria: map[string][]core.Criterion{issue: {{ID: "AC1", Text: "The agenda lists appointments"}}},
+			Idle: 10 * time.Millisecond, Version: "test", ParentEnv: os.Environ(),
+		}
 }
 
 // testGit returns a runner of plain git for the setup of the repository.
