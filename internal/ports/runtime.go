@@ -150,6 +150,11 @@ const (
 	// sessions and security.allow_host_credentials is off; no session starts
 	// (ADR 0020, item 6): pause the workspace and notify.
 	CauseHostCredentials Cause = "host_credentials"
+	// CauseHostCheck: the check before the session could not run (the CLI
+	// of the harness does not run, or the host could not be read); no session
+	// starts (Q71): pause the workspace and notify, outside the retries of the
+	// outbox.
+	CauseHostCheck Cause = "host_check"
 )
 
 // Retryable reports whether a new session in the same attempt may help

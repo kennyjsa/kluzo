@@ -232,6 +232,7 @@ O layout do workspace tem uma definição só no código (`supervisor.Layout`), 
     ├── cache/                    # caches de build das sessões, só deste workspace
     ├── gates-home/               # HOME sintético dos gates, separado do das sessões (ADR 0020)
     ├── gates-cache/              # caches de build dos gates
+    ├── sessions/<harness-id>/    # arquivos 0600 de cada sessão do harness, fora dos worktrees
     ├── worktrees/<issue>/        # um worktree por nó ativo; removido quando o nó é integrado ou cancelado
     ├── gates/<issue>/            # checkout limpo em que rodam os gates do nó; removido com o worktree
     └── logs/

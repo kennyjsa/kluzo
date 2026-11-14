@@ -175,7 +175,7 @@ type Event struct {
 
 type Result struct {
 	State   string          // "finished" | "failed" | "cancelled" | "timeout"
-	Cause   Cause           // se failed: max_turns, budget, auth, rate_limit, runtime, refusal, no_result, guard (ADR 0024, item 7)
+	Cause   Cause           // se failed: max_turns, budget, auth, rate_limit, runtime, refusal, no_result, guard (ADR 0024, item 7); host_credentials e host_check vêm do supervisor, na conferência antes da sessão (state-machine.md)
 	Detail  string
 	Raw     json.RawMessage // o kluzo_result aceito, antes da validação de cobertura do núcleo
 	CostUSD int64           // micro-dólares desta sessão: o total do harness menos SessionSpec.PriorUsage

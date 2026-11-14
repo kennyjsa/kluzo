@@ -63,10 +63,17 @@ func code(err error) int {
 		return exitInvalidConfig
 	case errors.Is(err, app.ErrDoctor):
 		return exitIntegration
-	case errors.Is(err, app.ErrNoWorkspace), errors.Is(err, app.ErrWorkspaceExists), errors.Is(err, app.ErrRefused), errors.Is(err, app.ErrNoAttempts), errors.Is(err, app.ErrNotOperator), isUsage(err):
+	case errors.Is(err, app.ErrNoWorkspace), errors.Is(err, app.ErrWorkspaceExists), errors.Is(err, app.ErrRefused), errors.Is(err, app.ErrNoAttempts), errors.Is(err, app.ErrNotOperator),
+		errors.Is(err, app.ErrRetryUsage), isUsage(err):
 		return exitUsage
 	}
 	return exitIntegration
+}
+
+// byFlag adds --by to a command of a human decision: who decides, a login of
+// tracker.operators (plan.md).
+func byFlag(c *cobra.Command) *string {
+	return c.Flags().String("by", "", "who decides: a login of tracker.operators (default: the only operator)")
 }
 
 // usageError is a mistake on the command line.
@@ -172,7 +179,7 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	approveCmd := &cobra.Command{
 		Use: "approve <milestone>", Short: "approve the plan: it is committed on the milestone branch", Args: args(1),
 	}
-	by := approveCmd.Flags().String("by", "", "who approves: a login of tracker.operators (default: the only operator)")
+	by := byFlag(approveCmd)
 	approveCmd.RunE = func(cmd *cobra.Command, a []string) error {
 		if err := (app.ApprovePlan{Host: host()}).Execute(cmd.Context(), app.ApprovePlanInput{ConfigDir: *dir, Milestone: a[0], By: *by}); err != nil {
 			return err
@@ -280,16 +287,17 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 		{"approve <id>", "approve a proposal: the change is kept, and the check lets it pass", true},
 		{"reject <id>", "reject a proposal: the node goes back to the implementer to revert the change", false},
 	} {
-		proposal.AddCommand(&cobra.Command{
-			Use: d.use, Short: d.short, Args: args(1),
-			RunE: func(cmd *cobra.Command, a []string) error {
-				if err := (app.DecideProposal{Host: host()}).Execute(cmd.Context(), app.DecideProposalInput{ConfigDir: *dir, ID: a[0], Approve: d.approve}); err != nil {
-					return err
-				}
-				printf(stdout, "proposal %s %s\n", a[0], map[bool]string{true: "approved", false: "rejected"}[d.approve])
-				return nil
-			},
-		})
+		c := &cobra.Command{Use: d.use, Short: d.short, Args: args(1)}
+		by := byFlag(c)
+		c.RunE = func(cmd *cobra.Command, a []string) error {
+			in := app.DecideProposalInput{ConfigDir: *dir, ID: a[0], Approve: d.approve, By: *by}
+			if err := (app.DecideProposal{Host: host()}).Execute(cmd.Context(), in); err != nil {
+				return err
+			}
+			printf(stdout, "proposal %s %s\n", a[0], map[bool]string{true: "approved", false: "rejected"}[d.approve])
+			return nil
+		}
+		proposal.AddCommand(c)
 	}
 	root.AddCommand(proposal)
 
@@ -302,32 +310,35 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 		{"unblock <issue>", "put a blocked node back where it was, after you acted, and run its step again", app.NodeUnblock},
 		{"cancel <issue>", "remove the node from the milestone (its branch stays on the remote)", app.NodeCancel},
 	} {
-		node.AddCommand(&cobra.Command{
-			Use: n.use, Short: n.short, Args: args(1),
-			RunE: func(cmd *cobra.Command, a []string) error {
-				issue := strings.TrimPrefix(a[0], "#")
-				if err := (app.DecideNode{Host: host()}).Execute(cmd.Context(), app.DecideNodeInput{ConfigDir: *dir, Issue: issue, Action: n.action}); err != nil {
-					return err
-				}
-				printf(stdout, "node #%s: %s recorded; kluzo run carries it out\n", issue, n.action)
-				return nil
-			},
-		})
+		c := &cobra.Command{Use: n.use, Short: n.short, Args: args(1)}
+		by := byFlag(c)
+		c.RunE = func(cmd *cobra.Command, a []string) error {
+			issue := strings.TrimPrefix(a[0], "#")
+			in := app.DecideNodeInput{ConfigDir: *dir, Issue: issue, Action: n.action, By: *by}
+			if err := (app.DecideNode{Host: host()}).Execute(cmd.Context(), in); err != nil {
+				return err
+			}
+			printf(stdout, "node #%s: %s recorded; kluzo run carries it out\n", issue, n.action)
+			return nil
+		}
+		node.AddCommand(c)
 	}
 	root.AddCommand(node)
 
 	effect := &cobra.Command{Use: "effect", Short: "act on the effects of the outbox", Args: cobra.ArbitraryArgs, RunE: group(stderr)}
 	retry := &cobra.Command{
-		Use: "retry <id>|--all", Short: "return a failed effect to pending, once its cause is fixed (kluzo doctor must be green)", Args: cobra.MaximumNArgs(1),
+		Use: "retry <id> | retry --all <milestone>", Short: "return failed effects to pending, once their cause is fixed (kluzo doctor must be green)",
+		Args: cobra.ArbitraryArgs,
 	}
-	all := retry.Flags().Bool("all", false, "every failed effect of the active workspaces of the project")
+	all := retry.Flags().Bool("all", false, "every failed effect of the workspace of the milestone")
+	retryBy := byFlag(retry)
 	retry.RunE = func(cmd *cobra.Command, a []string) error {
-		if (len(a) == 1) == *all {
-			return usageError{fmt.Errorf("name one failed effect, or --all")}
+		if len(a) != 1 {
+			return usageError{app.ErrRetryUsage}
 		}
-		in := app.RetryEffectsInput{ConfigDir: *dir, All: *all}
-		if len(a) == 1 {
-			in.ID = a[0]
+		in := app.RetryEffectsInput{ConfigDir: *dir, All: *all, ID: a[0], By: *retryBy}
+		if *all {
+			in.ID, in.Milestone = "", a[0]
 		}
 		out, err := app.RetryEffects{Host: host()}.Execute(cmd.Context(), in)
 		if err != nil {

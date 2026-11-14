@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -27,6 +28,20 @@ type workspaceEnv struct {
 	data string // XDG_DATA_HOME
 }
 
+// operators sets tracker.operators of the project, empty in the fixture.
+func (e workspaceEnv) operators(t *testing.T, logins ...string) {
+	t.Helper()
+	cfg := filepath.Join(e.dir, "kluzo.yaml")
+	raw, err := os.ReadFile(cfg)
+	if err != nil || !strings.Contains(string(raw), "operators: []") {
+		t.Fatalf("kluzo.yaml: %v", err)
+	}
+	list := "operators: [" + strings.Join(logins, ", ") + "]"
+	if err := os.WriteFile(cfg, []byte(strings.Replace(string(raw), "operators: []", list, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newWorkspaceEnv(t *testing.T) workspaceEnv {
 	t.Helper()
 	e := workspaceEnv{graphEnv: newGraphEnv(t, graphPlan...), data: t.TempDir()}
@@ -41,7 +56,7 @@ func newWorkspaceEnv(t *testing.T) workspaceEnv {
 	d, _ := fakeDocker(t, "", "")
 	e.host = Host{
 		Docker: d,
-		Env:    []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "XDG_DATA_HOME=" + e.data, "USER=kenny"},
+		Env:    []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "XDG_DATA_HOME=" + e.data, "USER=intruder"},
 		Clock:  clock.NewManual(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)),
 		Connect: func(context.Context, *config.Project, []string) (Integrations, error) {
 			return Integrations{Tracker: e.tracker, SCM: fakes.NewSCM("main"), CI: fakes.NewCI(), Remote: filepath.Join(e.data, "origin.git")}, nil
@@ -50,9 +65,9 @@ func newWorkspaceEnv(t *testing.T) workspaceEnv {
 	return e
 }
 
-// The approver is one of tracker.operators: --by names one, and without it
-// the only operator approves (plan.md).
-func TestApprover(t *testing.T) {
+// Who decides is one of tracker.operators: --by names one, and without it
+// the only operator decides (plan.md).
+func TestOperator(t *testing.T) {
 	for _, tt := range []struct {
 		ops     []string
 		by      string
@@ -67,9 +82,10 @@ func TestApprover(t *testing.T) {
 		{nil, "", "", true},
 		{nil, "kenny", "", true},
 	} {
-		got, err := approver(tt.ops, tt.by)
+		p := &config.Project{Config: config.Config{Tracker: config.Tracker{Operators: tt.ops}}}
+		got, err := operator(p, tt.by)
 		if got != tt.want || errors.Is(err, ErrNotOperator) != tt.refused {
-			t.Errorf("approver(%v, %q) = %q, %v", tt.ops, tt.by, got, err)
+			t.Errorf("operator(%v, %q) = %q, %v", tt.ops, tt.by, got, err)
 		}
 	}
 }
@@ -116,14 +132,7 @@ func TestWorkspaceCommands(t *testing.T) {
 	if err := (ApprovePlan{Host: e.host}).Execute(ctx, ApprovePlanInput{ConfigDir: e.dir, Milestone: "v0.1"}); !errors.Is(err, ErrNotOperator) {
 		t.Fatalf("approval without operators: %v", err)
 	}
-	cfg := filepath.Join(e.dir, "kluzo.yaml")
-	raw, err := os.ReadFile(cfg)
-	if err != nil || !strings.Contains(string(raw), "operators: []") {
-		t.Fatalf("kluzo.yaml: %v", err)
-	}
-	if err := os.WriteFile(cfg, []byte(strings.Replace(string(raw), "operators: []", "operators: [kenny]", 1)), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	e.operators(t, "kenny")
 	if err := (ApprovePlan{Host: e.host}).Execute(ctx, ApprovePlanInput{ConfigDir: e.dir, Milestone: "v0.1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -288,20 +297,64 @@ func TestRetryEffects(t *testing.T) {
 	if err != nil || len(st.Failed) != 1 || st.Failed[0].ID != id || st.Failed[0].LastError != "403" {
 		t.Fatalf("status lists the failed effect: %+v, %v", st.Failed, err)
 	}
-	if _, err := retry(RetryEffectsInput{}, true); err == nil {
-		t.Error("neither an id nor --all")
+	for _, in := range []RetryEffectsInput{{}, {All: true}, {ID: id, All: true, Milestone: "v0.1"}, {ID: id, Milestone: "v0.1"}} {
+		if _, err := retry(in, true); !errors.Is(err, ErrRetryUsage) {
+			t.Errorf("%+v: %v", in, err)
+		}
 	}
-	if _, err := retry(RetryEffectsInput{ID: "ef_nope"}, true); !errors.Is(err, ErrNoWorkspace) {
+	// Who retries is an operator, never $USER (plan.md).
+	if _, err := retry(RetryEffectsInput{ID: id}, true); !errors.Is(err, ErrNotOperator) {
+		t.Errorf("retry without operators: %v", err)
+	}
+	e.operators(t, "kenny", "ana")
+	if _, err := retry(RetryEffectsInput{ID: id}, true); !errors.Is(err, ErrNotOperator) {
+		t.Errorf("retry without --by among two operators: %v", err)
+	}
+	if _, err := retry(RetryEffectsInput{ID: id, By: "intruder"}, true); !errors.Is(err, ErrNotOperator) {
+		t.Errorf("retry by who is not an operator: %v", err)
+	}
+	if _, err := retry(RetryEffectsInput{ID: "ef_nope", By: "ana"}, true); !errors.Is(err, ErrNoWorkspace) {
 		t.Errorf("unknown effect: %v", err)
 	}
-	if _, err := retry(RetryEffectsInput{ID: id}, false); !errors.Is(err, ErrDoctor) {
+	if _, err := retry(RetryEffectsInput{ID: id, By: "ana"}, false); !errors.Is(err, ErrDoctor) {
 		t.Errorf("red doctor: %v", err)
 	}
-	got, err := retry(RetryEffectsInput{All: true}, true)
+	if _, err := retry(RetryEffectsInput{All: true, Milestone: "v9", By: "ana"}, true); !errors.Is(err, ErrNoWorkspace) {
+		t.Errorf("retry --all of another milestone: %v", err)
+	}
+	got, err := retry(RetryEffectsInput{All: true, Milestone: "v0.1", By: "ana"}, true)
 	if err != nil || len(got) != 1 || got[0].ID != id || got[0].Milestone != "v0.1" || got[0].LastError != "403" {
 		t.Fatalf("retry --all = %+v, %v", got, err)
 	}
-	if _, err := retry(RetryEffectsInput{All: true}, true); !errors.Is(err, ErrNoWorkspace) {
+	if by := retriedBy(ctx, t, e); by != "ana" {
+		t.Errorf("effect.retried by %q, want the operator", by)
+	}
+	if _, err := retry(RetryEffectsInput{All: true, Milestone: "v0.1", By: "ana"}, true); !errors.Is(err, ErrNoWorkspace) {
 		t.Errorf("nothing left to retry: %v", err)
 	}
+}
+
+// retriedBy is the by of the last effect.retried of the workspace of v0.1.
+func retriedBy(ctx context.Context, t *testing.T, e workspaceEnv) string {
+	t.Helper()
+	o, err := open(ctx, e.host.fill(), e.dir, "v0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.db.Close() }()
+	evs, err := o.db.Events(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := ""
+	for _, ev := range evs {
+		if ev.Kind == contracts.EventEffectRetried {
+			var p contracts.EffectRetried
+			if err := json.Unmarshal(ev.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			by = p.By
+		}
+	}
+	return by
 }

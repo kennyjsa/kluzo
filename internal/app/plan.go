@@ -180,29 +180,6 @@ type ApprovePlanInput struct {
 	By        string // a login of tracker.operators; empty: the only operator
 }
 
-// ErrNotOperator means the approver is not one of tracker.operators.
-var ErrNotOperator = errors.New("the approver must be one of tracker.operators")
-
-// approver is who approves the plan (plan.md): by, which must be one of the
-// operators, or the only operator when by is empty.
-func approver(operators []string, by string) (string, error) {
-	if len(operators) == 0 {
-		return "", fmt.Errorf("%w, and the list is empty: add the login of who approves to tracker.operators in kluzo.yaml", ErrNotOperator)
-	}
-	if by == "" {
-		if len(operators) != 1 {
-			return "", fmt.Errorf("%w (%s): name one with --by", ErrNotOperator, strings.Join(operators, ", "))
-		}
-		return operators[0], nil
-	}
-	for _, op := range operators {
-		if strings.EqualFold(op, by) {
-			return op, nil
-		}
-	}
-	return "", fmt.Errorf("%w (%s): %q is not", ErrNotOperator, strings.Join(operators, ", "), by)
-}
-
 // Execute approves the plan.
 func (u ApprovePlan) Execute(ctx context.Context, in ApprovePlanInput) error {
 	h := u.Host.fill()
@@ -214,7 +191,7 @@ func (u ApprovePlan) Execute(ctx context.Context, in ApprovePlanInput) error {
 	if s := o.snap.Workspace.State; s != core.WorkspaceAwaitingApproval {
 		return fmt.Errorf("the workspace is %s, not awaiting approval", s)
 	}
-	by, err := approver(o.project.Config.Tracker.Operators, in.By)
+	by, err := operator(o.project, in.By)
 	if err != nil {
 		return err
 	}
