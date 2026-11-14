@@ -27,7 +27,8 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | `approved` | `paused` | efeito `git.milestone` falha permanente (branch local e remota divergentes) | — | notificação; nenhum nó é despachado; o humano reconcilia a branch e retoma (`resume` reenfileira o efeito) |
 | `running` | `paused` | efeito `git.milestone` reenfileirado por um `resume` falha permanente | — | igual à linha anterior |
 | `running` | `paused` | humano pausa | — | sessões ativas recebem `Cancel`; nós voltam para o último estado estável |
-| `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024), ou credenciais do host visíveis às sessões sem `security.allow_host_credentials` (ADR 0020) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
+| `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
+| `running` | `paused` | a conferência antes da sessão falha: credencial do host encontrada sem `security.allow_host_credentials` (ADR 0020), ou o CLI do harness não roda (binário ausente, `auth status` com erro) | — | igual à linha anterior; não entra na política de tentativas do outbox |
 | `paused` | `running` | humano retoma | — | scheduler volta a despachar (só depois de `git.milestone` concluído) |
 | `running` | `closing` | último nó vira `integrated` | todos os nós `integrated` ou `cancelled` | inicia o flow `closing` |
 | `closing` | `ready_to_merge` | flow `closing` termina | gate E2E verde | abre o PR/MR `milestone → main` com o relatório |
