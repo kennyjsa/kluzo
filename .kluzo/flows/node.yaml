@@ -1,0 +1,17 @@
+# Default flow of a node (docs/contracts/config.md#flows).
+version: 1
+steps:
+  - id: implement
+    role: implementer
+    phase: running
+  - id: quick
+    gate: [build]
+  - id: review
+    role: reviewer
+    phase: in_review
+    on_reject: implement
+    max_rounds: 2
+  - id: gates
+    gate: [test]
+  - id: merge
+    merge_queue: milestone
