@@ -250,6 +250,23 @@ func TestOutbox(t *testing.T) {
 	if len(pending) != 1 || pending[0].ID != "ef_c" {
 		t.Errorf("a failed effect must leave the queue, got %+v", pending)
 	}
+	// kluzo effect retry: the failed effect is pending again, with its runs
+	// zeroed and the same idempotency key.
+	failed, err := d.FailedEffects(ctx)
+	must(t, err)
+	if len(failed) != 1 || failed[0].ID != "ef_b" || failed[0].LastError != "gave up" {
+		t.Fatalf("failed = %+v", failed)
+	}
+	var kind string
+	must(t, d.Tx(ctx, func(x *Tx) error { var err error; kind, _, err = x.RequeueEffect("ef_b"); return err }))
+	pending, _ = d.PendingEffects(ctx, now.Add(time.Hour), 10)
+	if kind != "tracker.comment" || len(pending) != 2 || pending[0].ID != "ef_b" || pending[0].Attempts != 0 || pending[0].LastError != "" ||
+		!pending[0].NextAt.IsZero() || pending[0].IdemKey != failed[0].IdemKey {
+		t.Fatalf("requeued %q: %+v", kind, pending)
+	}
+	if err := d.Tx(ctx, func(x *Tx) error { _, _, err := x.RequeueEffect("ef_c"); return err }); !errors.Is(err, ErrNotFound) {
+		t.Errorf("requeue of a pending effect: error = %v, want ErrNotFound", err)
+	}
 	// Completing twice, or an unknown effect, is an error.
 	if err := complete("ef_a"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second completion: error = %v, want ErrNotFound", err)

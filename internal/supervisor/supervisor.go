@@ -281,6 +281,26 @@ func workEffect(k core.EffectKind) bool {
 	return false
 }
 
+// snapshotGraph is the graph of the nodes of a snapshot, named by issue.
+func snapshotGraph(snap store.Snapshot) (core.Graph, error) {
+	g := core.Graph{Nodes: map[string]core.GraphNode{}}
+	for _, n := range snap.Nodes {
+		g.Nodes[n.IssueRef] = core.GraphNode{ID: n.IssueRef, Title: n.Title, State: n.State, Areas: n.Areas}
+	}
+	for _, e := range snap.Edges {
+		from, err := snap.Node(e.From)
+		if err != nil {
+			return g, err
+		}
+		to, err := snap.Node(e.To)
+		if err != nil {
+			return g, err
+		}
+		g.Edges = append(g.Edges, core.Edge{From: from.IssueRef, To: to.IssueRef, Kind: contracts.EdgeKind(e.Kind)})
+	}
+	return g, nil
+}
+
 // farFuture lists every pending effect, due or not.
 var farFuture = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -292,20 +312,9 @@ const pendingBatch = 200
 // every node is integrated, and applies Dispatch to the next ready node when
 // no node is active.
 func (s *Supervisor) schedule(ctx context.Context, snap store.Snapshot) (bool, error) {
-	g := core.Graph{Nodes: map[string]core.GraphNode{}}
-	for _, n := range snap.Nodes {
-		g.Nodes[n.IssueRef] = core.GraphNode{ID: n.IssueRef, Title: n.Title, State: n.State, Areas: n.Areas}
-	}
-	for _, e := range snap.Edges {
-		from, err := snap.Node(e.From)
-		if err != nil {
-			return false, err
-		}
-		to, err := snap.Node(e.To)
-		if err != nil {
-			return false, err
-		}
-		g.Edges = append(g.Edges, core.Edge{From: from.IssueRef, To: to.IssueRef, Kind: contracts.EdgeKind(e.Kind)})
+	g, err := snapshotGraph(snap)
+	if err != nil {
+		return false, err
 	}
 	// The graph names its nodes by issue: every ref it returns is a node of
 	// the snapshot.
@@ -664,7 +673,7 @@ func (s *Supervisor) settle(ctx context.Context, f store.Effect, n int, err erro
 		return err
 	}
 	if nerr := s.d.Notifier.Notify(ctx, ports.Notification{
-		Title: "Kluzo effect failed: " + f.Kind, Body: err.Error() + " (after " + strconv.Itoa(n) + " runs)",
+		Title: "Kluzo effect failed: " + f.Kind, Body: err.Error() + " (after " + strconv.Itoa(n) + " runs); once the cause is fixed: kluzo effect retry " + f.ID,
 		Priority: ports.PriorityHigh, Group: s.cfg.Workspace,
 	}); nerr != nil {
 		s.d.Log.Warn("notify failed", "err", nerr)

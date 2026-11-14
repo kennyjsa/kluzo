@@ -28,6 +28,10 @@ func newRemote(t *testing.T, dir string) *repoSCM {
 type repoSCM struct {
 	*fakes.SCM
 	bare string
+	// openPRErr fails OpenPR while set; prKeys are the idempotency keys
+	// OpenPR was called with.
+	openPRErr error
+	prKeys    []string
 }
 
 func (s *repoSCM) BranchHead(_ context.Context, name string) (string, error) {
@@ -54,6 +58,10 @@ func (s *repoSCM) EnsureBranch(ctx context.Context, name, from string) (string, 
 
 // OpenPR opens the PR in the fake once the remote branches differ.
 func (s *repoSCM) OpenPR(ctx context.Context, in ports.NewPR, idemKey string) (ports.PR, error) {
+	s.prKeys = append(s.prKeys, idemKey)
+	if s.openPRErr != nil {
+		return ports.PR{}, s.openPRErr
+	}
 	head, err := s.BranchHead(ctx, in.Head)
 	if err != nil {
 		return ports.PR{}, err

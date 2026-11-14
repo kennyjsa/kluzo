@@ -11,6 +11,7 @@ import (
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/platform/clock"
 	"github.com/kennyjsa/kluzo/internal/ports/fakes"
+	"github.com/kennyjsa/kluzo/internal/tracker/github"
 )
 
 // doctorConfig writes a valid .kluzo/ and returns its directory and kluzo.yaml.
@@ -38,7 +39,9 @@ func greenDoctor(t *testing.T, env []string, helpers func(context.Context, strin
 		}},
 		Helpers: helpers,
 		Git:     func(context.Context) (string, error) { return "2.43.0", nil },
-		Runtime: func(context.Context, config.Harness, config.Runtime, []string) (string, error) { return "2.1.319", nil },
+		Runtime: func(context.Context, config.Harness, config.Runtime, []string) (RuntimeCheck, error) {
+			return RuntimeCheck{Version: "2.1.319"}, nil
+		},
 	}
 }
 
@@ -63,6 +66,23 @@ func TestDoctorHostCredentials(t *testing.T) {
 	out, err = greenDoctor(t, env, keychain).Execute(context.Background(), DoctorInput{Dir: dir})
 	if err != nil || !out.OK() || len(out.Warnings) != 1 {
 		t.Errorf("allowed: %+v %v", out, err)
+	}
+	// A claude logged in without the credential variables is a credential of
+	// the host: allowed here, so a warning (Q67).
+	login := greenDoctor(t, env, none)
+	login.Runtime = func(context.Context, config.Harness, config.Runtime, []string) (RuntimeCheck, error) {
+		return RuntimeCheck{Version: "2.1.319", HostLogin: true}, nil
+	}
+	out, err = login.Execute(context.Background(), DoctorInput{Dir: dir})
+	if err != nil || !out.OK() || len(out.Warnings) != 1 || !strings.Contains(out.Warnings[0], "logged in without CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Errorf("login allowed: %+v %v", out, err)
+	}
+	if err := os.WriteFile(cfg, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = login.Execute(context.Background(), DoctorInput{Dir: dir})
+	if err != nil || out.OK() || len(out.Refused) != 1 || !strings.Contains(out.Refused[0], "a login of the host") {
+		t.Errorf("login refused: %+v %v", out, err)
 	}
 	if _, err := greenDoctor(t, []string{}, none).Execute(context.Background(), DoctorInput{Dir: dir}); err == nil {
 		t.Error("no HOME is not an error")
@@ -94,8 +114,8 @@ func TestDoctorIntegrations(t *testing.T) {
 	d.Git = func(context.Context) (string, error) {
 		return "2.30.1", errors.New("git 2.30.1 is installed, kluzo needs 2.38 or newer")
 	}
-	d.Runtime = func(context.Context, config.Harness, config.Runtime, []string) (string, error) {
-		return "", errors.New("claude: not found")
+	d.Runtime = func(context.Context, config.Harness, config.Runtime, []string) (RuntimeCheck, error) {
+		return RuntimeCheck{}, errors.New("claude: not found")
 	}
 	d.Host.Connect = func(context.Context, *config.Project, []string) (Integrations, error) {
 		return Integrations{}, errors.New("KLUZO_GH_TOKEN is not set")
@@ -111,6 +131,36 @@ func TestDoctorIntegrations(t *testing.T) {
 	}
 }
 
+// The permissions of the bot: the missing ones of an App are problems, a
+// personal token gets the list as a warning (F29).
+func TestDoctorPermissions(t *testing.T) {
+	dir, _, _ := doctorConfig(t)
+	none := func(context.Context, string, string) ([]string, error) { return nil, nil }
+	run := func(pc github.PermissionCheck) DoctorOutput {
+		d := greenDoctor(t, []string{"HOME=" + t.TempDir()}, none)
+		d.Host.Connect = func(context.Context, *config.Project, []string) (Integrations, error) {
+			return Integrations{Tracker: fakes.NewTracker(clock.System{}), Permissions: func() github.PermissionCheck { return pc }}, nil
+		}
+		out, err := d.Execute(context.Background(), DoctorInput{Dir: dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	out := run(github.PermissionCheck{})
+	if !out.OK() || len(out.Warnings) != 1 || !strings.Contains(out.Warnings[0], "pull_requests: write") {
+		t.Errorf("token: %+v", out)
+	}
+	out = run(github.PermissionCheck{Verified: true, Missing: []github.Permission{{Name: "pull_requests", Level: "write"}}})
+	if out.OK() || len(out.Problems) != 1 || !strings.Contains(out.Problems[0], "lacks pull_requests: write") {
+		t.Errorf("app missing: %+v", out)
+	}
+	out = run(github.PermissionCheck{Verified: true})
+	if !out.OK() || !strings.Contains(strings.Join(out.Passed, "\n"), "tracker permissions: metadata: read") {
+		t.Errorf("app complete: %+v", out)
+	}
+}
+
 // Without a model credential the real check of Claude Code fails, and an
 // unknown harness is refused in v0.1.
 func TestCheckRuntime(t *testing.T) {
@@ -123,5 +173,27 @@ func TestCheckRuntime(t *testing.T) {
 	}
 	if c := modelCredential([]string{"ANTHROPIC_API_KEY=k", "CLAUDE_CODE_OAUTH_TOKEN=o"}); c.Name != "CLAUDE_CODE_OAUTH_TOKEN" || c.Value != "o" {
 		t.Errorf("credential = %+v", c)
+	}
+}
+
+// Before each session, a claude logged in without the credential variables
+// joins the credentials of the host (Q67).
+func TestSessionHostCredentials(t *testing.T) {
+	env := []string{"HOME=" + t.TempDir()}
+	none := func(context.Context, string, string) ([]string, error) { return nil, nil }
+	login := func(v bool, err error) func(context.Context) (bool, error) {
+		return func(context.Context) (bool, error) { return v, err }
+	}
+	if got, err := sessionHostCredentials(context.Background(), env, none, login(false, nil)); err != nil || len(got) != 0 {
+		t.Errorf("clean: %v %v", got, err)
+	}
+	if got, err := sessionHostCredentials(context.Background(), env, none, login(true, nil)); err != nil || len(got) != 1 || !strings.Contains(got[0], "claude-code is logged in") {
+		t.Errorf("login: %v %v", got, err)
+	}
+	if _, err := sessionHostCredentials(context.Background(), env, none, login(false, errors.New("boom"))); err == nil {
+		t.Error("a failed login check passed")
+	}
+	if _, err := sessionHostCredentials(context.Background(), nil, none, login(false, nil)); err == nil {
+		t.Error("no HOME passed")
 	}
 }

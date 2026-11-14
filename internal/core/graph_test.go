@@ -94,6 +94,19 @@ func TestReady(t *testing.T) {
 	}
 }
 
+// On the approval, a node whose dependencies are met gets orch/ready, the
+// others orch/planned (state-machine.md, labels).
+func TestApprovalLabels(t *testing.T) {
+	var got []string
+	for _, l := range agenda().ApprovalLabels() {
+		got = append(got, l.Node+"="+l.Label)
+	}
+	want := []string{"41=orch/ready", "42=orch/planned", "43=orch/ready", "44=orch/planned", "45=orch/planned", "46=orch/planned", "47=orch/planned"}
+	if !slices.Equal(got, want) {
+		t.Errorf("ApprovalLabels() = %v, want %v", got, want)
+	}
+}
+
 func TestCriticalWeights(t *testing.T) {
 	g := agenda()
 	w := g.CriticalWeights()

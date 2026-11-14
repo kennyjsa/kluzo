@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/kennyjsa/kluzo/internal/config"
 	"github.com/kennyjsa/kluzo/internal/gitops"
 	"github.com/kennyjsa/kluzo/internal/platform/hostcred"
+	"github.com/kennyjsa/kluzo/internal/ports"
 	"github.com/kennyjsa/kluzo/internal/runtime/claudecode"
+	"github.com/kennyjsa/kluzo/internal/tracker/github"
 )
 
 // ErrDoctor means kluzo doctor is not green.
@@ -29,9 +32,16 @@ type Doctor struct {
 	Helpers func(ctx context.Context, home, xdgConfig string) ([]string, error)
 	// Git checks the git CLI and returns its version (gitops when nil).
 	Git func(ctx context.Context) (string, error)
-	// Runtime checks the CLI of a harness and returns its version (the
-	// adapter's Check when nil).
-	Runtime func(ctx context.Context, h config.Harness, rt config.Runtime, env []string) (string, error)
+	// Runtime checks the CLI of a harness (checkRuntime when nil).
+	Runtime func(ctx context.Context, h config.Harness, rt config.Runtime, env []string) (RuntimeCheck, error)
+}
+
+// RuntimeCheck is what the check of a harness CLI found: its version, and
+// whether it is logged in without the credential variables of Kluzo (a
+// credential of the host, Q67).
+type RuntimeCheck struct {
+	Version   string
+	HostLogin bool
 }
 
 // DoctorInput selects the configuration directory.
@@ -88,9 +98,13 @@ func (d Doctor) Execute(ctx context.Context, in DoctorInput) (DoctorOutput, erro
 	if runtime == nil {
 		runtime = checkRuntime
 	}
+	var logins []string
 	for _, harness := range harnesses(p) {
-		v, err := runtime(ctx, harness, p.Config.Runtimes[harness], h.Env)
-		check(string(harness), v, err)
+		rc, err := runtime(ctx, harness, p.Config.Runtimes[harness], h.Env)
+		check(string(harness), rc.Version, err)
+		if rc.HostLogin {
+			logins = append(logins, hostLoginFinding(harness))
+		}
 	}
 
 	integ, err := h.Connect(ctx, p, h.Env)
@@ -98,6 +112,7 @@ func (d Doctor) Execute(ctx context.Context, in DoctorInput) (DoctorOutput, erro
 		var who string
 		who, err = integ.Tracker.Whoami(ctx)
 		check("tracker token: acts as", who, err)
+		out.permissions(integ.Permissions)
 	} else {
 		check("tracker token", "", err)
 	}
@@ -110,6 +125,7 @@ func (d Doctor) Execute(ctx context.Context, in DoctorInput) (DoctorOutput, erro
 	if err != nil {
 		return out, err
 	}
+	found = append(found, logins...)
 	for _, f := range found {
 		if p.Config.Security.AllowHostCredentials {
 			out.Warnings = append(out.Warnings, f+" (allowed by security.allow_host_credentials)")
@@ -129,6 +145,31 @@ func (d Doctor) Execute(ctx context.Context, in DoctorInput) (DoctorOutput, erro
 		out.Passed = append(out.Passed, "disk: "+HumanSize(s.Disk)+" in the workspaces and caches of the project")
 	}
 	return out, nil
+}
+
+// permissions checks the permissions of the bot (F29): the missing ones of a
+// GitHub App are problems; those of a personal token cannot be read, so they
+// are listed as a warning.
+func (o *DoctorOutput) permissions(read func() github.PermissionCheck) {
+	if read == nil {
+		return
+	}
+	pc := read()
+	list := func(ps []github.Permission) string {
+		names := make([]string, len(ps))
+		for i, p := range ps {
+			names[i] = p.String()
+		}
+		return strings.Join(names, ", ")
+	}
+	switch {
+	case !pc.Verified:
+		o.Warnings = append(o.Warnings, "tracker permissions: a personal token cannot be checked; it needs "+list(github.RequiredPermissions))
+	case len(pc.Missing) > 0:
+		o.Problems = append(o.Problems, "tracker permissions: the GitHub App installation lacks "+list(pc.Missing))
+	default:
+		o.Passed = append(o.Passed, "tracker permissions: "+list(github.RequiredPermissions))
+	}
 }
 
 // harnesses are the harnesses the roles of the project use, sorted.
@@ -158,18 +199,23 @@ func modelCredential(env []string) claudecode.Credential {
 	return claudecode.Credential{}
 }
 
-// checkRuntime runs the Check of the adapter of a harness, with a throwaway
-// synthetic HOME.
-func checkRuntime(ctx context.Context, h config.Harness, rt config.Runtime, env []string) (string, error) {
+// checkRuntime runs the Check of the adapter of a harness and tests its
+// login without the credential variables, with a throwaway synthetic HOME.
+func checkRuntime(ctx context.Context, h config.Harness, rt config.Runtime, env []string) (RuntimeCheck, error) {
 	if h != config.ClaudeCode {
-		return "", fmt.Errorf("harness %s is not supported in v0.1", h)
+		return RuntimeCheck{}, fmt.Errorf("harness %s is not supported in v0.1", h)
 	}
 	home, err := os.MkdirTemp("", "kluzo-doctor-")
 	if err != nil {
-		return "", err
+		return RuntimeCheck{}, err
 	}
 	defer func() { _ = os.RemoveAll(home) }()
-	info, err := claudecode.New(claudecode.Config{Bin: rt.Bin, MinVersion: rt.MinVersion, Home: home, ConfigDir: home, LogDir: home,
-		ParentEnv: env, EnvAllow: rt.EnvAllow, Credential: modelCredential(env)}).Check(ctx)
-	return info.Version, err
+	cc := claudecode.New(claudecode.Config{Bin: rt.Bin, MinVersion: rt.MinVersion, Home: home, ConfigDir: home, LogDir: home,
+		ParentEnv: env, EnvAllow: rt.EnvAllow, Credential: modelCredential(env)})
+	info, err := cc.Check(ctx)
+	if errors.Is(err, ports.ErrRuntimeMissing) {
+		return RuntimeCheck{}, err
+	}
+	login, lerr := cc.HostLogin(ctx)
+	return RuntimeCheck{Version: info.Version, HostLogin: login}, errors.Join(err, lerr)
 }

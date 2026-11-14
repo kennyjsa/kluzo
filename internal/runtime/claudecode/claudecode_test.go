@@ -758,7 +758,8 @@ func TestCheck(t *testing.T) {
 		{"exactly the minimum", map[string]string{"KLUZO_FAKE_VERSION": "2.1.295"}, nil, "", nil, "2.1.295"},
 		{"missing flag", map[string]string{"KLUZO_FAKE_FLAGS": strings.ReplaceAll(goodFlags, "--restricted", "")}, nil, "--restricted", ports.ErrRuntimeFlags, "2.1.319"},
 		{"hidden flag unknown", map[string]string{"KLUZO_FAKE_UNKNOWN": "--append-system-prompt-file"}, nil, "--append-system-prompt-file", ports.ErrRuntimeFlags, "2.1.319"},
-		{"not logged in", map[string]string{"KLUZO_FAKE_LOGGED_OUT": "1"}, &Credential{}, "claude auth login", ports.ErrRuntimeAuth, "2.1.319"},
+		{"no credential variable", map[string]string{"KLUZO_FAKE_LOGGED_OUT": "1"}, &Credential{}, "CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY", ports.ErrRuntimeAuth, "2.1.319"},
+		{"a login does not replace the variable", nil, &Credential{}, "CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY", ports.ErrRuntimeAuth, "2.1.319"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -785,15 +786,43 @@ func TestCheck(t *testing.T) {
 			}
 		})
 	}
-	// A login reported by `claude auth status` counts when there is no credential variable.
-	e := newEnv(t, func(c *Config) { c.Credential = Credential{} })
-	if info, err := e.rt.Check(context.Background()); err != nil || info.AuthSource != "login" {
-		t.Errorf("info %+v, err %v", info, err)
-	}
 	// A binary that is not there.
 	missing := newEnv(t, func(c *Config) { c.Bin = "/nonexistent/claude" })
 	if _, err := missing.rt.Check(context.Background()); !errorsIs(err, ports.ErrRuntimeMissing) {
 		t.Errorf("err = %v, want ErrRuntimeMissing", err)
+	}
+}
+
+// TestHostLogin: the login is tested without the credential variables, even
+// when env_allow would copy them (Q67).
+func TestHostLogin(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		loggedOut bool
+		want      bool
+	}{
+		{"a login of the host", false, true},
+		{"only the variable", true, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			vars := map[string]string{"KLUZO_FAKE_FLAGS": goodFlags}
+			if tt.loggedOut {
+				vars["KLUZO_FAKE_LOGGED_OUT"] = "1"
+			}
+			e := newEnv(t, func(c *Config) {
+				c.Bin = fakeBin(t, vars)
+				c.ParentEnv = append(c.ParentEnv, "CLAUDE_CODE_OAUTH_TOKEN=oauth-from-host")
+				c.EnvAllow = []string{"CLAUDE_CODE_OAUTH_TOKEN"}
+			})
+			got, err := e.rt.HostLogin(context.Background())
+			if err != nil || got != tt.want {
+				t.Errorf("HostLogin = %v, %v; want %v", got, err, tt.want)
+			}
+		})
+	}
+	missing := newEnv(t, func(c *Config) { c.Bin = "/nonexistent/claude" })
+	if _, err := missing.rt.HostLogin(context.Background()); err == nil {
+		t.Error("a missing binary was accepted")
 	}
 }
 

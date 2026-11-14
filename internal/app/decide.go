@@ -248,3 +248,85 @@ func (u DecideNode) Execute(ctx context.Context, in DecideNodeInput) error {
 	}
 	return fmt.Errorf("issue #%s is in %d active workspaces", in.Issue, len(found))
 }
+
+// RetryEffects returns failed effects to pending (kluzo effect retry, the
+// exit after the cause is fixed): one by id, or every failed effect of the
+// active workspaces of the project on this machine. It needs a green doctor.
+type RetryEffects struct {
+	Host Host
+	// Doctor runs before the retry; nil means the Doctor of Host.
+	Doctor func(ctx context.Context, configDir string) (DoctorOutput, error)
+}
+
+// RetryEffectsInput names the effect, or All.
+type RetryEffectsInput struct {
+	ConfigDir string
+	ID        string
+	All       bool
+}
+
+// RetriedEffect is an effect returned to pending.
+type RetriedEffect struct {
+	ID, Kind, Milestone, LastError string
+}
+
+// Execute retries the effects, each workspace in one transaction.
+func (u RetryEffects) Execute(ctx context.Context, in RetryEffectsInput) ([]RetriedEffect, error) {
+	if (in.ID == "") == !in.All {
+		return nil, errors.New("name one failed effect, or --all")
+	}
+	h := u.Host.fill()
+	p, err := project(in.ConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := journalsOf(ctx, h, p, in.ConfigDir)
+	if err != nil {
+		return nil, err
+	}
+	type batch struct {
+		w   machineWorkspace
+		ids []string
+	}
+	var batches []batch
+	var out []RetriedEffect
+	for _, w := range ws {
+		if !w.active() {
+			continue
+		}
+		milestone, _ := p.Config.Branches.MilestoneTitle(w.Branch)
+		b := batch{w: w}
+		if err := readJournal(ctx, w, func(db *store.DB) error {
+			failed, err := db.FailedEffects(ctx)
+			for _, f := range failed {
+				if in.All || f.ID == in.ID {
+					b.ids = append(b.ids, f.ID)
+					out = append(out, RetriedEffect{ID: f.ID, Kind: f.Kind, Milestone: milestone, LastError: f.LastError})
+				}
+			}
+			return err
+		}); err != nil {
+			return nil, err
+		}
+		if len(b.ids) > 0 {
+			batches = append(batches, b)
+		}
+	}
+	if len(batches) == 0 {
+		if in.All {
+			return nil, fmt.Errorf("%w has a failed effect", ErrNoWorkspace)
+		}
+		return nil, fmt.Errorf("%w is active with the failed effect %s", ErrNoWorkspace, in.ID)
+	}
+	if err := requireDoctor(ctx, h, u.Doctor, in.ConfigDir, "retrying"); err != nil {
+		return nil, err
+	}
+	for _, b := range batches {
+		if err := writeJournal(ctx, b.w, func(db *store.DB) error {
+			return supervisor.RetryEffects(ctx, db, h.IDs, h.Clock, b.ids, getenv(h.Env, "USER"))
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
