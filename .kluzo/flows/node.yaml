@@ -5,7 +5,7 @@ steps:
     role: implementer
     phase: running
   - id: quick
-    gate: [build]
+    gate: [build, lint]
   - id: review
     role: reviewer
     phase: in_review
