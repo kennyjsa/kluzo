@@ -6,7 +6,7 @@ A sequência de entregas do Kluzo. Este arquivo é o **único lugar** onde a ord
 
 | Entrega | Objetivo | Marco que destrava | Status |
 |---|---|---|---|
-| [v0.1 · Núcleo](milestones/v0.1.md) | Executar uma milestone do GitHub de ponta a ponta, em sequência, com Claude Code, pela CLI. | **O Kluzo passa a orquestrar o próprio desenvolvimento**: a v0.2 já é executada por ele. | planejada |
+| [v0.1 · Núcleo](milestones/v0.1.md) | Executar uma milestone do GitHub de ponta a ponta, em sequência, com Claude Code, pela CLI. | **O Kluzo passa a orquestrar o próprio desenvolvimento**: a v0.2 já é executada por ele. | em andamento: itens 1 a 10b integrados; falta o dogfooding (item 11) |
 | [v0.2 · Paralelo e GitLab](milestones/v0.2.md) | Paralelismo seguro, fila de merge, triagem, MCP, OpenCode e GitLab. | Uso real nos projetos em GitLab (Agiclin, Payment.hub). | planejada |
 | [v0.3 · Web e upstream](milestones/v0.3.md) | Web responsiva mobile-first, operada pela tailnet; upstream completo com entrevistas e aprovação do plano. | Operar tudo pelo celular; o humano atua só no upstream. | planejada |
 | [v0.4 · Fechamento](milestones/v0.4.md) | Fechamento com relatório, perfis, esteira de workspaces e telas complementares. | Ciclo completo sem CLI: da demanda ao merge na `main`. | planejada |
