@@ -97,6 +97,10 @@ secret_paths: [".env", ".env.*"]   # o hook nega leitura por ferramenta de arqui
 
 caches: [go, node]               # ecossistemas com cache de download compartilhado (ADR 0025)
 
+references:                      # F33 parte 1: leitura recomendada, listada no Focus da tarefa; nada é colado no prompt
+  - { path: "docs/contracts/", note: "contratos; valem sobre os outros docs" }
+  - { path: "docs/architecture/packages.md" }
+
 retention:
   logs: 90d                      # logs de sessão e de gate
   disk_warn: 20GB                # aviso do doctor
@@ -137,6 +141,7 @@ subagents: haiku
 effort: high
 tools: [read, edit, bash, test]
 skills: [testing-conventions]
+references: [{ path: "docs/development.md", note: "Definition of Done" }]   # somadas às gerais, depois delas
 mcp: [kluzo_context, kluzo_changes, kluzo_code_map, kluzo_code_find, kluzo_code_refs, kluzo_decision, kluzo_ask, kluzo_propose_node, kluzo_result]
 output: node-result
 budget: { minutes: 45, usd: 4 }
