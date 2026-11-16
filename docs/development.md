@@ -10,6 +10,9 @@ Como compilar, testar e contribuir com o Kluzo. Vale para humanos e agentes.
 - `golangci-lint`.
 - Para os testes de integração: `claude` e `opencode` instalados e autenticados, e um token de teste do GitHub.
 - Os testes de integração e os ensaios rodam numa máquina com acesso direto ao GitHub (a do operador ou uma VM). Sessões de nuvem com proxy que bloqueia GraphQL ou escrita na API não servem para isso, e o adaptador não ganha caminho alternativo só REST por causa delas.
+- Durante um `kluzo run`, o clone do projeto é do Kluzo: o operador não faz checkout, commit, fetch nem push nele. O Kluzo confere as refs desse clone depois de cada sessão e não distingue uma mudança humana de uma do agente; qualquer mudança falha o nó como adulteração. Ações de operador (um push de provocação num ensaio, por exemplo) saem de um clone separado.
+- Para ler o journal fora do Kluzo, use `sqlite3 'file:<workspace>/state.db?immutable=1'`; o modo `-readonly` simples falha com o banco em WAL.
+- Os casos de check runs do teste de integração exigem GitHub App: um token pessoal fine-grained não lê check runs, e o teste pula esses casos com o motivo quando a autenticação é token.
 - Os testes rodam como usuário comum. Um caso que não faz sentido para root (permissão de arquivo) se pula com `t.Skip` quando o uid é 0, dizendo o motivo.
 
 ## Comandos

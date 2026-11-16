@@ -25,7 +25,7 @@ qualquer estado ativo ── erro irrecuperável ──► failed
 | `approved` | `running` | imediato | efeito `git.milestone` concluído | scheduler começa a despachar nós |
 | `approved` | `paused` | efeito `git.milestone` falha permanente (branch local e remota divergentes) | — | notificação; nenhum nó é despachado; o humano reconcilia a branch e retoma (`resume` reenfileira o efeito) |
 | `running` | `paused` | efeito `git.milestone` reenfileirado por um `resume` falha permanente | — | igual à linha anterior |
-| `running` | `paused` | humano pausa | — | sessões ativas recebem `Cancel`; nós voltam para o último estado estável |
+| `running` | `paused` | humano pausa | — | sessões ativas recebem `Cancel`; o nó fica no estado da etapa em que estava, sem sessão, e a sessão cancelada volta ao outbox para depois do `resume`; a pausa não gera transição de nó nem consome tentativa ou rodada |
 | `running` | `paused` | credencial do runtime recusada (401/403, ADR 0024) | — | igual à pausa humana, com notificação; retomar exige `kluzo doctor` verde |
 | `running` | `paused` | a conferência antes da sessão falha: credencial do host encontrada, ou o CLI do harness não roda (binário ausente, `auth status` com erro) | — | igual à linha anterior; não entra na política de tentativas do outbox |
 | `paused` | `running` | humano retoma | — | scheduler volta a despachar (só depois de `git.milestone` concluído) |
