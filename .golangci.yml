@@ -1,0 +1,48 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused        # dead code (blocks merge)
+    - ineffassign
+    - dupl          # duplicated code (blocks merge)
+    - revive
+    - errorlint
+    - misspell
+    - gocritic
+    - bodyclose
+    - nolintlint
+  settings:
+    dupl:
+      threshold: 80
+    misspell:
+      locale: US
+      # "cancelled" is the spelling fixed by docs/contracts/state-machine.md.
+      ignore-rules:
+        - cancelled
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-strings
+        - name: error-return
+        - name: unused-parameter
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [dupl]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/kennyjsa/kluzo

@@ -1,0 +1,7 @@
+version: 1
+steps:
+  - { id: a, role: reviewer, on_reject: b }
+  - { id: b, role: implementer }
+  - { id: c, gate: [build], on_fail: nope }
+  - { id: d, role: reviewer, on_reject: d }
+  - { id: merge, merge_queue: milestone }

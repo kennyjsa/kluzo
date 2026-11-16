@@ -1,0 +1,3 @@
+!read-prompt
+{"type":"system","subtype":"init","session_id":"@@SESSION@@","model":"m","permissionMode":"dontAsk","tools":["Read","Glob","Grep"],"mcp_servers":[{"name":"kluzo","status":"failed"}],"claude_code_version":"2.1.319"}
+!hang

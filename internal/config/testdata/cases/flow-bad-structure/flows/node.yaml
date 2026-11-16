@@ -1,0 +1,5 @@
+version: 2
+steps:
+  - { id: a, role: implementer, phase: done, max_rounds: 0 }
+  - { id: b, role: reviewer, gate: [build] }
+  - { id: merge, merge_queue: milestone }

@@ -7,13 +7,14 @@ Cada peça da stack, com o motivo da escolha. As versões exatas ficam fixadas e
 | Peça | Escolha | Motivo |
 |---|---|---|
 | Linguagem | Go: `go.mod` exige a mais antiga das duas versões suportadas pelo time do Go (hoje 1.26) e o CI testa as duas (1.26 e 1.27). Sobe a cada release do Go | ADR 0005. Binário único, concorrência simples, ecossistema das referências (koryph, belay, Pinard) |
-| CLI | `github.com/spf13/cobra` | Padrão de fato para CLIs em Go, com completions e ajuda |
+| CLI | `github.com/spf13/cobra` v1.10 (desde o item 10a da v0.1; Apache-2.0; traz só `spf13/pflag`, BSD-3, e `inconshreveable/mousetrap`, Apache-2.0, este só no Windows) | Padrão de fato para CLIs em Go, com completions e ajuda; só compensa quando houver vários comandos |
 | Logs | `log/slog` (stdlib) | Estruturado, sem dependência |
 | SQLite | `modernc.org/sqlite` | Sem cgo, então o cross-compile é simples (ADR 0014) |
 | Migrations | Embutidas (`embed`) e aplicadas por um runner próprio em `store` | São poucas e só avançam; uma ferramenta externa não compensa |
 | YAML | `github.com/goccy/go-yaml` | Mantido, e reporta linha e coluna nos erros (exigência de `config`) |
 | JSON Schema | `github.com/santhosh-tekuri/jsonschema/v6` | Draft 2020-12, mensagens de erro com caminho |
-| IDs | `github.com/oklog/ulid/v2` | Ordenáveis por tempo, curtos |
+| Unicode | `golang.org/x/text` (só `unicode/norm`) | Normalização NFC do saneamento do envelope não confiável ([prompt.md](../contracts/prompt.md#envelope-de-dado-não-confiável)); as tabelas Unicode passam de milhares de linhas, então não cabem em código próprio (ADR 0017). BSD-3, mantida pelo time do Go, sem cgo e sem dependências |
+| IDs | ULID próprio em `internal/platform/ids` | Ordenáveis por tempo e monotônicos; ~100 linhas, então não justifica dependência (ADR 0017) |
 | MCP | `github.com/modelcontextprotocol/go-sdk` | SDK oficial |
 | GitHub | `github.com/google/go-github` + autenticação de GitHub App (`github.com/bradleyfalzon/ghinstallation`) | Cliente mais completo; o App dá identidade própria ao bot |
 | GitLab | `gitlab.com/gitlab-org/api/client-go` | Cliente oficial |

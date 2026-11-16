@@ -1,0 +1,6 @@
+!read-prompt
+{"type":"system","subtype":"init","session_id":"@@SESSION@@","model":"claude-sonnet-4","cwd":"/work","permissionMode":"dontAsk","tools":@@TOOLS@@,"mcp_servers":[{"name":"kluzo","status":"connected"}],"claude_code_version":"2.1.319","apiKeySource":"ANTHROPIC_API_KEY"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"toolu_3","name":"mcp__kluzo__kluzo_result","input":{"v":1,"summary":"done","markdown":"## Report"}}],"usage":{"input_tokens":10,"output_tokens":5}},"session_id":"@@SESSION@@"}
+!deliver {"v":1,"summary":"done","markdown":"## Report"}
+{"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":1200,"num_turns":3,"result":"done","stop_reason":"end_turn","terminal_reason":"error","total_cost_usd":0.12,"usage":{"input_tokens":100,"output_tokens":50},"modelUsage":{"claude-sonnet-4":{"inputTokens":100,"outputTokens":50,"costUSD":0.1},"claude-haiku-4":{"inputTokens":20,"outputTokens":10,"costUSD":0.02}},"permission_denials":[],"session_id":"@@SESSION@@","errors":["late failure"]}
+!exit 1

@@ -1,0 +1,98 @@
+# Kluzo configuration (docs/contracts/config.md).
+# Kluzo orchestrating its own development (docs/planning/milestones/v0.1.md, item 11).
+version: 1
+
+project:
+  name: "kluzo"
+  language: en                      # language of summary, message and rationale
+
+tracker:
+  kind: github                      # github | gitlab
+  repo: kennyjsa/kluzo
+  auth:
+    kind: github_app                # github_app | token
+    app_id_env: KLUZO_GH_APP_ID
+    key_file_env: KLUZO_GH_APP_KEY
+    # kind: token -> token_env: KLUZO_GH_TOKEN (the default; GitLab: KLUZO_GL_TOKEN)
+  poll_interval: 30s
+  operators: [kennyjsa]
+
+areas:                              # ADR 0011; files outside any area fall in 'shared'
+  core: ["internal/core/**"]
+  supervisor: ["internal/supervisor/**"]
+  store: ["internal/store/**"]
+  app: ["internal/app/**", "cmd/kluzo/**"]
+  config: ["internal/config/**"]
+  contracts: ["internal/contracts/**", "internal/ports/**"]
+  prompt: ["internal/prompt/**"]
+  mcp: ["internal/mcp/**"]
+  gates: ["internal/gates/**", "internal/guard/**"]
+  gitops: ["internal/gitops/**"]
+  tracker-github: ["internal/tracker/github/**"]
+  tracker-gitlab: ["internal/tracker/gitlab/**"]
+  runtime-claudecode: ["internal/runtime/claudecode/**"]
+  runtime-opencode: ["internal/runtime/opencode/**"]
+  notify: ["internal/notify/**"]
+  platform: ["internal/platform/**"]
+
+branches:
+  main: main
+  milestone_prefix: milestone/
+  node_pattern: "issue/{number}-{slug}"
+
+protected_paths:                    # changes here become proposals for a human (ADR 0020)
+  - ".kluzo/**"
+  - "AGENTS.md"                       # project memory (ADR 0022)
+  - "CLAUDE.md"                       # project rules read by Kluzo (ADR 0024)
+  - ".claude/**"
+  - ".mcp.json"
+  - ".github/workflows/**"
+  - ".golangci.yml"
+  - "Makefile"
+  - "go.mod"                          # new dependencies follow ADR 0017
+  - "internal/archtest/**"            # dependency rules are not bypassed
+
+# The same checks as .github/workflows/ci.yml (docs/development.md).
+gates:
+  - name: build
+    run: "go build ./... && go vet ./..."
+    fast: true                      # runs before the review
+  - name: lint
+    run: "golangci-lint run"
+    fast: true
+  - name: test
+    run: "make arch && make test"
+    timeout: 15m
+
+milestone_gates:
+  - name: check
+    run: "make check && make vuln && make dist"
+    timeout: 40m
+
+secret_paths: [".env", ".env.*"]    # file tools may not read these (the shell can: a known limit)
+
+scheduler:
+  max_parallel: 1
+
+caches: [go]                        # ADR 0025
+
+security:
+  allow_host_credentials: false
+
+budgets:
+  node: { attempts: 3, minutes: 60, usd: 6 }
+  milestone: { usd: 60, alert_at: 1.1 }
+
+runtimes:
+  claude-code:
+    bin: claude
+    min_version: 2.1.295
+    env_allow: []
+  opencode:
+    bin: opencode
+    min_version: 1.4.0
+    env_allow: []
+
+defaults:
+  harness: claude-code
+  model: sonnet

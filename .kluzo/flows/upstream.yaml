@@ -1,0 +1,14 @@
+# Default upstream flow (docs/contracts/config.md#flows).
+version: 1
+steps:
+  - { id: business, role: business, interview: true }
+  - { id: po, role: po, interview: true }
+  - { id: requirements, role: requirements, interview: true }
+  - { id: architect, role: architect }
+  - id: plan
+    loop:
+      max_rounds: 3
+      steps:
+        - { id: planner, role: planner }
+        - { id: critic, role: critic }
+  - { id: approve, approval: plan }

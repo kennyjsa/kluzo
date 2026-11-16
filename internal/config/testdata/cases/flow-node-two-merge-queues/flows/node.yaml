@@ -1,0 +1,4 @@
+version: 1
+steps:
+  - { id: m1, merge_queue: milestone }
+  - { id: m2, merge_queue: milestone }

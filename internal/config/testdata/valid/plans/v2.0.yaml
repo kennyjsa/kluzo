@@ -1,0 +1,44 @@
+version: 1
+plan_version: 3
+milestone: v2.0
+approved_by: kennyjsa
+approved_at: 2026-11-05T14:02:11.000Z
+profile: default
+
+budget:
+  usd: 38
+
+nodes:
+  - issue: 41
+    title: Schema da agenda
+    areas: [agenda]
+    acceptance:
+      - A tabela de agendamentos existe
+  - issue: 43
+    title: Contrato OpenAPI da agenda
+    areas: [api-contract]
+    publishes_contract: openapi/agenda.yaml
+    acceptance:
+      - O contrato descreve criação e listagem
+  - issue: 42
+    title: API de agendamentos
+    areas: [agenda]
+    blocks_on: [41]
+    acceptance:
+      - Não permite dois agendamentos no mesmo slot
+      - Remarcar para um slot ocupado falha com conflito
+    subtasks:
+      - Modelo e repositório
+      - Checagem de conflito de horário
+    budget: { usd: 6 }
+    overrides: { implementer: { model: sonnet, effort: high } }
+  - issue: 44
+    title: Tela de agenda
+    areas: [web-agenda]
+    contract_on: [43]
+    acceptance:
+      - A tela lista os agendamentos
+  - issue: 48
+    excluded: true
+
+new_issues: []

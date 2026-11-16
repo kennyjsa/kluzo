@@ -1,0 +1,11 @@
+!read-prompt
+{"type":"system","subtype":"init","session_id":"@@SESSION@@","model":"claude-sonnet-4","cwd":"/work","permissionMode":"dontAsk","tools":@@TOOLS@@,"mcp_servers":[{"name":"kluzo","status":"connected"}],"claude_code_version":"2.1.319","apiKeySource":"ANTHROPIC_API_KEY"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"I will edit the file."},{"type":"tool_use","id":"toolu_1","name":"Edit","input":{"file_path":"internal/a.go","old_string":"a\nb","new_string":"a\nb\nc\nd"}}],"usage":{"input_tokens":10,"output_tokens":5}},"session_id":"@@SESSION@@"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"The file internal/a.go has been updated.","is_error":false}]},"session_id":"@@SESSION@@"}
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"go test ./..."}}],"usage":{"input_tokens":10,"output_tokens":5}},"session_id":"@@SESSION@@"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"FAIL: boom","is_error":true}]},"session_id":"@@SESSION@@"}
+{"type":"assistant","message":{"id":"msg_3","role":"assistant","content":[{"type":"tool_use","id":"toolu_3","name":"mcp__kluzo__kluzo_result","input":{"v":1,"summary":"done","markdown":"## Report"}}],"usage":{"input_tokens":10,"output_tokens":5}},"session_id":"@@SESSION@@"}
+!deliver {"v":1,"summary":"done","markdown":"## Report"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_3","content":"accepted","is_error":false}]},"session_id":"@@SESSION@@"}
+{"type":"assistant","message":{"id":"msg_4","role":"assistant","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":10,"output_tokens":5}},"session_id":"@@SESSION@@"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1200,"num_turns":3,"result":"done","stop_reason":"end_turn","terminal_reason":"completed","total_cost_usd":0.12,"usage":{"input_tokens":100,"output_tokens":50},"modelUsage":{"claude-sonnet-4":{"inputTokens":100,"outputTokens":50,"costUSD":0.1},"claude-haiku-4":{"inputTokens":20,"outputTokens":10,"costUSD":0.02}},"permission_denials":[],"session_id":"@@SESSION@@"}

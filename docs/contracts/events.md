@@ -27,10 +27,11 @@ Um único formato de evento serve para três coisas:
 
 | `kind` | Payload |
 |---|---|
-| `workspace.created` | `{id, branch, base_sha, profile?, budget_usd_micros?}` (dados iniciais; o estado nasce vazio e a transição `create` o leva a `refining`) |
+| `workspace.created` | `{id, branch, base_sha, profile?, budget_usd_micros?, milestone_ref?}` (dados iniciais; o estado nasce vazio e a transição `create` o leva a `refining`) |
 | `workspace.transition` | `{from, to, reason}` |
 | `node.added` | `{issue_ref, title, areas, budget}` (o nó nasce `planned`; o id vai no `node` do envelope) |
 | `node.transition` | `{from, to, reason, attempt, round, blocked_reason?}` |
+| `node.flow` | `{step, run}` (progresso do nó no flow de nó — etapa, findings, sessão a retomar, commits da rodada — gravado a cada decisão; projetado em `nodes.step_index` e `nodes.flow`) |
 | `plan.approved` | `{plan_version, created_issues: [n], by}` |
 | `edge.added` | `{from, to, kind, source}` |
 | `area.deviation` | `{declared: [..], touched: [..], files: [..]}` (ADR 0011) |
@@ -42,11 +43,11 @@ Um único formato de evento serve para três coisas:
 | `main.synced` | `{main_sha, merge_sha}` |
 | `decision.recorded` | `{decision_id, author, title}` |
 | `question.asked` / `question.answered` | `{question_id, blocking?, by?}` |
-| `proposal.created` / `proposal.decided` | `{proposal_id, kind, state?}` (`kind` inclui `lesson`, ADR 0022) |
+| `proposal.created` / `proposal.decided` | `{proposal_id, kind, state?, blocking?, payload?, by?}` (`kind` inclui `lesson`, ADR 0022; `payload` só no `created`, e para `change` é `{changes: [{path, reason, sha256}]}`, com o SHA-256 do conteúdo do caminho no head da rodada, vazio quando apagado; `by` só no `decided`, com `state` `approved` ou `rejected`) |
 | `pattern.detected` | `{pattern_id, kind: finding\|gate_failure\|question, occurrences: [node], sample}` |
 | `effect.failed` | `{effect_id, kind, attempts, last_error}` |
 | `effect.retried` | `{effect_id, kind, by}` (humano devolveu o efeito a `pending`) |
-| `budget.alert` | `{scope: node\|milestone, spent_usd_micros, limit_usd_micros}` |
+| `budget.alert` | `{scope: node\|milestone, spent_usd_micros, limit_usd_micros}` (`milestone`: gravado uma vez, com notificação, quando o custo do workspace passa de `limit × budgets.milestone.alert_at`, na transação do `session.finished` que o fez passar) |
 | `tracker.sync_failed` | `{op, error, retry_in}` |
 
 ## Eventos de sessão (normalizados pelo runtime)
@@ -55,7 +56,7 @@ Cada adaptador de runtime traduz o stream do seu harness para estes eventos. A w
 
 | `kind` | Payload | Origem no Claude Code (`stream-json`) |
 |---|---|---|
-| `session.started` | `{role, harness, model, attempt, round, harness_version, permission_mode, argv}` (`argv`: linha de comando congelada, com o system prompt como hash) | mensagem `system` de init |
+| `session.started` | `{role, harness, model, attempt, round, harness_version, permission_mode, argv, harness_session_ref, manifest}` (`argv`: linha de comando congelada, com o system prompt como hash; `harness_session_ref` e `manifest` ([prompt.md](prompt.md#manifesto-da-sessão)) são acrescentados pelo supervisor, que conhece a conversa do harness e o prompt enviado) | mensagem `system` de init |
 | `session.message` | `{role: assistant\|user, text}` | mensagens de texto |
 | `tool.call` | `{tool, input_summary}` | `tool_use` |
 | `tool.result` | `{tool, ok, output_summary}` | `tool_result` |
@@ -65,10 +66,11 @@ Cada adaptador de runtime traduz o stream do seu harness para estes eventos. A w
 | `advisor.consulted` | `{model, advice_summary}` | chamada do advisor |
 | `mcp.call` | `{tool, ok}` | chamadas `kluzo_*` |
 | `guard.denied` | `{tool, rule, reason, input_summary}` | hook `PreToolUse` do Kluzo que negou a chamada (ADR 0024); `rule` é `git_write`, `hosting_cli`, `protected_path`, `secret_path` ou `outside_worktree` |
-| `cost` | `{input_tokens, output_tokens, cost_usd_micros}` | totais de uso |
-| `session.finished` | `{state, duration_ms, cost_usd_micros}` | mensagem `result` |
+| `cost` | `{input_tokens, output_tokens, cost_usd_micros}` | totais de uso da sessão: `modelUsage` do `result` menos o acumulado das sessões anteriores da mesma conversa, que o harness soma entre retomadas |
+| `session.finished` | `{state, duration_ms, cost_usd_micros, cause?, result?}` (`result`: o resultado aceito pelo `kluzo_result` (schema e cobertura), quando a sessão terminou com um; a conferência pós-sessão ainda pode recusar a sessão; o custo vai para a sessão, o nó e o workspace na projeção deste evento, antes da decisão sobre a sessão) | mensagem `result` |
 
 Regras:
+- `session.started` e `session.finished` alimentam a tabela `sessions` ([data-model.md](data-model.md)). Uma sessão do Kluzo (`ss_<ulid>`, uma por efeito `session.start`) pode rodar mais de uma sessão do harness (as repetições do outbox): cada `session.started` assume a linha, e cada `session.finished` soma o seu custo.
 - Tipos de evento do harness que o adaptador não conhece ficam só no log bruto e são contados no manifesto; não viram evento no journal.
 - Os campos `*_summary` têm no máximo 300 caracteres. O conteúdo completo fica só no log bruto.
 - Antes de gravar, o adaptador remove segredos (valores das variáveis de ambiente marcadas como secretas e padrões de token).

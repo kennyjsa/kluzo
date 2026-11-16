@@ -1,0 +1,10 @@
+version: 1
+steps:
+  - { id: a }
+  - { id: b, gate: [build], phase: running }
+  - { id: c, gate: [] }
+  - { id: d, approval: code }
+  - { id: e, gate: [build], scope: repo }
+  - { gate: [build] }
+  - { id: b, gate: [build] }
+  - { id: merge, merge_queue: milestone }
